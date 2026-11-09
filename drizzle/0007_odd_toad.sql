@@ -1,0 +1,1 @@
+ALTER TABLE "الموظفين" ADD COLUMN "ID" integer;

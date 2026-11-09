@@ -1,0 +1,61 @@
+import type { MeatSalesBundle } from "@/lib/meat-sales-types";
+
+export const demoMeatSales: MeatSalesBundle = {
+  catalog: [
+    { id: 1, itemCategory: "لحم بقري", price: 250, quantity: 0 },
+    { id: 2, itemCategory: "دجاج", price: 120, quantity: 0 },
+  ],
+  products: [
+    {
+      id: 1,
+      itemNumber: 2001,
+      catalogId: 1,
+      itemCategory: "لحم بقري",
+      voucherNumber: null,
+      beneficiary: "",
+    },
+    {
+      id: 2,
+      itemNumber: 2002,
+      catalogId: 2,
+      itemCategory: "دجاج",
+      voucherNumber: null,
+      beneficiary: "",
+    },
+  ],
+  movements: [
+    {
+      id: 1,
+      itemNumber: 2001,
+      itemCategory: "لحم بقري",
+      direction: "in",
+      quantity: 40,
+      price: 230,
+      total: 9200,
+      outgoing: null,
+      receivedDate: "2026-11-02",
+      outgoingDate: null,
+      issuePermitNumber: null,
+      recipient: "",
+      voided: false,
+      voidReason: "",
+    },
+    {
+      id: 2,
+      itemNumber: 2002,
+      itemCategory: "دجاج",
+      direction: "in",
+      quantity: 30,
+      price: 105,
+      total: 3150,
+      outgoing: null,
+      receivedDate: "2026-11-03",
+      outgoingDate: null,
+      issuePermitNumber: null,
+      recipient: "",
+      voided: false,
+      voidReason: "",
+    },
+  ],
+  invoices: [],
+};
