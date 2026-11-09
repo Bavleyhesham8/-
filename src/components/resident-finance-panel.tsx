@@ -15,6 +15,7 @@ import type {
 type Props = {
   bundle: ResidentFinanceBundle;
   persistent: boolean;
+  canManage: boolean;
   onBundleChange: (bundle: ResidentFinanceBundle) => void;
 };
 
@@ -34,6 +35,7 @@ function nextEntryId(entries: ResidentFinanceEntry[]) {
 export default function ResidentFinancePanel({
   bundle,
   persistent,
+  canManage,
   onBundleChange,
 }: Props) {
   const [residentNumber, setResidentNumber] = useState("");
@@ -261,7 +263,7 @@ export default function ResidentFinancePanel({
         الإدارة للمسؤول فقط. الإلغاء يحفظ السبب ولا يسجل استردادًا نقديًا.
       </p>
 
-      <div className="resident-finance-forms">
+      {canManage && <div className="resident-finance-forms">
         <form className="lookup-form" onSubmit={submitHeader}>
           <h4>إضافة سجل نزيل مستقل</h4>
           <label className="form-field">
@@ -342,7 +344,7 @@ export default function ResidentFinancePanel({
             تسجيل الإيصال
           </button>
         </form>
-      </div>
+      </div>}
 
       {error && (
         <p className="form-message form-message-error" role="alert">
@@ -355,7 +357,7 @@ export default function ResidentFinancePanel({
         </p>
       )}
 
-      {voidTarget && (
+      {canManage && voidTarget && (
         <form className="resident-finance-void-form" onSubmit={submitVoid}>
           <h4>إلغاء إيصال — {voidTarget.residentName}</h4>
           <label className="form-field">
@@ -428,7 +430,7 @@ export default function ResidentFinancePanel({
               <th>تاريخ الإيصال</th>
               <th>التسوية المتوقعة</th>
               <th>الحالة</th>
-              <th>الإجراءات</th>
+              {canManage && <th>الإجراءات</th>}
             </tr>
           </thead>
           <tbody>
@@ -447,7 +449,7 @@ export default function ResidentFinancePanel({
                     ? `ملغى${entry.voidedAt ? ` في ${formatDate(entry.voidedAt.slice(0, 10))}` : ""}: ${entry.voidReason}`
                     : "مسجل"}
                 </td>
-                <td>
+                {canManage && <td>
                   {!entry.voided && (
                     <button
                       className="table-action danger"
@@ -465,7 +467,7 @@ export default function ResidentFinancePanel({
                       إلغاء الإيصال
                     </button>
                   )}
-                </td>
+                </td>}
               </tr>
             ))}
           </tbody>

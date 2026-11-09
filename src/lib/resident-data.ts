@@ -10,7 +10,11 @@ import {
   userInventoryCategories,
   userCanteenAccess,
 } from "@/db/schema";
-import { requireAdministrator, requireCurrentSession } from "@/lib/auth-session";
+import {
+  requireAdministrator,
+  requireAnyScreenAccess,
+  requireCurrentSession,
+} from "@/lib/auth-session";
 import type { DemoUser, Resident } from "@/lib/demo-data";
 
 type ResidentBase = typeof residents.$inferSelect;
@@ -68,6 +72,20 @@ function toResident(
 
 export async function listResidentsForCurrentUser() {
   const session = await requireCurrentSession();
+  await requireAnyScreenAccess(
+    "overview",
+    "residents",
+    "resident-reports",
+    "resident-search",
+    "resident-stay-reports",
+    "rooms",
+    "tracking",
+    "sales",
+    "invoice-reports",
+    "canteen-reports",
+    "treatment",
+    "lookups",
+  );
   const staffBasicOnly = session.user.role !== "admin" && session.user.role !== "viewer";
   const database = getDatabase();
   const [residentRows, latestStays] = await Promise.all([

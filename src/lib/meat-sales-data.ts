@@ -13,7 +13,7 @@ import {
   refrigeratorStockLedger,
   refrigeratorStockVoids,
 } from "@/db/schema";
-import { requireStaffPermission } from "@/lib/auth-session";
+import { requireScreenAccess } from "@/lib/auth-session";
 import type {
   MeatSaleInvoice,
   MeatSalePayment,
@@ -21,7 +21,7 @@ import type {
 } from "@/lib/meat-sales-types";
 
 export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> {
-  await requireStaffPermission("canManageMeatSales");
+  await requireScreenAccess("meat-sales");
   const database = getDatabase();
   const [catalog, products, movementRows, invoiceRows] = await Promise.all([
     database

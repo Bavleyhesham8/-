@@ -18,9 +18,8 @@ import {
   canteenStockLedger,
   canteenStockMovementLinks,
   canteenStockVoids,
-  userCanteenAccess,
 } from "@/db/schema";
-import { requireCurrentSession } from "@/lib/auth-session";
+import { requireScreenAccess } from "@/lib/auth-session";
 import type {
   CanteenReportData,
   CanteenReportFilters,
@@ -86,17 +85,8 @@ export async function getCanteenReport(
   input: unknown,
 ): Promise<CanteenReportData> {
   const filters = parseCanteenReportFilters(input);
-  const session = await requireCurrentSession();
+  await requireScreenAccess("canteen-reports");
   const database = getDatabase();
-
-  if (session.user.role !== "admin" && session.user.canManageCanteen !== true) {
-    const [grant] = await database
-      .select({ userId: userCanteenAccess.userId })
-      .from(userCanteenAccess)
-      .where(eq(userCanteenAccess.userId, session.user.id))
-      .limit(1);
-    if (!grant) throw new Error("Canteen access is required for this report.");
-  }
 
   const productConditions =
     filters.itemNumber === null

@@ -6,7 +6,7 @@ import {
   legacyResidentDetails,
   legacyResidentHeaders,
 } from "@/db/schema";
-import { requireAdministrator } from "@/lib/auth-session";
+import { requireScreenAccess } from "@/lib/auth-session";
 import type {
   ResidentFinanceBundle,
   ResidentFinanceEntry,
@@ -32,7 +32,7 @@ function mapEntry(
 }
 
 export async function listResidentFinanceForAdministrator(): Promise<ResidentFinanceBundle> {
-  await requireAdministrator();
+  await requireScreenAccess("resident-finance");
   const database = getDatabase();
   const headers = await database
     .select({

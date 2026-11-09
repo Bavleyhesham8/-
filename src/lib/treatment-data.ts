@@ -6,7 +6,7 @@ import {
   legacyTreatmentDetails,
   legacyTreatmentHeaders,
 } from "@/db/schema";
-import { requireStaffPermission } from "@/lib/auth-session";
+import { requireScreenAccess } from "@/lib/auth-session";
 import { isDevelopmentDemoMode } from "@/lib/app-config";
 import { demoTreatmentBundle } from "@/lib/treatment-demo-data";
 import type {
@@ -46,7 +46,7 @@ export async function listTreatmentForAdministrator(): Promise<TreatmentBundle> 
     return demoTreatmentBundle;
   }
 
-  await requireStaffPermission("canAccessClinic");
+  await requireScreenAccess("treatment");
   const database = getDatabase();
   const headers = await database
     .select({
@@ -97,4 +97,3 @@ export async function listTreatmentForAdministrator(): Promise<TreatmentBundle> 
     unassignedEntries: unassignedRows.map(mapEntry),
   };
 }
-

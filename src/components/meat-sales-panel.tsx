@@ -21,6 +21,7 @@ import type {
 type Props = {
   sales: MeatSalesBundle;
   persistent: boolean;
+  canManage?: boolean;
   initialSection?: string | null;
   onSalesChange: (
     update: (current: MeatSalesBundle) => MeatSalesBundle,
@@ -63,11 +64,12 @@ const numberFormatter = new Intl.NumberFormat("ar-EG", {
 export default function MeatSalesPanel({
   sales,
   persistent,
+  canManage = true,
   initialSection,
   onSalesChange,
 }: Props) {
   const [section, setSection] = useState<PanelSection>(() =>
-    normalizeSection(initialSection),
+    canManage ? normalizeSection(initialSection) : "history",
   );
   const [reportStartDate, setReportStartDate] = useState(monthStartValue);
   const [reportEndDate, setReportEndDate] = useState(localDateValue);
@@ -660,21 +662,21 @@ export default function MeatSalesPanel({
           </p>
         </div>
         <div className="action-group">
-          <button
+          {canManage && <button
             className={section === "sale" ? "primary-button" : "secondary-button"}
             type="button"
             onClick={() => setSection("sale")}
           >
             فاتورة بيع
-          </button>
-          <button
+          </button>}
+          {canManage && <button
             className={section === "stock" ? "primary-button" : "secondary-button"}
             type="button"
             onClick={() => setSection("stock")}
           >
             وارد الثلاجة
-          </button>
-          <button
+          </button>}
+          {canManage && <button
             className={
               section === "catalog" ? "primary-button" : "secondary-button"
             }
@@ -682,7 +684,7 @@ export default function MeatSalesPanel({
             onClick={() => setSection("catalog")}
           >
             دليل الأصناف
-          </button>
+          </button>}
           <button
             className={
               section === "history" ? "primary-button" : "secondary-button"
@@ -719,7 +721,7 @@ export default function MeatSalesPanel({
         </p>
       )}
 
-      {section === "catalog" && (
+      {canManage && section === "catalog" && (
         <>
           <form className="inventory-form sales-form" onSubmit={submitProduct}>
             <label className="form-field">
@@ -799,7 +801,7 @@ export default function MeatSalesPanel({
         </>
       )}
 
-      {section === "stock" && (
+      {canManage && section === "stock" && (
         <>
           <form className="inventory-form sales-form" onSubmit={submitReceipt}>
             <label className="form-field">
@@ -942,7 +944,7 @@ export default function MeatSalesPanel({
         </>
       )}
 
-      {section === "sale" && (
+      {canManage && section === "sale" && (
         <form className="inventory-form sales-form" onSubmit={submitSale}>
           <label className="form-field">
             تاريخ البيع
@@ -1138,7 +1140,7 @@ export default function MeatSalesPanel({
                     .join(" — ")}
                 </p>
               )}
-              {!invoice.voided && voidTargetId !== invoice.invoiceNumber && (
+              {canManage && !invoice.voided && voidTargetId !== invoice.invoiceNumber && (
                 <button
                   className="table-action"
                   type="button"
@@ -1152,7 +1154,7 @@ export default function MeatSalesPanel({
                   إلغاء الفاتورة
                 </button>
               )}
-              {voidTargetId === invoice.invoiceNumber && (
+              {canManage && voidTargetId === invoice.invoiceNumber && (
                 <form className="sales-inline-form" onSubmit={submitVoid}>
                   <label className="form-field">
                     سبب الإلغاء

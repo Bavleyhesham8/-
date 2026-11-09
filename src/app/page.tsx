@@ -21,6 +21,7 @@ import { listStaffDataForCurrentUser } from "@/lib/staff-data";
 import { listLookupDataForCurrentUser } from "@/lib/lookup-data";
 import { listResidentFinanceForAdministrator } from "@/lib/resident-finance-data";
 import { listTreatmentForAdministrator } from "@/lib/treatment-data";
+import { hasScreenAccess } from "@/lib/access-control";
 import CenterDashboard from "@/components/center-dashboard";
 import SetupRequired from "@/app/setup-required";
 
@@ -77,6 +78,34 @@ async function DashboardPage() {
     role === "admin" || session.user.canManageCustody === true;
   const canManageMeatSales =
     role === "admin" || session.user.canManageMeatSales === true;
+  const allowedScreens = session.user.allowedScreens
+    ? session.user.allowedScreens.split(",").filter(Boolean)
+    : [];
+  const canAccessScreen = (screen: Parameters<typeof hasScreenAccess>[2]) =>
+    hasScreenAccess(role, allowedScreens, screen);
+  const canAccessAny = (...screens: Parameters<typeof hasScreenAccess>[2][]) =>
+    screens.some(canAccessScreen);
+  const needsResidents = canAccessAny(
+    "overview",
+    "residents",
+    "resident-reports",
+    "resident-search",
+    "resident-stay-reports",
+    "rooms",
+    "tracking",
+    "sales",
+    "invoice-reports",
+    "canteen-reports",
+    "treatment",
+    "lookups",
+  );
+  const needsCanteen = canAccessAny(
+    "canteen",
+    "sales",
+    "canteen-reports",
+    "invoice-reports",
+    "tracking",
+  );
   const [
     residents,
     staffAccessUsers,
@@ -91,23 +120,33 @@ async function DashboardPage() {
     treatment,
   ] =
     await Promise.all([
-      listResidentsForCurrentUser(),
+      needsResidents ? listResidentsForCurrentUser() : Promise.resolve([]),
       role === "admin" ? listStaffForAdministrator() : Promise.resolve([]),
-      listInventoryForCurrentUser(),
-      listCanteenForCurrentUser(),
-      canIssueInvoices
+      canAccessAny("inventory", "tracking")
+        ? listInventoryForCurrentUser()
+        : Promise.resolve({ categories: [], items: [], movements: [] }),
+      needsCanteen
+        ? listCanteenForCurrentUser()
+        : Promise.resolve({ bundle: { products: [], movements: [] }, hasAccess: false }),
+      canAccessAny("sales", "invoice-reports")
         ? listCanteenSalesForAdministrator()
         : Promise.resolve(undefined),
-      canManageMeatSales
+      canAccessScreen("meat-sales")
         ? listMeatSalesForAdministrator()
         : Promise.resolve(undefined),
-      listCustodyDataForCurrentUser(),
-      listStaffDataForCurrentUser(),
-      listLookupDataForCurrentUser(),
-      role === "admin"
+      canAccessAny("custody", "tracking")
+        ? listCustodyDataForCurrentUser()
+        : Promise.resolve(undefined),
+      canAccessAny("staff", "custody", "tracking")
+        ? listStaffDataForCurrentUser()
+        : Promise.resolve(undefined),
+      canAccessAny("lookups", "residents", "rooms", "staff", "sales")
+        ? listLookupDataForCurrentUser()
+        : Promise.resolve(undefined),
+      canAccessScreen("resident-finance")
         ? listResidentFinanceForAdministrator()
         : Promise.resolve(undefined),
-      canAccessClinic
+      canAccessScreen("treatment") || canAccessScreen("resident-reports")
         ? listTreatmentForAdministrator()
         : Promise.resolve(undefined),
     ]);
@@ -136,9 +175,7 @@ async function DashboardPage() {
         canManageWarehouse,
         canManageCustody,
         canManageMeatSales,
-        allowedScreens: session.user.allowedScreens
-          ? session.user.allowedScreens.split(",").filter(Boolean)
-          : [],
+        allowedScreens,
       }}
       initialCanteen={canteen.bundle}
       initialSales={sales}

@@ -10,7 +10,7 @@ import {
   canteenStockVoids,
   userCanteenAccess,
 } from "@/db/schema";
-import { requireCurrentSession } from "@/lib/auth-session";
+import { requireAnyScreenAccess, requireCurrentSession } from "@/lib/auth-session";
 import type { CanteenBundle } from "@/lib/canteen-types";
 
 export async function listCanteenForCurrentUser(): Promise<{
@@ -18,17 +18,22 @@ export async function listCanteenForCurrentUser(): Promise<{
   hasAccess: boolean;
 }> {
   const session = await requireCurrentSession();
+  await requireAnyScreenAccess(
+    "canteen",
+    "sales",
+    "canteen-reports",
+    "invoice-reports",
+    "tracking",
+  );
   const database = getDatabase();
-  if (session.user.role !== "admin" && session.user.canManageCanteen !== true) {
-    const [grant] = await database
-      .select({ userId: userCanteenAccess.userId })
-      .from(userCanteenAccess)
-      .where(eq(userCanteenAccess.userId, session.user.id))
-      .limit(1);
-    if (!grant) {
-      return { bundle: { products: [], movements: [] }, hasAccess: false };
-    }
-  }
+  const [grant] =
+    session.user.role === "admin" || session.user.canManageCanteen === true
+      ? [true]
+      : await database
+          .select({ userId: userCanteenAccess.userId })
+          .from(userCanteenAccess)
+          .where(eq(userCanteenAccess.userId, session.user.id))
+          .limit(1);
 
   const [products, movements] = await Promise.all([
     database
@@ -76,5 +81,11 @@ export async function listCanteenForCurrentUser(): Promise<{
         desc(canteenStockLedger.id),
       ),
   ]);
-  return { bundle: { products, movements }, hasAccess: true };
+  return {
+    bundle: { products, movements },
+    hasAccess:
+      session.user.role === "admin" ||
+      session.user.canManageCanteen === true ||
+      Boolean(grant),
+  };
 }

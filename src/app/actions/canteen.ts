@@ -15,7 +15,7 @@ import {
 } from "@/db/schema";
 import {
   requireAdministrator,
-  requireCurrentSession,
+  requireScreenAccess,
 } from "@/lib/auth-session";
 import type {
   CanteenMovement,
@@ -48,7 +48,7 @@ const movementSchema = z.object({
 });
 
 async function requireCanteenAccess() {
-  const session = await requireCurrentSession();
+  const session = await requireScreenAccess("canteen");
   if (session.user.role === "admin") return session;
 
   const [grant] = await getDatabase()

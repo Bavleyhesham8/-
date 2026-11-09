@@ -187,8 +187,8 @@ export default function ClassicAccessNavigator({ onNavigate }: Props) {
       </div>
 
       {isOpen && (
-        <div className="overflow-x-auto pb-2">
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 min-w-[760px]">
+        <div className="pb-2">
+          <div className="classic-access-grid">
             {classicColumns.map((col, idx) => (
               <div
                 key={idx}
@@ -226,7 +226,7 @@ export default function ClassicAccessNavigator({ onNavigate }: Props) {
                           border: "1px solid rgba(255,255,255,0.4)",
                           boxShadow: "0 2px 4px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.3)",
                         }}
-                        className="rounded-lg py-1.5 px-1.5 text-center text-[11px] font-bold transition hover:scale-[1.03] hover:brightness-110 active:scale-[0.98] cursor-pointer leading-tight"
+                        className="classic-access-button rounded-lg py-1.5 px-1.5 text-center text-[11px] font-bold transition hover:scale-[1.03] hover:brightness-110 active:scale-[0.98] cursor-pointer leading-tight"
                         title={`الانتقال إلى: ${item.label}`}
                       >
                         {item.label}
@@ -242,4 +242,3 @@ export default function ClassicAccessNavigator({ onNavigate }: Props) {
     </div>
   );
 }
-

@@ -7,10 +7,14 @@ import {
   voidTreatmentEntryAction,
 } from "@/app/actions/treatment";
 import { formatDate, localDateValue } from "@/lib/date-format";
+import ResidentPicker from "@/components/resident-picker";
+import type { Resident } from "@/lib/demo-data";
 import type { TreatmentBundle } from "@/lib/treatment-types";
 
 type Props = {
   bundle: TreatmentBundle;
+  residents: Resident[];
+  canManage: boolean;
   onBundleChange: (bundle: TreatmentBundle) => void;
 };
 
@@ -26,6 +30,8 @@ const numberFormatter = new Intl.NumberFormat("ar-EG", {
 
 export default function TreatmentPanel({
   bundle,
+  residents,
+  canManage,
   onBundleChange,
 }: Props) {
   const [residentNumber, setResidentNumber] = useState("");
@@ -264,7 +270,7 @@ export default function TreatmentPanel({
       )}
 
       {/* نماذج الإدخال: إضافة تذكرة علاج + صرف دواء */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+      {canManage && <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* إضافة تذكرة علاج جديدة للنزيل (راس العلاج) */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs lg:col-span-5">
           <h3 className="mb-3 text-base font-bold text-slate-800">
@@ -290,11 +296,11 @@ export default function TreatmentPanel({
               <label className="mb-1 block text-xs font-semibold text-slate-700">
                 اسم النزيل:
               </label>
-              <input
-                type="text"
+              <ResidentPicker
+                residents={residents}
                 value={residentName}
-                onChange={(e) => setResidentName(e.target.value)}
-                placeholder="اسم النزيل الثلاثي أو الرباعي"
+                onChange={(value) => setResidentName(value)}
+                placeholder="ابحث باسم النزيل أو رقم الملف..."
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
                 disabled={saving}
                 required
@@ -434,7 +440,7 @@ export default function TreatmentPanel({
             </button>
           </form>
         </div>
-      </div>
+      </div>}
 
       {/* سجلات وأذون علاج النزلاء */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
@@ -443,10 +449,10 @@ export default function TreatmentPanel({
             سجلات وأذون صرف أدوية النزلاء
           </h3>
           <div className="w-full sm:w-72">
-            <input
-              type="text"
+            <ResidentPicker
+              residents={residents}
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(value) => setSearch(value)}
               placeholder="بحث بالنزيل أو اسم الدواء..."
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
             />
@@ -532,7 +538,7 @@ export default function TreatmentPanel({
                               )}
                             </td>
                             <td className="py-2.5 text-left">
-                              {!entry.voided && (
+                              {canManage && !entry.voided && (
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -561,7 +567,7 @@ export default function TreatmentPanel({
       </div>
 
       {/* نافذة تأكيد الإلغاء (Void Modal) */}
-      {voidTarget && (
+      {canManage && voidTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <h4 className="text-lg font-bold text-rose-700">إلغاء صرف دواء</h4>
@@ -609,4 +615,3 @@ export default function TreatmentPanel({
     </div>
   );
 }
-

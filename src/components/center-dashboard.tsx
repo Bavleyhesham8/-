@@ -24,6 +24,7 @@ import {
   type Resident,
   type ResidentStatus,
 } from "@/lib/demo-data";
+import { hasScreenAccess } from "@/lib/access-control";
 import {
   checkOutResidentAction,
   createStaffAccountAction,
@@ -35,6 +36,7 @@ import { formatDate, localDateValue } from "@/lib/date-format";
 import InventoryPanel from "@/components/inventory-panel";
 import type { InventoryBundle } from "@/lib/inventory-types";
 import CanteenPanel from "@/components/canteen-panel";
+import ResidentPicker from "@/components/resident-picker";
 import type { CanteenBundle } from "@/lib/canteen-types";
 import CanteenReportPanel from "@/components/canteen-report-panel";
 import CanteenSalesPanel from "@/components/canteen-sales-panel";
@@ -900,7 +902,9 @@ export default function CenterDashboard({
 
   const activeUser = getActiveUser(currentUser ?? users[0]);
   const activeInventory = useMemo(() => {
-    if (activeUser.role === "admin") return inventory;
+    if (activeUser.role === "admin" || activeUser.canManageWarehouse) {
+      return inventory;
+    }
     const grantedCategoryIds = new Set(
       activeUser.inventoryCategoryIds ?? [],
     );
@@ -995,24 +999,17 @@ export default function CenterDashboard({
       case "tracking":
       case "resident-reports":
       case "resident-search":
-        return true;
       case "resident-stay-reports":
-        return canEdit;
       case "treatment":
-        return canAccessClinic;
       case "canteen":
       case "canteen-reports":
       case "invoice-reports":
-        return canManageCanteen;
       case "sales":
-        return canIssueInvoices;
       case "inventory":
-        return canManageWarehouse || activeInventory.categories.length > 0;
       case "custody":
-        return canManageWarehouse || canManageCustody;
       case "meat-sales":
-        return canManageMeatSales;
       case "resident-finance":
+        return true;
       case "access":
         return activeUser.role === "admin";
       default:
@@ -1022,15 +1019,7 @@ export default function CenterDashboard({
 
   const isScreenAllowed = (screenKey: View): boolean => {
     if (!hasScreenPermission(screenKey)) return false;
-    if (activeUser.role === "admin") return true;
-    if (activeUser.role === "viewer") {
-      const allowed =
-        activeUser.allowedScreens && activeUser.allowedScreens.length > 0
-          ? activeUser.allowedScreens
-          : ["overview", "residents", "rooms"];
-      return allowed.includes(screenKey);
-    }
-    return true;
+    return hasScreenAccess(activeUser.role, activeUser.allowedScreens, screenKey);
   };
   const selectedResident =
     residents.find((resident) => resident.id === selectedId) ?? null;
@@ -1569,9 +1558,10 @@ export default function CenterDashboard({
                 <label className="search-box">
                   <Icon name="search" size={17} />
                   <span className="sr-only">ابحث بالاسم أو رقم الملف</span>
-                  <input
+                  <ResidentPicker
+                    residents={residents}
                     value={search}
-                    onChange={(event) => setSearch(event.target.value)}
+                    onChange={(value) => setSearch(value)}
                     placeholder="ابحث بالاسم أو رقم الملف..."
                   />
                 </label>
@@ -1764,14 +1754,16 @@ export default function CenterDashboard({
             />
           )}
 
-          {view === "treatment" && canAccessClinic && (
+          {view === "treatment" && isScreenAllowed("treatment") && (
             <TreatmentPanel
               bundle={treatment}
+              residents={residents}
+              canManage={canAccessClinic}
               onBundleChange={setTreatment}
             />
           )}
 
-          {view === "inventory" && (canManageWarehouse || activeInventory.categories.length > 0) && (
+          {view === "inventory" && isScreenAllowed("inventory") && (
             <InventoryPanel
               inventory={activeInventory}
               persistent={persistent}
@@ -1781,7 +1773,7 @@ export default function CenterDashboard({
             />
           )}
 
-          {view === "custody" && (canManageWarehouse || canManageCustody) && (
+          {view === "custody" && isScreenAllowed("custody") && (
             <CustodyPanel
               bundle={activeCustody}
               persistent={persistent}
@@ -1791,53 +1783,56 @@ export default function CenterDashboard({
             />
           )}
 
-          {view === "resident-finance" && activeUser.role === "admin" && (
+          {view === "resident-finance" && isScreenAllowed("resident-finance") && (
             <ResidentFinancePanel
               bundle={residentFinance}
               persistent={persistent}
+              canManage={activeUser.role === "admin"}
               onBundleChange={setResidentFinance}
             />
           )}
 
-          {view === "canteen" && canManageCanteen && (
+          {view === "canteen" && isScreenAllowed("canteen") && (
             <CanteenPanel
               canteen={canteen}
               persistent={persistent}
-              canManage={activeUser.role === "admin"}
+              canManage={canManageCanteen}
               canVoid={activeUser.role === "admin"}
               onCanteenChange={setCanteen}
             />
           )}
 
-          {view === "canteen-reports" && canManageCanteen && (
+          {view === "canteen-reports" && isScreenAllowed("canteen-reports") && (
             <CanteenReportPanel persistent={persistent} />
           )}
 
-          {view === "sales" && canIssueInvoices && (
+          {view === "sales" && isScreenAllowed("sales") && (
             <CanteenSalesPanel
               sales={sales}
               lookups={lookups}
               residents={residents}
               canteen={canteen}
               persistent={persistent}
+              canManage={canIssueInvoices}
               onSalesChange={setSales}
               onCanteenChange={setCanteen}
             />
           )}
 
-          {view === "invoice-reports" && canManageCanteen && (
+          {view === "invoice-reports" && isScreenAllowed("invoice-reports") && (
             <InvoiceReportPanel persistent={persistent} />
           )}
 
-          {view === "resident-stay-reports" && canEdit && (
+          {view === "resident-stay-reports" && isScreenAllowed("resident-stay-reports") && (
             <ResidentStayReportPanel persistent={persistent} />
           )}
 
-          {view === "meat-sales" && canManageMeatSales && (
+          {view === "meat-sales" && isScreenAllowed("meat-sales") && (
             <MeatSalesPanel
               key={viewTab ?? "sale"}
               sales={meatSales}
               persistent={persistent}
+              canManage={canManageMeatSales}
               initialSection={viewTab}
               onSalesChange={setMeatSales}
             />

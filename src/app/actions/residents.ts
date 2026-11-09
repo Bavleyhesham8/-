@@ -1,10 +1,18 @@
 "use server";
 
-import { and, count, desc, eq, ne } from "drizzle-orm";
+import { and, count, desc, eq, inArray, ne } from "drizzle-orm";
 import { headers } from "next/headers";
 import { z } from "zod";
 import { getDatabase } from "@/db";
-import { residents, residentStays, user, villaNumbers } from "@/db/schema";
+import {
+  inventoryCategories,
+  residents,
+  residentStays,
+  user,
+  userCanteenAccess,
+  userInventoryCategories,
+  villaNumbers,
+} from "@/db/schema";
 import {
   requireAdministrator,
   requireResidentEditor,
@@ -12,6 +20,7 @@ import {
 import { getAuth } from "@/lib/auth";
 import { getResidentRecord } from "@/lib/resident-data";
 import type { DemoUser, Resident } from "@/lib/demo-data";
+import { DASHBOARD_SCREENS } from "@/lib/access-control";
 
 const dateValue = z
   .string()
@@ -500,7 +509,12 @@ export async function updateUserRoleAndPermissionsAction(
     canManageWarehouse: z.boolean().default(false),
     canManageCustody: z.boolean().default(false),
     canManageMeatSales: z.boolean().default(false),
-    allowedScreens: z.array(z.string()).default([]),
+    allowedScreens: z
+      .array(z.enum(DASHBOARD_SCREENS))
+      .max(DASHBOARD_SCREENS.length)
+      .default([])
+      .transform((screens) => [...new Set(screens)]),
+    inventoryCategoryIds: z.array(z.string().uuid()).max(100).default([]),
   });
 
   const parsed = schema.safeParse(input);
@@ -508,77 +522,132 @@ export async function updateUserRoleAndPermissionsAction(
     return { ok: false, error: "بيانات الصلاحيات غير صحيحة." };
   }
 
-  const { userId, role, allowedScreens, ...perms } = parsed.data;
+  const {
+    userId,
+    role,
+    allowedScreens,
+    inventoryCategoryIds,
+    ...perms
+  } = parsed.data;
   const database = getDatabase();
-
-  const [targetUser] = await database
-    .select({ role: user.role })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-  if (!targetUser) {
-    return { ok: false, error: "لم يتم العثور على المستخدم المطلوب." };
-  }
-
-  if (targetUser.role === "admin" && role !== "admin") {
-    if (userId === currentSession.user.id) {
-      return {
-        ok: false,
-        error: "لا يمكنك إزالة صلاحية المدير عن حسابك الحالي.",
-      };
-    }
-    const [adminCount] = await database
-      .select({ value: count() })
+  const updated = await database.transaction(async (transaction) => {
+    const [targetUser] = await transaction
+      .select({ role: user.role })
       .from(user)
-      .where(eq(user.role, "admin"));
-    if (Number(adminCount?.value ?? 0) <= 1) {
-      return {
-        ok: false,
-        error: "لا يمكن إزالة صلاحية آخر مدير في النظام.",
-      };
+      .where(eq(user.id, userId))
+      .limit(1)
+      .for("update");
+    if (!targetUser) {
+      return { ok: false as const, error: "لم يتم العثور على المستخدم المطلوب." };
     }
-  }
 
-  const [updated] = await database
-    .update(user)
-    .set({
-      role,
-      canEditResidents: perms.canEditResidents,
-      canAccessClinic: perms.canAccessClinic,
-      canManageCanteen: perms.canManageCanteen,
-      canIssueInvoices: perms.canIssueInvoices,
-      canManageWarehouse: perms.canManageWarehouse,
-      canManageCustody: perms.canManageCustody,
-      canManageMeatSales: perms.canManageMeatSales,
-      allowedScreens: allowedScreens.join(","),
-      updatedAt: new Date(),
-    })
-    .where(eq(user.id, userId))
-    .returning({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      canEdit: user.canEditResidents,
-      canAccessClinic: user.canAccessClinic,
-      canManageCanteen: user.canManageCanteen,
-      canIssueInvoices: user.canIssueInvoices,
-      canManageWarehouse: user.canManageWarehouse,
-      canManageCustody: user.canManageCustody,
-      canManageMeatSales: user.canManageMeatSales,
-      allowedScreens: user.allowedScreens,
-    });
+    if (targetUser.role === "admin" && role !== "admin") {
+      if (userId === currentSession.user.id) {
+        return {
+          ok: false as const,
+          error: "لا يمكنك إزالة صلاحية المدير عن حسابك الحالي.",
+        };
+      }
+      const [adminCount] = await transaction
+        .select({ value: count() })
+        .from(user)
+        .where(eq(user.role, "admin"));
+      if (Number(adminCount?.value ?? 0) <= 1) {
+        return {
+          ok: false as const,
+          error: "لا يمكن إزالة صلاحية آخر مدير في النظام.",
+        };
+      }
+    }
 
-  if (!updated) {
-    return { ok: false, error: "لم يتم العثور على المستخدم المطلوب." };
-  }
+    if (inventoryCategoryIds.length) {
+      const validCategories = await transaction
+        .select({ id: inventoryCategories.id })
+        .from(inventoryCategories)
+        .where(
+          and(
+            inArray(inventoryCategories.id, inventoryCategoryIds),
+            eq(inventoryCategories.active, true),
+          ),
+        );
+      if (validCategories.length !== inventoryCategoryIds.length) {
+        return {
+          ok: false as const,
+          error: "تحتوي صلاحيات المخزون على فئة غير متاحة.",
+        };
+      }
+    }
+
+    const [updatedUser] = await transaction
+      .update(user)
+      .set({
+        role,
+        canEditResidents: perms.canEditResidents,
+        canAccessClinic: perms.canAccessClinic,
+        canManageCanteen: perms.canManageCanteen,
+        canIssueInvoices: perms.canIssueInvoices,
+        canManageWarehouse: perms.canManageWarehouse,
+        canManageCustody: perms.canManageCustody,
+        canManageMeatSales: perms.canManageMeatSales,
+        allowedScreens: allowedScreens.join(","),
+        updatedAt: new Date(),
+      })
+      .where(eq(user.id, userId))
+      .returning({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        canEdit: user.canEditResidents,
+        canAccessClinic: user.canAccessClinic,
+        canManageCanteen: user.canManageCanteen,
+        canIssueInvoices: user.canIssueInvoices,
+        canManageWarehouse: user.canManageWarehouse,
+        canManageCustody: user.canManageCustody,
+        canManageMeatSales: user.canManageMeatSales,
+        allowedScreens: user.allowedScreens,
+      });
+    if (!updatedUser) {
+      return { ok: false as const, error: "لم يتم العثور على المستخدم المطلوب." };
+    }
+
+    await transaction
+      .delete(userInventoryCategories)
+      .where(eq(userInventoryCategories.userId, userId));
+    if (inventoryCategoryIds.length) {
+      await transaction.insert(userInventoryCategories).values(
+        inventoryCategoryIds.map((categoryId) => ({
+          userId,
+          categoryId,
+          grantedBy: currentSession.user.id,
+        })),
+      );
+    }
+
+    if (role !== "admin" && perms.canManageCanteen) {
+      await transaction
+        .insert(userCanteenAccess)
+        .values({ userId, grantedBy: currentSession.user.id })
+        .onConflictDoNothing();
+    } else {
+      await transaction
+        .delete(userCanteenAccess)
+        .where(eq(userCanteenAccess.userId, userId));
+    }
+
+    return { ok: true as const, user: updatedUser };
+  });
+
+  if (!updated.ok) return updated;
+  const savedUser = updated.user;
 
   return {
     ok: true,
     user: {
-      ...updated,
-      role: (updated.role === "admin" || updated.role === "viewer" ? updated.role : "staff") as "admin" | "staff" | "viewer",
-      allowedScreens: updated.allowedScreens ? updated.allowedScreens.split(",").filter(Boolean) : [],
+      ...savedUser,
+      role: (savedUser.role === "admin" || savedUser.role === "viewer" ? savedUser.role : "staff") as "admin" | "staff" | "viewer",
+      allowedScreens: savedUser.allowedScreens ? savedUser.allowedScreens.split(",").filter(Boolean) : [],
+      inventoryCategoryIds,
     },
   };
 }

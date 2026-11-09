@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import {
@@ -13,7 +13,10 @@ import {
   staffProfiles,
   villaNumbers,
 } from "@/db/schema";
-import { requireAdministrator } from "@/lib/auth-session";
+import {
+  requireAdministrator,
+  requireResidentEditor,
+} from "@/lib/auth-session";
 import { listLookupDataForCurrentUser } from "@/lib/lookup-data";
 import type { LookupData } from "@/lib/lookup-types";
 
@@ -75,10 +78,14 @@ type LookupActionResult =
 export async function saveLookupAction(
   input: unknown,
 ): Promise<LookupActionResult> {
-  await requireAdministrator();
   const parsed = saveSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "راجع بيانات سجل القائمة." };
+  }
+  if (parsed.data.kind === "villa") {
+    await requireResidentEditor("lookups");
+  } else {
+    await requireAdministrator();
   }
 
   const database = getDatabase();
@@ -316,10 +323,14 @@ export async function saveLookupAction(
 export async function deleteLookupAction(
   input: unknown,
 ): Promise<LookupActionResult> {
-  await requireAdministrator();
   const parsed = deleteSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "تعذر تحديد سجل القائمة المطلوب." };
+  }
+  if (parsed.data.kind === "villa") {
+    await requireResidentEditor("lookups");
+  } else {
+    await requireAdministrator();
   }
 
   const database = getDatabase();
@@ -449,12 +460,17 @@ export async function deleteLookupAction(
           const [reference] = await transaction
             .select({ id: residentStays.id })
             .from(residentStays)
-            .where(eq(residentStays.villa, record.villaNumber))
+            .where(
+              and(
+                eq(residentStays.villa, record.villaNumber),
+                isNull(residentStays.exitDate),
+              ),
+            )
             .limit(1);
           if (reference) {
             return {
               ok: false,
-              error: "لا يمكن حذف رقم الفيلا لأنه مستخدم في سجل إقامة.",
+              error: "لا يمكن حذف الفيلا لأنها مستخدمة في إقامة نشطة.",
             };
           }
         }

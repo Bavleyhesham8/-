@@ -4,7 +4,7 @@ import { and, asc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import { residents, residentStays } from "@/db/schema";
-import { requireResidentEditor } from "@/lib/auth-session";
+import { requireScreenAccess } from "@/lib/auth-session";
 import type {
   ResidentStayReportData,
   ResidentStayReportFilters,
@@ -51,7 +51,7 @@ export async function getResidentStayReport(
   input: unknown,
 ): Promise<ResidentStayReportData> {
   const filters = parseResidentStayReportFilters(input);
-  await requireResidentEditor();
+  await requireScreenAccess("resident-stay-reports");
 
   const conditions = [
     gte(residentStays.admissionDate, filters.startDate),

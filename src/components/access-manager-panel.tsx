@@ -4,8 +4,7 @@ import { useState } from "react";
 import type { DemoUser } from "@/lib/demo-data";
 import type { InventoryBundle } from "@/lib/inventory-types";
 import { updateUserRoleAndPermissionsAction } from "@/app/actions/residents";
-import { grantStaffCanteenAccessAction } from "@/app/actions/canteen";
-import { updateStaffInventoryAccessAction } from "@/app/actions/inventory";
+import { DASHBOARD_SCREENS } from "@/lib/access-control";
 
 type Props = {
   users: DemoUser[];
@@ -50,6 +49,7 @@ export default function AccessManagerPanel({
 
   async function handleUpdateUser(userToUpdate: DemoUser, updates: Partial<DemoUser>) {
     const updated: DemoUser = { ...userToUpdate, ...updates };
+    const previousUsers = users;
 
     // تحديث فوري بالواجهة
     const nextUsers = users.map((u) => (u.id === userToUpdate.id ? updated : u));
@@ -69,37 +69,25 @@ export default function AccessManagerPanel({
           canManageCustody: updated.canManageCustody ?? false,
           canManageMeatSales: updated.canManageMeatSales ?? false,
           allowedScreens: updated.allowedScreens ?? [],
+          inventoryCategoryIds: updated.inventoryCategoryIds ?? [],
         });
 
         if (!result.ok) {
+          onUsersChange(previousUsers);
           setFeedback({ type: "error", msg: result.error });
           return;
         }
-
-        if (updates.canManageCanteen !== undefined) {
-          const canteenResult = await grantStaffCanteenAccessAction(
-            userToUpdate.id,
-            updates.canManageCanteen,
-          );
-          if (!canteenResult.ok) {
-            setFeedback({ type: "error", msg: canteenResult.error });
-            return;
-          }
-        }
-
-        if (updates.inventoryCategoryIds !== undefined) {
-          const inventoryResult = await updateStaffInventoryAccessAction(
-            userToUpdate.id,
-            updates.inventoryCategoryIds,
-          );
-          if (!inventoryResult.ok) {
-            setFeedback({ type: "error", msg: inventoryResult.error });
-            return;
-          }
-        }
+        onUsersChange(
+          nextUsers.map((user) =>
+            user.id === result.user.id
+              ? { ...result.user, canteenAccess: updated.canteenAccess }
+              : user,
+          ),
+        );
 
         setFeedback({ type: "success", msg: `تم تحديث صلاحيات ${updated.name} بنجاح.` });
       } catch {
+        onUsersChange(previousUsers);
         setFeedback({ type: "error", msg: "تعذر حفظ الصلاحيات. حاول مرة أخرى." });
       } finally {
         setSavingId(null);
@@ -113,6 +101,52 @@ export default function AccessManagerPanel({
       ? currentScreens.filter((s) => s !== screenId)
       : [...currentScreens, screenId];
     handleUpdateUser(user, { allowedScreens: nextScreens });
+  }
+
+  function renderScreenPermissions(user: DemoUser) {
+    const hasAnyScreen =
+      user.allowedScreens?.some((screen) =>
+        DASHBOARD_SCREENS.some((knownScreen) => knownScreen === screen),
+      ) ?? false;
+    return (
+      <div className="space-y-4 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3">
+        <div>
+          <p className="text-xs font-bold text-slate-700">الشاشات المسموح بها:</p>
+          <p className="mt-1 text-[11px] text-slate-600">
+            لا تمنح الشاشة صلاحية تعديل البيانات؛ تظل صلاحيات التشغيل وفئات المخزون منفصلة.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
+          {AVAILABLE_SCREENS.map((screen) => {
+            const isChecked = (user.allowedScreens ?? []).includes(screen.id);
+            return (
+              <label
+                key={screen.id}
+                className={`flex items-center gap-2 rounded-xl border p-2.5 text-xs font-medium cursor-pointer transition ${
+                  isChecked
+                    ? "border-teal-500 bg-teal-50/80 text-teal-900 font-bold"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => toggleViewerScreen(user, screen.id)}
+                  disabled={savingId === user.id}
+                  className="h-3.5 w-3.5 rounded-sm text-teal-600 focus:ring-teal-500"
+                />
+                <span>{screen.label}</span>
+              </label>
+            );
+          })}
+        </div>
+        {user.role !== "admin" && hasAnyScreen && (
+          <p className="text-xs font-medium text-teal-800">
+            تقتصر شاشات الحساب على الاختيارات أعلاه.
+          </p>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -321,32 +355,9 @@ export default function AccessManagerPanel({
                   <div className="rounded-xl bg-amber-50/70 p-3 text-xs font-semibold text-amber-900 border border-amber-200/50">
                     👁️ حساب مستعرض بيانات (Read-Only & Export): يمكنه فقط قراءة وتصدير وطباعة الشاشات المحددة له أدناه دون أي قدرة على التعديل أو الحذف.
                   </div>
-                  <p className="text-xs font-bold text-slate-700">حدد الشاشات المصرح لهذا المستعرض برؤيتها:</p>
-                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
-                    {AVAILABLE_SCREENS.map((screen) => {
-                      const isChecked = (user.allowedScreens ?? []).includes(screen.id);
-                      return (
-                        <label
-                          key={screen.id}
-                          className={`flex items-center gap-2 rounded-xl border p-2.5 text-xs font-medium cursor-pointer transition ${
-                            isChecked
-                              ? "border-teal-500 bg-teal-50/80 text-teal-900 font-bold"
-                              : "border-slate-200 bg-slate-50/60 text-slate-700 hover:bg-slate-100"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => toggleViewerScreen(user, screen.id)}
-                            className="h-3.5 w-3.5 rounded-sm text-teal-600 focus:ring-teal-500"
-                          />
-                          <span>{screen.label}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
                 </div>
               )}
+              {renderScreenPermissions(user)}
             </div>
           </div>
         ))}
@@ -354,4 +365,3 @@ export default function AccessManagerPanel({
     </div>
   );
 }
-

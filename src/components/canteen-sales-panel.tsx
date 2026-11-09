@@ -9,6 +9,7 @@ import {
   voidResidentInvoiceAction,
 } from "@/app/actions/canteen-sales";
 import { formatDate, localDateValue } from "@/lib/date-format";
+import ResidentPicker from "@/components/resident-picker";
 import type { CanteenBundle, CanteenMovement } from "@/lib/canteen-types";
 import type { Resident } from "@/lib/demo-data";
 import type {
@@ -25,6 +26,7 @@ type Props = {
   residents: Resident[];
   canteen: CanteenBundle;
   persistent: boolean;
+  canManage?: boolean;
   onSalesChange: (
     update: (current: CanteenSalesBundle) => CanteenSalesBundle,
   ) => void;
@@ -48,12 +50,19 @@ export default function CanteenSalesPanel({
   residents,
   canteen,
   persistent,
+  canManage = true,
   onSalesChange,
   onCanteenChange,
 }: Props) {
-  const [section, setSection] = useState<"sale" | "history" | "catalog">("sale");
+  const [section, setSection] = useState<"sale" | "history" | "catalog">(
+    canManage ? "sale" : "history",
+  );
   const [saleType, setSaleType] = useState<"resident" | "cash">("resident");
   const [residentId, setResidentId] = useState(residents[0]?.id ?? "");
+  const [residentPickerValue, setResidentPickerValue] = useState(() => {
+    const resident = residents[0];
+    return resident ? `${resident.name} — ${resident.fileNumber}` : "";
+  });
   const [invoiceDate, setInvoiceDate] = useState(localDateValue());
   const [initialPayment, setInitialPayment] = useState("0");
   const [draftLines, setDraftLines] = useState<DraftLine[]>([
@@ -582,7 +591,7 @@ export default function CanteenSalesPanel({
           </p>
         </div>
         <div className="action-group">
-          <button
+          {canManage && <button
             className={section === "sale" ? "primary-button" : "secondary-button"}
             type="button"
             onClick={() => {
@@ -591,7 +600,7 @@ export default function CanteenSalesPanel({
             }}
           >
             فاتورة جديدة
-          </button>
+          </button>}
           <button
             className={
               section === "history" ? "primary-button" : "secondary-button"
@@ -604,7 +613,7 @@ export default function CanteenSalesPanel({
           >
             سجل الفواتير
           </button>
-          <button
+          {canManage && <button
             className={
               section === "catalog" ? "primary-button" : "secondary-button"
             }
@@ -615,7 +624,7 @@ export default function CanteenSalesPanel({
             }}
           >
             الأصناف والفئات
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -625,7 +634,7 @@ export default function CanteenSalesPanel({
         </p>
       )}
 
-      {section === "sale" && (
+      {canManage && section === "sale" && (
         <form className="inventory-form sales-form" onSubmit={submitInvoice}>
           <label className="form-field">
             نوع الفاتورة
@@ -644,18 +653,18 @@ export default function CanteenSalesPanel({
           {saleType === "resident" && (
             <label className="form-field">
               النزيل
-              <select
+              <ResidentPicker
+                residents={residents}
+                value={residentPickerValue}
+                onChange={(value, resident) => {
+                  setResidentPickerValue(value);
+                  setResidentId(resident?.id ?? "");
+                }}
+                placeholder="ابحث باسم النزيل أو رقم الملف..."
                 required
-                value={residentId}
-                onChange={(event) => setResidentId(event.target.value)}
-              >
-                <option value="">اختر النزيل</option>
-                {residents.map((resident) => (
-                  <option key={resident.id} value={resident.id}>
-                    {resident.name} — {resident.fileNumber}
-                  </option>
-                ))}
-              </select>
+                disabled={saving}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
             </label>
           )}
           <label className="form-field">
@@ -823,7 +832,7 @@ export default function CanteenSalesPanel({
         </form>
       )}
 
-      {section === "catalog" && (
+      {canManage && section === "catalog" && (
         <div className="sales-catalog">
           <form className="inventory-form sales-form" onSubmit={submitSalesItem}>
             <h4>مشتريات النزلاء</h4>
@@ -1012,7 +1021,7 @@ export default function CanteenSalesPanel({
                     .join(" — ")}
                 </p>
               )}
-              <div className="action-group sales-invoice-actions">
+              {canManage && <div className="action-group sales-invoice-actions">
                 {!invoice.voided &&
                   invoice.saleType === "resident" &&
                   invoice.balance > 0 &&
@@ -1044,8 +1053,8 @@ export default function CanteenSalesPanel({
                     إلغاء الفاتورة
                   </button>
                 )}
-              </div>
-              {paymentTargetId === invoice.invoiceNumber && (
+              </div>}
+              {canManage && paymentTargetId === invoice.invoiceNumber && (
                 <form className="sales-inline-form" onSubmit={submitPayment}>
                   <label className="form-field">
                     مبلغ الدفعة
@@ -1081,7 +1090,7 @@ export default function CanteenSalesPanel({
                   </button>
                 </form>
               )}
-              {voidTargetId === invoice.invoiceNumber && (
+              {canManage && voidTargetId === invoice.invoiceNumber && (
                 <form className="sales-inline-form" onSubmit={submitVoid}>
                   <label className="form-field">
                     سبب الإلغاء

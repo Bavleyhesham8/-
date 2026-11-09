@@ -7,6 +7,7 @@ import {
 } from "@/app/actions/lookups";
 import PrintBrand from "@/components/print-brand";
 import { printCurrentView } from "@/lib/print";
+import ResidentPicker from "@/components/resident-picker";
 import type { DemoUser, Resident } from "@/lib/demo-data";
 import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
 import type { StaffBundle } from "@/lib/staff-types";
@@ -83,7 +84,13 @@ export default function LookupManagerPanel({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
-  const [referenceSearch, setReferenceSearch] = useState("");
+  const [residentQuery, setResidentQuery] = useState("");
+  const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
+  const [reverseChurch, setReverseChurch] = useState("");
+  const [reverseGovernorate, setReverseGovernorate] = useState("");
+  const [selectedReportGovernorate, setSelectedReportGovernorate] = useState("");
+  const canManageCurrentKind =
+    isAdministrator || (kind === "villa" && Boolean(currentUser.canEdit));
 
   function resetForm() {
     setEditingId(null);
@@ -138,7 +145,12 @@ export default function LookupManagerPanel({
         const record = lookups.villas.find((item) => item.id === recordId);
         return (
           !!record?.villaNumber &&
-          residents.some((resident) => resident.villa === record.villaNumber)
+          residents.some(
+            (resident) =>
+              !resident.archived &&
+              resident.status === "current" &&
+              resident.villa === record.villaNumber,
+          )
         );
       }
     }
@@ -492,14 +504,14 @@ export default function LookupManagerPanel({
 
   const columns =
     kind === "church"
-      ? ["num", "nam", "Achesh", "Fathr"]
+      ? ["رقم الكنيسة", "اسم الكنيسة", "أب الاعتراف", "الأب الكاهن"]
       : kind === "governorate"
-        ? ["Cont", "Cet"]
+        ? ["المحافظة", "المركز / الحي"]
         : kind === "day"
           ? ["اليوم"]
           : kind === "alternate-category"
             ? ["الفئة"]
-            : ["N_V"];
+            : ["رقم الفيلا"];
 
   const rows =
     kind === "church"
@@ -527,28 +539,33 @@ export default function LookupManagerPanel({
                 values: [item.villaNumber],
               }));
 
-  const referenceTerm = referenceSearch.trim().toLocaleLowerCase();
-  const filteredChurches = useMemo(
-    () =>
-      lookups.churches.filter((church) =>
-        [church.number, church.name, church.acheshe, church.father]
-          .filter(Boolean)
-          .join(" ")
-          .toLocaleLowerCase()
-          .includes(referenceTerm),
-      ),
-    [lookups.churches, referenceTerm],
+  const activeResidents = useMemo(
+    () => residents.filter((resident) => !resident.archived),
+    [residents],
   );
-  const filteredGovernorates = useMemo(
+  const selectedResidentChurch = lookups.churches.find(
+    (church) => church.name === selectedResident?.church,
+  );
+  const reverseChurchResidents = activeResidents.filter(
+    (resident) => resident.church === reverseChurch,
+  );
+  const reverseGovernorateResidents = activeResidents.filter(
+    (resident) => resident.governorate === reverseGovernorate,
+  );
+  const governorateOptions = useMemo(
     () =>
-      lookups.governorates.filter((governorate) =>
-        [governorate.governorate, governorate.district]
-          .filter(Boolean)
-          .join(" ")
-          .toLocaleLowerCase()
-          .includes(referenceTerm),
-      ),
-    [lookups.governorates, referenceTerm],
+      [
+        ...new Set(
+          activeResidents
+            .map((resident) => resident.governorate)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ]
+        .sort((left, right) => left.localeCompare(right, "ar")),
+    [activeResidents],
+  );
+  const selectedReportResidents = activeResidents.filter(
+    (resident) => resident.governorate === selectedReportGovernorate,
   );
   const governorateDistribution = useMemo(() => {
     const districts = new Map(
@@ -560,7 +577,7 @@ export default function LookupManagerPanel({
       string,
       { total: number; current: number; departed: number }
     >();
-    for (const resident of residents) {
+    for (const resident of residents.filter((item) => !item.archived)) {
       const governorate = resident.governorate?.trim() || "غير محدد";
       const group = groups.get(governorate) ?? {
         total: 0,
@@ -613,81 +630,160 @@ export default function LookupManagerPanel({
       <section className="lookup-reference-search">
         <div className="panel-heading">
           <div>
-            <h3>بحث الكنائس وأب الاعتراف</h3>
+            <h3>البحث في بيانات النزلاء والمرجعيات</h3>
             <p>
-              ابحث باسم الكنيسة أو رقمها أو أب الاعتراف، وابحث في المحافظات
-              والمراكز. يعرض الجدول عدد النزلاء المسجلين في كل محافظة.
+              اختر نزيلًا لعرض مرجعه الكنسي والجغرافي، أو اختر كنيسة ومحافظة
+              لعرض النزلاء المرتبطين بهما.
             </p>
           </div>
         </div>
-        <label className="form-field">
-          بحث في الكنائس والمحافظات
-          <input
-            type="search"
-            value={referenceSearch}
-            maxLength={160}
-            placeholder="مثال: كنيسة، أب اعتراف، محافظة، مركز..."
-            onChange={(event) => setReferenceSearch(event.target.value)}
-          />
-        </label>
-        {referenceTerm && (
-          <>
-            <div className="table-wrap report-detail">
-              <table className="resident-table lookup-table">
-                <thead>
-                  <tr>
-                    <th>رقم الكنيسة</th>
-                    <th>اسم الكنيسة</th>
-                    <th>Achesh</th>
-                    <th>أب الاعتراف</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredChurches.slice(0, 10).map((church) => (
-                    <tr key={`church-${church.id}`}>
-                      <td>{church.number || "—"}</td>
-                      <td>{church.name || "—"}</td>
-                      <td>{church.acheshe || "—"}</td>
-                      <td>{church.father || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!filteredChurches.length && (
-                <div className="empty-state">لا توجد كنائس مطابقة.</div>
+        <div className="lookup-form">
+          <label className="form-field">
+            اسم النزيل
+            <ResidentPicker
+              residents={activeResidents}
+              value={residentQuery}
+              onChange={(value, resident) => {
+                setResidentQuery(value);
+                setSelectedResident(resident);
+              }}
+              placeholder="ابحث واختر نزيلًا..."
+            />
+          </label>
+        </div>
+        {selectedResident && (
+          <div className="resident-report-summary report-summary">
+            <article>
+              <span>الكنيسة</span>
+              <strong>{selectedResident.church || "غير مسجل"}</strong>
+            </article>
+            <article>
+              <span>أب الاعتراف</span>
+              <strong>
+                {selectedResidentChurch?.acheshe ||
+                  selectedResident.confessor ||
+                  "غير مسجل"}
+              </strong>
+            </article>
+            <article>
+              <span>الأب الكاهن</span>
+              <strong>{selectedResidentChurch?.father || "غير مسجل"}</strong>
+            </article>
+            <article>
+              <span>رقم الكنيسة</span>
+              <strong>{selectedResidentChurch?.number || "غير مسجل"}</strong>
+            </article>
+            <article>
+              <span>المحافظة</span>
+              <strong>{selectedResident.governorate || "غير مسجل"}</strong>
+            </article>
+            <article>
+              <span>الفيلا</span>
+              <strong>{selectedResident.villa || "غير مسجل"}</strong>
+            </article>
+          </div>
+        )}
+        <div className="lookup-form">
+          <label className="form-field">
+            الكنيسة
+            <select
+              value={reverseChurch}
+              onChange={(event) => setReverseChurch(event.target.value)}
+            >
+              <option value="">اختر كنيسة</option>
+              {lookups.churches.map((church) =>
+                church.name ? (
+                  <option key={church.id} value={church.name}>
+                    {church.name}
+                  </option>
+                ) : null,
               )}
-            </div>
-            <div className="table-wrap report-detail">
-              <table className="resident-table lookup-table">
-                <thead>
-                  <tr>
-                    <th>المحافظة</th>
-                    <th>المركز / الحي</th>
-                    <th>عدد النزلاء</th>
+            </select>
+          </label>
+          <label className="form-field">
+            المحافظة
+            <select
+              value={reverseGovernorate}
+              onChange={(event) => setReverseGovernorate(event.target.value)}
+            >
+              <option value="">اختر محافظة</option>
+              {governorateOptions.map((governorate) => (
+                <option key={governorate} value={governorate}>
+                  {governorate}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {reverseChurch && (
+          <div className="lookup-count" aria-live="polite">
+            {numberFormatter.format(reverseChurchResidents.length)} نزيل في{" "}
+            {reverseChurch || "الكنيسة المختارة"}
+          </div>
+        )}
+        {reverseChurch && (
+          <div className="table-wrap report-detail">
+            <table className="resident-table lookup-table">
+              <thead>
+                <tr>
+                  <th>اسم النزيل</th>
+                  <th>رقم الملف</th>
+                  <th>الحالة</th>
+                  <th>المحافظة</th>
+                  <th>الفيلا</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reverseChurchResidents.map((resident) => (
+                  <tr key={resident.id}>
+                    <td>{resident.name}</td>
+                    <td>{resident.fileNumber}</td>
+                    <td>{resident.status === "current" ? "مقيم" : "غادر"}</td>
+                    <td>{resident.governorate || "—"}</td>
+                    <td>{resident.villa || "—"}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {filteredGovernorates.slice(0, 10).map((governorate) => {
-                    const count = residents.filter(
-                      (resident) =>
-                        (resident.governorate ?? "") ===
-                        (governorate.governorate ?? ""),
-                    ).length;
-                    return (
-                      <tr key={`governorate-${governorate.id}`}>
-                        <td>{governorate.governorate || "—"}</td>
-                        <td>{governorate.district || "—"}</td>
-                        <td>{numberFormatter.format(count)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {!filteredGovernorates.length && (
-                <div className="empty-state">لا توجد محافظات مطابقة.</div>
-              )}
-            </div>
-          </>
+                ))}
+              </tbody>
+            </table>
+            {!reverseChurchResidents.length && (
+              <div className="empty-state">لا يوجد نزلاء مرتبطون بهذه الكنيسة.</div>
+            )}
+          </div>
+        )}
+        {reverseGovernorate && (
+          <div className="lookup-count" aria-live="polite">
+            {numberFormatter.format(reverseGovernorateResidents.length)} نزيل في{" "}
+            {reverseGovernorate}
+          </div>
+        )}
+        {reverseGovernorate && (
+          <div className="table-wrap report-detail">
+            <table className="resident-table lookup-table">
+              <thead>
+                <tr>
+                  <th>اسم النزيل</th>
+                  <th>رقم الملف</th>
+                  <th>الحالة</th>
+                  <th>الكنيسة</th>
+                  <th>الفيلا</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reverseGovernorateResidents.map((resident) => (
+                  <tr key={resident.id}>
+                    <td>{resident.name}</td>
+                    <td>{resident.fileNumber}</td>
+                    <td>{resident.status === "current" ? "مقيم" : "غادر"}</td>
+                    <td>{resident.church || "—"}</td>
+                    <td>{resident.villa || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!reverseGovernorateResidents.length && (
+              <div className="empty-state">لا يوجد نزلاء في هذه المحافظة.</div>
+            )}
+          </div>
         )}
       </section>
 
@@ -695,10 +791,7 @@ export default function LookupManagerPanel({
         <div className="panel-heading">
           <div>
             <h3>تقرير توزيع النزلاء حسب المحافظة</h3>
-            <p>
-              ملخص بعدد النزلاء والمقيمين والغادرين في كل محافظة، مع التفاصيل
-              الكاملة أسفل الملخص.
-            </p>
+            <p>اضغط على اسم المحافظة لعرض نزلائها.</p>
           </div>
         </div>
         <div className="resident-report-summary report-summary">
@@ -748,7 +841,22 @@ export default function LookupManagerPanel({
             <tbody>
               {governorateDistribution.map((row) => (
                 <tr key={row.governorate}>
-                  <td>{row.governorate}</td>
+                  <td>
+                    <button
+                      className="table-action"
+                      type="button"
+                      aria-pressed={selectedReportGovernorate === row.governorate}
+                      onClick={() =>
+                        setSelectedReportGovernorate(
+                          selectedReportGovernorate === row.governorate
+                            ? ""
+                            : row.governorate,
+                        )
+                      }
+                    >
+                      {row.governorate}
+                    </button>
+                  </td>
                   <td>{row.district || "—"}</td>
                   <td>{numberFormatter.format(row.total)}</td>
                   <td>{numberFormatter.format(row.current)}</td>
@@ -768,6 +876,34 @@ export default function LookupManagerPanel({
             <div className="empty-state">لا توجد بيانات نزلاء بعد.</div>
           )}
         </div>
+        {selectedReportGovernorate && (
+          <div className="table-wrap report-detail">
+            <h4>
+              نزلاء محافظة {selectedReportGovernorate} (
+              {numberFormatter.format(selectedReportResidents.length)})
+            </h4>
+            <table className="resident-table lookup-table">
+              <thead>
+                <tr>
+                  <th>اسم النزيل</th>
+                  <th>رقم الملف</th>
+                  <th>الحالة</th>
+                  <th>الفيلا</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedReportResidents.map((resident) => (
+                  <tr key={resident.id}>
+                    <td>{resident.name}</td>
+                    <td>{resident.fileNumber}</td>
+                    <td>{resident.status === "current" ? "مقيم" : "غادر"}</td>
+                    <td>{resident.villa || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <div className="lookup-tabs" role="tablist" aria-label="قوائم البيانات">
@@ -792,16 +928,18 @@ export default function LookupManagerPanel({
       )}
       {!isAdministrator && (
         <p className="lookup-demo-note">
-          لديك صلاحية عرض فقط. يضيف المسؤول القيم ويعدلها ويحذفها.
+          {kind === "villa" && currentUser.canEdit
+            ? "يمكنك إدارة أرقام الفيلات بصلاحية تعديل النزلاء؛ بقية القوائم للأدمن فقط."
+            : "لديك صلاحية عرض فقط. يضيف المسؤول القيم ويعدلها ويحذفها."}
         </p>
       )}
 
-      {isAdministrator && (
+      {canManageCurrentKind && (
         <form className="lookup-form" onSubmit={submit}>
           {kind === "church" && (
             <>
               <label className="form-field">
-                num
+                رقم الكنيسة
                 <input
                   maxLength={255}
                   value={draft.number}
@@ -814,7 +952,7 @@ export default function LookupManagerPanel({
                 />
               </label>
               <label className="form-field">
-                nam
+                اسم الكنيسة
                 <input
                   maxLength={255}
                   required
@@ -828,7 +966,7 @@ export default function LookupManagerPanel({
                 />
               </label>
               <label className="form-field">
-                Achesh
+                أب الاعتراف
                 <input
                   maxLength={255}
                   value={draft.acheshe}
@@ -841,7 +979,7 @@ export default function LookupManagerPanel({
                 />
               </label>
               <label className="form-field">
-                Fathr
+                الأب الكاهن
                 <input
                   maxLength={255}
                   value={draft.father}
@@ -858,7 +996,7 @@ export default function LookupManagerPanel({
           {kind === "governorate" && (
             <>
               <label className="form-field">
-                المحافظة (Cont)
+                المحافظة
                 <input
                   maxLength={255}
                   required
@@ -872,7 +1010,7 @@ export default function LookupManagerPanel({
                 />
               </label>
               <label className="form-field">
-                المركز / الحي (Cet)
+                المركز / الحي
                 <input
                   maxLength={255}
                   required
@@ -921,7 +1059,7 @@ export default function LookupManagerPanel({
           )}
           {kind === "villa" && (
             <label className="form-field">
-              رقم الفيلا (N_V)
+              رقم الفيلا
               <input
                 maxLength={64}
                 required
@@ -973,7 +1111,7 @@ export default function LookupManagerPanel({
           <thead>
             <tr>
               {columns.map((column) => <th key={column}>{column}</th>)}
-              {isAdministrator && <th>الإجراءات</th>}
+              {canManageCurrentKind && <th>الإجراءات</th>}
             </tr>
           </thead>
           <tbody>
@@ -982,7 +1120,7 @@ export default function LookupManagerPanel({
                 {row.values.map((value, index) => (
                   <td key={`${row.id}-${index}`}>{value || "—"}</td>
                 ))}
-                {isAdministrator && (
+                {canManageCurrentKind && (
                   <td className="lookup-row-actions">
                     <button
                       className="table-action"

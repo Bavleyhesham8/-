@@ -12,7 +12,7 @@ import {
   warehouseDetails,
   warehouseHeaders,
 } from "@/db/schema";
-import { requireCurrentSession } from "@/lib/auth-session";
+import { requireAnyScreenAccess, requireCurrentSession } from "@/lib/auth-session";
 import type {
   CustodyBundle,
   CustodyDetail,
@@ -36,6 +36,7 @@ function dateValue(value: Date | null): string | null {
 
 export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
   const session = await requireCurrentSession();
+  await requireAnyScreenAccess("custody", "tracking");
   const database = getDatabase();
   const isAdministrator = session.user.role === "admin";
   let linkedEmployeeNumber: number | null = null;

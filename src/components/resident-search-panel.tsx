@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import PrintBrand from "@/components/print-brand";
 import { printCurrentView } from "@/lib/print";
+import ResidentPicker from "@/components/resident-picker";
 import type { Resident } from "@/lib/demo-data";
 import {
   formatAgeAtDate,
@@ -259,15 +260,14 @@ export default function ResidentSearchPanel({ residents, persistent }: Props) {
       <form className="resident-report-filters" onSubmit={applyFilters}>
         <label>
           بحث بالاسم أو الملف أو الهاتف
-          <input
-            type="search"
+          <ResidentPicker
+            residents={residents}
             value={filters.search}
-            maxLength={120}
-            placeholder="مثال: اسم النزيل أو رقم الملف..."
-            onChange={(event) =>
+            placeholder="ابحث بالاسم أو رقم الملف..."
+            onChange={(value) =>
               setFilters((current) => ({
                 ...current,
-                search: event.target.value,
+                search: value,
               }))
             }
           />

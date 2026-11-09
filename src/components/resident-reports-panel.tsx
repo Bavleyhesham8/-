@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import PrintBrand from "@/components/print-brand";
 import { printCurrentView } from "@/lib/print";
+import ResidentPicker from "@/components/resident-picker";
 import type { Resident } from "@/lib/demo-data";
 import type { TreatmentBundle } from "@/lib/treatment-types";
 import {
@@ -124,6 +125,7 @@ export default function ResidentReportsPanel({
   });
   const [appliedFilters, setAppliedFilters] = useState(filters);
   const [error, setError] = useState("");
+  const [selectedGovernorate, setSelectedGovernorate] = useState("");
 
   const governorateOptions = useMemo(
     () =>
@@ -383,14 +385,14 @@ export default function ResidentReportsPanel({
       <form className="resident-report-filters" onSubmit={applyFilters}>
         <label>
           بحث بالاسم أو الملف أو الهاتف
-          <input
-            type="search"
+          <ResidentPicker
+            residents={residents}
             value={filters.search}
-            maxLength={120}
-            onChange={(event) =>
+            placeholder="ابحث بالاسم أو رقم الملف..."
+            onChange={(value) =>
               setFilters((current) => ({
                 ...current,
-                search: event.target.value,
+                search: value,
               }))
             }
           />
@@ -662,7 +664,22 @@ export default function ResidentReportsPanel({
                     ).length;
                     return (
                       <tr key={governorate}>
-                        <td>{governorate}</td>
+                        <td>
+                          <button
+                            className="table-action"
+                            type="button"
+                            aria-pressed={selectedGovernorate === governorate}
+                            onClick={() =>
+                              setSelectedGovernorate(
+                                selectedGovernorate === governorate
+                                  ? ""
+                                  : governorate,
+                              )
+                            }
+                          >
+                            {governorate}
+                          </button>
+                        </td>
                         <td>{numberFormatter.format(rows.length)}</td>
                         <td>{numberFormatter.format(current)}</td>
                         <td>{numberFormatter.format(rows.length - current)}</td>
@@ -695,7 +712,13 @@ export default function ResidentReportsPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {governorateGroups.flatMap(([governorate, rows]) =>
+                  {governorateGroups
+                    .filter(
+                      ([governorate]) =>
+                        !selectedGovernorate ||
+                        governorate === selectedGovernorate,
+                    )
+                    .flatMap(([governorate, rows]) =>
                     rows.map((resident) => (
                       <tr key={`${governorate}-${resident.id}`}>
                         <td>{governorate}</td>

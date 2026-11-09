@@ -58,6 +58,21 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+.classic-access-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 10px;
+}
+
+.classic-access-button {
+  color: #fff;
+}
+
+.classic-access-button:focus-visible {
+  outline: 3px solid #fef08a;
+  outline-offset: 2px;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);

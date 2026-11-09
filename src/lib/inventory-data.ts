@@ -8,14 +8,16 @@ import {
   inventoryMovements,
   userInventoryCategories,
 } from "@/db/schema";
-import { requireCurrentSession } from "@/lib/auth-session";
+import { requireAnyScreenAccess, requireCurrentSession } from "@/lib/auth-session";
 import type { InventoryBundle } from "@/lib/inventory-types";
 
 export async function listInventoryForCurrentUser(): Promise<InventoryBundle> {
   const session = await requireCurrentSession();
+  await requireAnyScreenAccess("inventory", "tracking");
   const database = getDatabase();
   const canViewAll =
     session.user.role === "admin" ||
+    session.user.role === "viewer" ||
     session.user.canManageWarehouse === true;
 
   const categories = canViewAll

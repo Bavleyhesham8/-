@@ -12,7 +12,7 @@ import {
   residents,
   invoiceStockMovementLinks,
 } from "@/db/schema";
-import { requireStaffPermission } from "@/lib/auth-session";
+import { requireAnyScreenAccess } from "@/lib/auth-session";
 import type {
   CanteenSalesBundle,
   InvoicePayment,
@@ -20,7 +20,7 @@ import type {
 } from "@/lib/canteen-sales-types";
 
 export async function listCanteenSalesForAdministrator(): Promise<CanteenSalesBundle> {
-  await requireStaffPermission("canIssueInvoices");
+  await requireAnyScreenAccess("sales", "invoice-reports");
   const database = getDatabase();
   const [items, categories, invoiceRows] = await Promise.all([
     database

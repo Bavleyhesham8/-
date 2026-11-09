@@ -9,9 +9,8 @@ import {
   residentInvoiceVoids,
   residentInvoices,
   residents,
-  userCanteenAccess,
 } from "@/db/schema";
-import { requireCurrentSession } from "@/lib/auth-session";
+import { requireAnyScreenAccess } from "@/lib/auth-session";
 import type {
   InvoiceReportData,
   InvoiceReportFilters,
@@ -49,17 +48,8 @@ export async function getInvoiceReport(
 ): Promise<InvoiceReportData> {
   const filters = parseInvoiceReportFilters(input);
 
-  const session = await requireCurrentSession();
+  await requireAnyScreenAccess("sales", "invoice-reports");
   const database = getDatabase();
-
-  if (session.user.role !== "admin" && session.user.canManageCanteen !== true) {
-    const [grant] = await database
-      .select({ userId: userCanteenAccess.userId })
-      .from(userCanteenAccess)
-      .where(eq(userCanteenAccess.userId, session.user.id))
-      .limit(1);
-    if (!grant) throw new Error("Canteen access is required for this report.");
-  }
 
   const conditions = [
     gte(residentInvoices.invoiceDate, filters.startDate),
