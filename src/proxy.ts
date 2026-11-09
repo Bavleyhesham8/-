@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { getSessionCookie } from "better-auth/cookies";
 
 // المسارات العامة التي يُسمح بالوصول إليها بدون تسجيل دخول
 const PUBLIC_PATHS = ["/sign-in", "/api/auth"];
@@ -23,12 +24,12 @@ export default function proxy(request: NextRequest) {
 
   // التحقق من وجود جلسة صالحة (حقيقية أو تجريبية)
   const sessionCookie =
-    request.cookies.get("better-auth.session_token") ||
-    request.cookies.get("__session") ||
-    request.cookies.get("qithara-demo-session");
+    getSessionCookie(request) ||
+    request.cookies.get("__session")?.value ||
+    request.cookies.get("qithara-demo-session")?.value;
 
   // إذا لم يكن مسجلاً، يتم تحويله فوراً لصفحة تسجيل الدخول
-  if (!sessionCookie || !sessionCookie.value) {
+  if (!sessionCookie) {
     const signInUrl = new URL("/sign-in", request.url);
     return NextResponse.redirect(signInUrl);
   }
