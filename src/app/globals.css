@@ -804,8 +804,34 @@ button:disabled {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: end;
   gap: 12px;
+  border: 1px solid #d8e3dc;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 12px 32px rgba(7, 21, 16, 0.12);
   border-bottom: 1px solid var(--line);
   padding: 16px 18px;
+}
+
+.staff-account-form .form-field {
+  color: #173c2d;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.staff-account-form .form-field input {
+  min-height: 46px;
+  border-color: #b7c9be;
+  color: #071510;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.staff-account-form .access-note {
+  border: 1px solid #d8e3dc;
+  background: #f3f7f4;
+  color: #294638;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .staff-account-form .access-note,
