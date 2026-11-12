@@ -1,5 +1,8 @@
 "use client";
 
+import PrintBrand from "@/components/print-brand";
+import { printSingleRecord } from "@/lib/print";
+
 import { useMemo, useState, type FormEvent } from "react";
 import {
   createResidentInvoiceAction,
@@ -27,6 +30,7 @@ type Props = {
   canteen: CanteenBundle;
   persistent: boolean;
   canManage?: boolean;
+  initialSection?: string | null;
   onSalesChange: (
     update: (current: CanteenSalesBundle) => CanteenSalesBundle,
   ) => void;
@@ -51,12 +55,16 @@ export default function CanteenSalesPanel({
   canteen,
   persistent,
   canManage = true,
+  initialSection,
   onSalesChange,
   onCanteenChange,
 }: Props) {
-  const [section, setSection] = useState<"sale" | "history" | "catalog">(
-    canManage ? "sale" : "history",
-  );
+  const [section, setSection] = useState<"sale" | "history" | "catalog">(() => {
+    if (!canManage) return "history";
+    return initialSection === "history" || initialSection === "catalog"
+      ? initialSection
+      : "sale";
+  });
   const [saleType, setSaleType] = useState<"resident" | "cash">("resident");
   const [residentId, setResidentId] = useState(residents[0]?.id ?? "");
   const [residentPickerValue, setResidentPickerValue] = useState(() => {
@@ -77,7 +85,9 @@ export default function CanteenSalesPanel({
   const [itemPrice, setItemPrice] = useState("");
   const [itemStockNumber, setItemStockNumber] = useState("");
   const [itemAddFlag, setItemAddFlag] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [categoryName, setCategoryName] = useState("");
+  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
   const [paymentTargetId, setPaymentTargetId] = useState<number | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDate, setPaymentDate] = useState(localDateValue());
@@ -90,7 +100,7 @@ export default function CanteenSalesPanel({
   const stockBalances = useMemo(() => {
     const balances = new Map<number, number>();
     for (const movement of canteen.movements) {
-      if (movement.voided) continue;
+      if (movement.voided || movement.needsReview) continue;
       balances.set(
         movement.itemNumber,
         (balances.get(movement.itemNumber) ?? 0) +
@@ -349,6 +359,7 @@ export default function CanteenSalesPanel({
     try {
       if (persistent) {
         const result = await saveCanteenSalesItemAction({
+          id: editingItemId,
           name: itemName,
           price,
           addToResidentAccount: itemAddFlag,
@@ -360,11 +371,13 @@ export default function CanteenSalesPanel({
         }
         onSalesChange((current) => ({
           ...current,
-          items: [...current.items, result.item],
+          items: editingItemId === null
+            ? [...current.items, result.item]
+            : current.items.map((item) => item.id === editingItemId ? result.item : item),
         }));
       } else {
         const item = {
-          id: Math.max(0, ...sales.items.map((entry) => entry.id)) + 1,
+          id: editingItemId ?? Math.max(0, ...sales.items.map((entry) => entry.id)) + 1,
           name: itemName.trim().normalize("NFC"),
           price,
           addToResidentAccount: itemAddFlag,
@@ -372,9 +385,12 @@ export default function CanteenSalesPanel({
         };
         onSalesChange((current) => ({
           ...current,
-          items: [...current.items, item],
+          items: editingItemId === null
+            ? [...current.items, item]
+            : current.items.map((entry) => entry.id === editingItemId ? item : entry),
         }));
       }
+      setEditingItemId(null);
       setItemName("");
       setItemPrice("");
       setItemStockNumber("");
@@ -396,26 +412,31 @@ export default function CanteenSalesPanel({
     setSaving(true);
     try {
       if (persistent) {
-        const result = await saveInvoiceCategoryAction({ name: categoryName });
+        const result = await saveInvoiceCategoryAction({ id: editingCategoryId, name: categoryName });
         if (!result.ok) {
           setError(result.error);
           return;
         }
         onSalesChange((current) => ({
           ...current,
-          categories: [...current.categories, result.category],
+          categories: editingCategoryId === null
+            ? [...current.categories, result.category]
+            : current.categories.map((category) => category.id === editingCategoryId ? result.category : category),
         }));
       } else {
         const category = {
-          id: Math.max(0, ...sales.categories.map((entry) => entry.id)) + 1,
+          id: editingCategoryId ?? Math.max(0, ...sales.categories.map((entry) => entry.id)) + 1,
           name: categoryName.trim().normalize("NFC"),
         };
         onSalesChange((current) => ({
           ...current,
-          categories: [...current.categories, category],
+          categories: editingCategoryId === null
+            ? [...current.categories, category]
+            : current.categories.map((entry) => entry.id === editingCategoryId ? category : entry),
         }));
       }
       setCategoryName("");
+      setEditingCategoryId(null);
     } catch {
       setError("تعذر حفظ الفئة.");
     } finally {
@@ -876,7 +897,7 @@ export default function CanteenSalesPanel({
                 checked={itemAddFlag}
                 onChange={(event) => setItemAddFlag(event.target.checked)}
               />
-              اضافة (حقل Access الأصلي)
+              إضافة إلى الفاتورة
             </label>
             <button className="primary-button" disabled={saving}>
               حفظ الصنف
@@ -907,6 +928,8 @@ export default function CanteenSalesPanel({
                   <th scope="col">السعر</th>
                   <th scope="col">اضافة</th>
                   <th scope="col">الارتباط بالمخزون</th>
+                  <th scope="col">المراجعة</th>
+                  <th scope="col">الإجراءات</th>
                 </tr>
               </thead>
               <tbody>
@@ -921,11 +944,26 @@ export default function CanteenSalesPanel({
                           product.itemNumber === item.canteenItemNumber,
                       )?.name ?? "لا يوجد"}
                     </td>
+                    <td>{item.needsReview || item.price <= 0 ? "يحتاج مراجعة" : "سليم"}</td>
+                    <td>
+                      <button
+                        className="table-action"
+                        disabled={saving}
+                        onClick={() => {
+                          setEditingItemId(item.id);
+                          setItemName(item.name);
+                          setItemPrice(String(item.price));
+                          setItemStockNumber(item.canteenItemNumber?.toString() ?? "");
+                          setItemAddFlag(item.addToResidentAccount);
+                        }}
+                        type="button"
+                      >تعديل</button>
+                    </td>
                   </tr>
                 ))}
                 {!sales.items.length && (
                   <tr>
-                    <td colSpan={4}>
+                    <td colSpan={6}>
                       <div className="empty-state">لا توجد أصناف مسجلة.</div>
                     </td>
                   </tr>
@@ -946,6 +984,18 @@ export default function CanteenSalesPanel({
                   <tr key={category.id}>
                     <td>{category.id}</td>
                     <td>{category.name}</td>
+                    <td>
+                      <button
+                        className="table-action"
+                        type="button"
+                        onClick={() => {
+                          setEditingCategoryId(category.id);
+                          setCategoryName(category.name);
+                        }}
+                      >
+                        تعديل
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {!sales.categories.length && (
@@ -965,6 +1015,15 @@ export default function CanteenSalesPanel({
         <div className="sales-invoice-list">
           {sales.invoices.map((invoice) => (
             <article className="sales-invoice-card" key={invoice.invoiceNumber}>
+              <PrintBrand
+                title={`فاتورة رقم ${invoice.invoiceNumber}`}
+                subtitle={`${formatDate(invoice.invoiceDate)} — ${invoice.saleType === "cash" ? "بيع نقدي" : invoice.residentName}`}
+                meta={[
+                  { label: "الإجمالي", value: numberFormatter.format(invoice.total) },
+                  { label: "المسدد", value: numberFormatter.format(invoice.paid) },
+                  { label: "الرصيد", value: numberFormatter.format(invoice.balance) },
+                ]}
+              />
               <div className="sales-invoice-heading">
                 <div>
                   <h4>فاتورة رقم {invoice.invoiceNumber}</h4>
@@ -978,6 +1037,16 @@ export default function CanteenSalesPanel({
                   <span>المسدد: {numberFormatter.format(invoice.paid)}</span>
                   <strong>الرصيد: {numberFormatter.format(invoice.balance)}</strong>
                   <span>{invoice.voided ? `ملغاة: ${invoice.voidReason}` : "سارية"}</span>
+                  <button
+                    className="secondary-button no-print"
+                    type="button"
+                    onClick={(event) => {
+                      const card = event.currentTarget.closest(".sales-invoice-card");
+                      if (card instanceof HTMLElement) printSingleRecord(card);
+                    }}
+                  >
+                    طباعة الفاتورة
+                  </button>
                 </div>
               </div>
               <div className="table-wrap">

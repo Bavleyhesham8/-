@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   meatSalePayments,
@@ -23,7 +23,8 @@ import type {
 export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> {
   await requireScreenAccess("meat-sales");
   const database = getDatabase();
-  const [catalog, products, movementRows, invoiceRows] = await Promise.all([
+  const [catalog, products, movementRows, invoiceRows, reviewCountRows] =
+    await Promise.all([
     database
       .select({
         id: refrigeratorItemCatalog.id,
@@ -58,6 +59,7 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
         outgoingDate: refrigeratorStockLedger.outgoingDate,
         issuePermitNumber: refrigeratorStockLedger.issuePermitNumber,
         recipient: refrigeratorStockLedger.recipient,
+        needsReview: refrigeratorStockLedger.needsReview,
         voided: refrigeratorStockVoids.movementId,
         voidReason: refrigeratorStockVoids.reason,
       })
@@ -85,16 +87,21 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
         meatSaleVoids,
         eq(meatSaleVoids.invoiceNumber, meatSalesInvoices.invoiceNumber),
       )
-      .orderBy(desc(meatSalesInvoices.invoiceNumber))
-      .limit(100),
+      .orderBy(desc(meatSalesInvoices.invoiceNumber)),
+    database
+      .select({ count: sql<number>`count(*)::int` })
+      .from(refrigeratorStockLedger)
+      .where(eq(refrigeratorStockLedger.needsReview, true)),
   ]);
+  const needsReviewCount = reviewCountRows[0]?.count ?? 0;
   const movements = movementRows.map((movement) => ({
     ...movement,
+    needsReview: movement.needsReview,
     voided: movement.voided !== null,
     voidReason: movement.voidReason ?? "",
   }));
   if (!invoiceRows.length) {
-    return { catalog, products, movements, invoices: [] };
+    return { catalog, products, movements, invoices: [], needsReviewCount };
   }
 
   const invoiceNumbers = invoiceRows.map((invoice) => invoice.invoiceNumber);
@@ -168,7 +175,11 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
       issuePermitNumber: invoice.issuePermitNumber,
       beneficiary: invoice.beneficiary,
       lines,
-      total: lines.reduce((sum, line) => sum + line.total, 0),
+      total: lines.reduce<number | null>(
+        (sum, line) =>
+          sum === null || line.total === null ? null : sum + line.total,
+        0,
+      ),
       paid: payments.reduce(
         (sum, payment) =>
           sum + (payment.kind === "payment" ? payment.amount : -payment.amount),
@@ -185,5 +196,6 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
     products,
     movements,
     invoices,
+    needsReviewCount,
   };
 }

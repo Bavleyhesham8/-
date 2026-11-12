@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   createDemoId,
   demoInventory,
@@ -24,7 +25,13 @@ import {
   type Resident,
   type ResidentStatus,
 } from "@/lib/demo-data";
-import { hasScreenAccess } from "@/lib/access-control";
+import {
+  canViewFullResidentProfile,
+  canViewResidentChurchData,
+  firstAccessibleScreen,
+  hasScreenAccess,
+  type DashboardScreen,
+} from "@/lib/access-control";
 import {
   checkOutResidentAction,
   createStaffAccountAction,
@@ -51,7 +58,9 @@ import ResidentFinancePanel from "@/components/resident-finance-panel";
 import { demoResidentFinance } from "@/lib/resident-finance-demo-data";
 import type { ResidentFinanceBundle } from "@/lib/resident-finance-types";
 import StaffPanel from "@/components/staff-panel";
+import StaffAttendancePanel from "@/components/staff-attendance-panel";
 import type { StaffBundle } from "@/lib/staff-types";
+import type { StaffAttendanceBundle } from "@/lib/staff-attendance-types";
 import LookupManagerPanel from "@/components/lookup-manager-panel";
 import { demoLookupData } from "@/lib/lookup-demo-data";
 import type { LookupData } from "@/lib/lookup-types";
@@ -60,14 +69,16 @@ import { demoTreatmentBundle } from "@/lib/treatment-demo-data";
 import type { TreatmentBundle } from "@/lib/treatment-types";
 import ExecutiveOverview from "@/components/executive-overview";
 import AccessManagerPanel from "@/components/access-manager-panel";
+import type { AuditLogEntry } from "@/lib/audit-log-types";
 import ResidentStatementModal from "@/components/resident-statement-modal";
-import ResidentPhotoManager from "@/components/resident-photo-manager";
 import ResidentProfilePrintModal from "@/components/resident-profile-print-modal";
 import GlobalTrackingPanel from "@/components/global-tracking-panel";
 import ResidentReportsPanel from "@/components/resident-reports-panel";
 import ResidentSearchPanel from "@/components/resident-search-panel";
 import PrintToolbar from "@/components/print-toolbar";
 import PrintBrand from "@/components/print-brand";
+import ClassicAccessNavigator from "@/components/classic-access-navigator";
+import { normalizeArabicName } from "@/lib/resident-matching";
 
 type View =
   | "overview"
@@ -86,13 +97,25 @@ type View =
   | "resident-stay-reports"
   | "meat-sales"
   | "staff"
+  | "staff-attendance"
   | "lookups"
   | "tracking"
-  | "access";
+  | "access"
+  | "no-access";
 type StatusFilter = "all" | ResidentStatus | "archived";
 type ResidentDraft = Omit<
   Resident,
-  "id" | "archived" | "church" | "confessor"
+  | "id"
+  | "archived"
+  | "nationalId"
+  | "treatingDoctorNumber"
+  | "treatingDoctorAddress"
+  | "rehabilitationTeam"
+  | "rehabilitationStage"
+  | "trainer"
+  | "supervisor"
+  | "lecturer"
+  | "imagePath"
 >;
 
 const emptyDraft: ResidentDraft = {
@@ -110,23 +133,16 @@ const emptyDraft: ResidentDraft = {
   villa: "",
   room: "",
   status: "current",
-  nationalId: "",
   maritalStatus: "",
   qualification: "",
   previousExperience: "",
   previousWorkplaces: "",
+  church: "",
+  confessor: "",
   residentEntry: "",
   relationshipDegree: "",
   entryTime: "",
   exitMethod: "",
-  treatingDoctorNumber: "",
-  treatingDoctorAddress: "",
-  rehabilitationTeam: "",
-  rehabilitationStage: "",
-  trainer: "",
-  supervisor: "",
-  lecturer: "",
-  imagePath: "",
   governorate: "",
   residentNumber: "",
   incompleteStay: false,
@@ -136,7 +152,7 @@ const emptyDraft: ResidentDraft = {
 
 type NavItem = {
   id: string;
-  key: View;
+  key: DashboardScreen;
   label: string;
   icon: IconName;
   group: string;
@@ -146,31 +162,40 @@ type NavItem = {
 const navItems: NavItem[] = [
   { id: "home", key: "overview", label: "الرئيسية", icon: "grid", group: "الرئيسية" },
 
-  { id: "residents", key: "residents", label: "النزلاء", icon: "people", group: "النزلاء" },
-  { id: "resident-reports", key: "resident-reports", label: "تقرير النزلاء", icon: "search", group: "النزلاء", tab: "names" },
-  { id: "resident-periods", key: "resident-stay-reports", label: "الفترة الزمنية", icon: "calendar", group: "النزلاء", tab: "stay" },
-  { id: "resident-search", key: "resident-search", label: "بحث النزلاء", icon: "search", group: "النزلاء" },
+  { id: "residents", key: "residents", label: "النزلاء", icon: "people", group: "النزلاء والإقامة" },
+  { id: "resident-search", key: "resident-search", label: "بحث النزلاء", icon: "search", group: "النزلاء والإقامة" },
+  { id: "rooms", key: "rooms", label: "السكن والغرف", icon: "room", group: "النزلاء والإقامة" },
+  { id: "resident-periods", key: "resident-stay-reports", label: "تقارير الإقامة", icon: "calendar", group: "النزلاء والإقامة" },
+  { id: "resident-reports", key: "resident-reports", label: "تقارير النزلاء", icon: "search", group: "النزلاء والإقامة", tab: "names" },
 
-  { id: "daily-ledger", key: "tracking", label: "دفتر اليومية والحركات", icon: "search", group: "اليومية", tab: "ledger" },
-  { id: "resident-finance", key: "resident-finance", label: "أمانات النزلاء", icon: "box", group: "اليومية" },
+  { id: "food-store", key: "inventory", label: "مخزن الأغذية", icon: "box", group: "التشغيل والمخازن" },
+  { id: "canteen", key: "canteen", label: "مخزون الكانتين", icon: "box", group: "التشغيل والمخازن" },
+  { id: "canteen-sales", key: "sales", label: "فواتير الكانتين", icon: "box", group: "التشغيل والمخازن", tab: "history" },
+  { id: "refrigerator", key: "meat-sales", label: "مبيعات الثلاجة", icon: "box", group: "التشغيل والمخازن", tab: "sale" },
+  { id: "custody", key: "custody", label: "العهدة", icon: "box", group: "التشغيل والمخازن" },
 
-  { id: "treatment", key: "treatment", label: "العلاج", icon: "pill", group: "الخدمات" },
-  { id: "rooms", key: "rooms", label: "السكن والغرف", icon: "room", group: "الخدمات" },
-  { id: "staff", key: "staff", label: "الموظفون", icon: "people", group: "الخدمات" },
+  { id: "resident-finance", key: "resident-finance", label: "أمانات النزلاء", icon: "box", group: "الفواتير والتقارير والحركات" },
+  { id: "resident-purchases", key: "invoice-reports", label: "مشتريات النزلاء", icon: "search", group: "الفواتير والتقارير والحركات" },
+  { id: "canteen-report", key: "canteen-reports", label: "أرصدة الكانتين والمنصرف", icon: "search", group: "الفواتير والتقارير والحركات" },
+  { id: "global-tracking", key: "tracking", label: "التتبع العام", icon: "search", group: "الفواتير والتقارير والحركات" },
+  { id: "lookups", key: "lookups", label: "البحث والبيانات المرجعية", icon: "search", group: "الفواتير والتقارير والحركات" },
 
-  { id: "refrigerator", key: "meat-sales", label: "الثلاجة", icon: "box", group: "المخازن", tab: "sale" },
-  { id: "food-store", key: "inventory", label: "مخزن الأغذية", icon: "box", group: "المخازن" },
-  { id: "canteen", key: "canteen", label: "الكانتين", icon: "box", group: "المخازن", tab: "stock" },
-  { id: "canteen-sales", key: "sales", label: "فواتير الكانتين", icon: "box", group: "المخازن", tab: "invoices" },
-  { id: "custody", key: "custody", label: "مخزن العهدة", icon: "box", group: "المخازن" },
-
-  { id: "canteen-report", key: "canteen-reports", label: "أرصدة الكانتين والمنصرف", icon: "search", group: "التقارير", tab: "report" },
-  { id: "resident-purchases", key: "invoice-reports", label: "مشتريات النزلاء", icon: "search", group: "التقارير", tab: "purchases" },
-  { id: "date-search", key: "tracking", label: "بحث بين تاريخين", icon: "search", group: "التقارير", tab: "search" },
-
-  { id: "lookups", key: "lookups", label: "البيانات المرجعية", icon: "search", group: "الإدارة" },
-  { id: "access", key: "access", label: "إدارة الوصول", icon: "shield", group: "الإدارة" },
+  { id: "treatment", key: "treatment", label: "العلاج", icon: "pill", group: "الخدمات والموظفون والإدارة" },
+  { id: "staff", key: "staff", label: "الموظفون", icon: "people", group: "الخدمات والموظفون والإدارة" },
+  { id: "staff-attendance", key: "staff-attendance", label: "الحضور والانصراف", icon: "calendar", group: "الخدمات والموظفون والإدارة" },
+  { id: "access", key: "access", label: "إدارة الوصول والتدقيق", icon: "shield", group: "الخدمات والموظفون والإدارة" },
 ];
+
+function getInitialView(user: DemoUser | undefined): View {
+  if (!user) return "no-access";
+  const screens = navItems
+    .filter((item) => item.key !== "access" || user.role === "admin")
+    .map((item) => item.key);
+  return (
+    firstAccessibleScreen(user.role, user.allowedScreens, screens) ??
+    "no-access"
+  );
+}
 
 const statusFilters: { key: StatusFilter; label: string }[] = [
   { key: "all", label: "الكل" },
@@ -332,6 +357,8 @@ function ResidentForm({
   checkIn = false,
   basicOnly = false,
   villaOptions,
+  churches,
+  confessors,
   error,
   onSave,
   onCancel,
@@ -340,6 +367,8 @@ function ResidentForm({
   checkIn?: boolean;
   basicOnly?: boolean;
   villaOptions: LookupData["villas"];
+  churches: string[];
+  confessors: string[];
   error: string;
   onSave: (draft: ResidentDraft) => void;
   onCancel: () => void;
@@ -356,12 +385,13 @@ function ResidentForm({
           emergencyContact: initial.emergencyContact,
           emergencyPhone: initial.emergencyPhone,
           relationship: initial.relationship,
+          church: initial.church || "",
+          confessor: initial.confessor || "",
           admissionDate: initial.admissionDate,
           exitDate: initial.exitDate,
           villa: initial.villa,
           room: initial.room,
           status: initial.status,
-          nationalId: initial.nationalId || "",
           maritalStatus: initial.maritalStatus || "",
           qualification: initial.qualification || "",
           previousExperience: initial.previousExperience || "",
@@ -370,14 +400,6 @@ function ResidentForm({
           relationshipDegree: initial.relationshipDegree || "",
           entryTime: initial.entryTime || "",
           exitMethod: initial.exitMethod || "",
-          treatingDoctorNumber: initial.treatingDoctorNumber || "",
-          treatingDoctorAddress: initial.treatingDoctorAddress || "",
-          rehabilitationTeam: initial.rehabilitationTeam || "",
-          rehabilitationStage: initial.rehabilitationStage || "",
-          trainer: initial.trainer || "",
-          supervisor: initial.supervisor || "",
-          lecturer: initial.lecturer || "",
-          imagePath: initial.imagePath || "",
         }
       : { ...emptyDraft };
     if (checkIn) {
@@ -400,6 +422,9 @@ function ResidentForm({
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
+  const churchOptions = churches;
+  const confessorOptions = confessors;
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onSave({
@@ -414,13 +439,6 @@ function ResidentForm({
   return (
     <form onSubmit={handleSubmit}>
       <div className="modal-content">
-        <div style={{ marginBottom: "20px", paddingBottom: "16px", borderBottom: "1px solid #e2e8f0" }}>
-          <ResidentPhotoManager
-            photoUrl={draft.imagePath}
-            residentName={draft.name}
-            onPhotoChange={(newUrl) => update("imagePath", newUrl)}
-          />
-        </div>
         <div className="form-grid">
           <label className="form-field">
             الاسم الكامل *
@@ -508,14 +526,6 @@ function ResidentForm({
                 />
               </label>
               <label className="form-field">
-                الرقم القومي
-                <input
-                  value={draft.nationalId}
-                  onChange={(event) => update("nationalId", event.target.value)}
-                  placeholder="14 رقم"
-                />
-              </label>
-              <label className="form-field">
                 الحالة الاجتماعية
                 <input
                   value={draft.maritalStatus}
@@ -591,70 +601,6 @@ function ResidentForm({
                   placeholder="تعافي / خروج بإقرار / ..."
                 />
               </label>
-              <label className="form-field">
-                رقم الطبيب المعالج
-                <input
-                  value={draft.treatingDoctorNumber}
-                  onChange={(event) =>
-                    update("treatingDoctorNumber", event.target.value)
-                  }
-                  placeholder="رقم الهاتف"
-                />
-              </label>
-              <label className="form-field full">
-                عنوان الطبيب المعالج
-                <input
-                  value={draft.treatingDoctorAddress}
-                  onChange={(event) =>
-                    update("treatingDoctorAddress", event.target.value)
-                  }
-                  placeholder="عيادة الطبيب أو المستشفى"
-                />
-              </label>
-              <label className="form-field">
-                فريق التأهيل والإرشاد
-                <input
-                  value={draft.rehabilitationTeam}
-                  onChange={(event) =>
-                    update("rehabilitationTeam", event.target.value)
-                  }
-                  placeholder="اسم الفريق أو المشرف"
-                />
-              </label>
-              <label className="form-field">
-                مرحلة التأهيل والتعافي
-                <input
-                  value={draft.rehabilitationStage}
-                  onChange={(event) =>
-                    update("rehabilitationStage", event.target.value)
-                  }
-                  placeholder="أولى / ثانية / متقدمة"
-                />
-              </label>
-              <label className="form-field">
-                المدرب
-                <input
-                  value={draft.trainer}
-                  onChange={(event) => update("trainer", event.target.value)}
-                  placeholder="اسم المدرب"
-                />
-              </label>
-              <label className="form-field">
-                المشرف
-                <input
-                  value={draft.supervisor}
-                  onChange={(event) => update("supervisor", event.target.value)}
-                  placeholder="اسم المشرف"
-                />
-              </label>
-              <label className="form-field">
-                المحاضر
-                <input
-                  value={draft.lecturer}
-                  onChange={(event) => update("lecturer", event.target.value)}
-                  placeholder="اسم المحاضر"
-                />
-              </label>
             </>
           )}
           <label className="form-field">
@@ -666,6 +612,38 @@ function ResidentForm({
               onChange={(event) => update("admissionDate", event.target.value)}
             />
           </label>
+          {!basicOnly && (
+            <>
+              <label className="form-field">
+                الكنيسة
+                <input
+                  list="resident-church-options"
+                  value={draft.church}
+                  onChange={(event) => update("church", event.target.value)}
+                  placeholder="ابحث عن كنيسة أو أضف كنيسة جديدة"
+                />
+                <datalist id="resident-church-options">
+                  {churchOptions.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </label>
+              <label className="form-field">
+                أب الاعتراف
+                <input
+                  list="resident-confessor-options"
+                  value={draft.confessor}
+                  onChange={(event) => update("confessor", event.target.value)}
+                  placeholder="ابحث عن أب اعتراف أو أضف اسمًا جديدًا"
+                />
+                <datalist id="resident-confessor-options">
+                  {confessorOptions.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </label>
+            </>
+          )}
           <label className="form-field">
             الحالة
             <select
@@ -723,8 +701,7 @@ function ResidentForm({
             </label>
           )}
           <div className="form-hint form-field full">
-            الحقول الصحية والقومية والدينية والصور مؤجلة؛ الموظف يرى الحقول
-            الأساسية فقط، ولا تُستورد أي سجلات Access.
+            أدخل بيانات الشخص وتفاصيل الإقامة، ويمكنك اختيار الكنيسة وأب الاعتراف أو إضافة قيم جديدة.
           </div>
         </div>
         {error && (
@@ -757,6 +734,7 @@ const emptyCustody: CustodyBundle = {
   employees: [],
   records: [],
   linkedEmployeeNumber: null,
+  needsReviewCount: 0,
 };
 const emptyResidentFinance: ResidentFinanceBundle = {
   records: [],
@@ -777,6 +755,7 @@ const emptyMeatSales: MeatSalesBundle = {
   products: [],
   movements: [],
   invoices: [],
+  needsReviewCount: 0,
 };
 const emptyStaff: StaffBundle = {
   profiles: [],
@@ -785,12 +764,18 @@ const emptyStaff: StaffBundle = {
   accountOptions: [],
   accountLinks: [],
 };
+const emptyStaffAttendance: StaffAttendanceBundle = {
+  entries: [],
+  employees: [],
+  linkedEmployeeNumber: null,
+};
 const emptyLookups: LookupData = {
   churches: [],
   governorates: [],
   days: [],
   alternateCategories: [],
   villas: [],
+  rooms: [],
 };
 
 type CenterDashboardProps = {
@@ -804,6 +789,8 @@ type CenterDashboardProps = {
   initialSales?: CanteenSalesBundle;
   initialMeatSales?: MeatSalesBundle;
   initialStaffData?: StaffBundle;
+  initialStaffAttendance?: StaffAttendanceBundle;
+  initialAuditLogs?: AuditLogEntry[];
   initialLookups?: LookupData;
   initialTreatment?: TreatmentBundle;
   currentUser?: DemoUser;
@@ -825,6 +812,8 @@ export default function CenterDashboard({
   initialSales,
   initialMeatSales,
   initialStaffData,
+  initialStaffAttendance,
+  initialAuditLogs,
   initialLookups,
   initialTreatment,
   currentUser,
@@ -861,12 +850,19 @@ export default function CenterDashboard({
   const [staffData, setStaffData] = useState(
     initialStaffData ?? (persistent ? emptyStaff : demoStaffBundle),
   );
+  const staffAttendance = initialStaffAttendance ?? emptyStaffAttendance;
   const [lookups, setLookups] = useState(
     initialLookups ?? (persistent ? emptyLookups : demoLookupData),
   );
   const [statementResident, setStatementResident] = useState<Resident | null>(null);
   const [profilePrintResident, setProfilePrintResident] = useState<Resident | null>(null);
-  const [view, setView] = useState<View>("overview");
+  const [view, setView] = useState<View>(() =>
+    getInitialView(
+      currentUser ??
+        initialUsers?.[0] ??
+        (persistent ? undefined : demoUsers[0]),
+    ),
+  );
   const [viewTab, setViewTab] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
@@ -877,6 +873,12 @@ export default function CenterDashboard({
   const [message, setMessage] = useState("");
   const [addingStaff, setAddingStaff] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+
+  useEffect(() => {
+    document
+      .querySelector<HTMLElement>(".nav-item.active")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  }, [view, viewTab]);
 
   useEffect(() => {
     if (!selectedId && !editingId) return;
@@ -972,20 +974,27 @@ export default function CenterDashboard({
     );
   }
   const canEdit =
-    activeUser.role === "admin" || Boolean(activeUser.canEdit);
+    activeUser.role === "admin" ||
+    (activeUser.role === "staff" && Boolean(activeUser.canEdit));
   const canAccessClinic =
-    activeUser.role === "admin" || Boolean(activeUser.canAccessClinic);
+    activeUser.role === "admin" ||
+    (activeUser.role === "staff" && Boolean(activeUser.canAccessClinic));
   const canIssueInvoices =
-    activeUser.role === "admin" || Boolean(activeUser.canIssueInvoices);
+    activeUser.role === "admin" ||
+    (activeUser.role === "staff" && Boolean(activeUser.canIssueInvoices));
   const canManageWarehouse =
-    activeUser.role === "admin" || Boolean(activeUser.canManageWarehouse);
+    activeUser.role === "admin" ||
+    (activeUser.role === "staff" && Boolean(activeUser.canManageWarehouse));
   const canManageCustody =
-    activeUser.role === "admin" || Boolean(activeUser.canManageCustody);
+    activeUser.role === "admin" ||
+    (activeUser.role === "staff" && Boolean(activeUser.canManageCustody));
   const canManageMeatSales =
-    activeUser.role === "admin" || Boolean(activeUser.canManageMeatSales);
+    activeUser.role === "admin" ||
+    (activeUser.role === "staff" && Boolean(activeUser.canManageMeatSales));
   const canManageCanteen =
     activeUser.role === "admin" ||
-    Boolean(activeUser.canManageCanteen || activeUser.canteenAccess);
+    (activeUser.role === "staff" &&
+      Boolean(activeUser.canManageCanteen || activeUser.canteenAccess));
 
   // الشاشة لا تُعرض إلا إذا كانت هناك بيانات وصلاحية فعلية لعرضها،
   // حتى لا يصل المستخدم إلى تبويب فارغ.
@@ -995,6 +1004,7 @@ export default function CenterDashboard({
       case "residents":
       case "rooms":
       case "staff":
+      case "staff-attendance":
       case "lookups":
       case "tracking":
       case "resident-reports":
@@ -1018,9 +1028,18 @@ export default function CenterDashboard({
   };
 
   const isScreenAllowed = (screenKey: View): boolean => {
+    if (screenKey === "no-access") return false;
     if (!hasScreenPermission(screenKey)) return false;
     return hasScreenAccess(activeUser.role, activeUser.allowedScreens, screenKey);
   };
+  const visibleViews = navItems
+    .filter((item) => isScreenAllowed(item.key))
+    .map((item) => item.key);
+  const canViewResidentReferences = canViewResidentChurchData(
+    activeUser.role,
+    activeUser.allowedScreens ?? [],
+    activeUser.canEdit,
+  );
   const selectedResident =
     residents.find((resident) => resident.id === selectedId) ?? null;
 
@@ -1028,6 +1047,22 @@ export default function CenterDashboard({
     () => residents.filter((resident) => !resident.archived),
     [residents],
   );
+  const residentChurchReferences = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const resident of activeResidents) {
+      const name = resident.church?.trim();
+      if (name) names.set(normalizeArabicName(name), name);
+    }
+    return [...names.values()].sort((left, right) => left.localeCompare(right, "ar"));
+  }, [activeResidents]);
+  const residentConfessorReferences = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const resident of activeResidents) {
+      const name = resident.confessor?.trim();
+      if (name) names.set(normalizeArabicName(name), name);
+    }
+    return [...names.values()].sort((left, right) => left.localeCompare(right, "ar"));
+  }, [activeResidents]);
 
   const currentCount = activeResidents.filter(
     (resident) => resident.status === "current",
@@ -1185,8 +1220,6 @@ export default function CenterDashboard({
     if (editingId === "new") {
       const nextResident: Resident = {
         ...normalizedDraft,
-        church: "",
-        confessor: "",
         id: createDemoId(),
         archived: false,
       };
@@ -1200,8 +1233,6 @@ export default function CenterDashboard({
             ? {
                 ...resident,
                 ...normalizedDraft,
-                church: "",
-                confessor: "",
               }
             : resident,
         ),
@@ -1318,6 +1349,7 @@ export default function CenterDashboard({
   }
 
   const pageTitles: Record<View, string> = {
+    "no-access": "لا توجد شاشة متاحة",
     overview: "الرئيسية",
     residents: "النزلاء",
     "resident-reports": "تقرير النزلاء",
@@ -1334,8 +1366,9 @@ export default function CenterDashboard({
     "resident-stay-reports": "الفترة الزمنية",
     "meat-sales": "الثلاجة",
     staff: "الموظفون",
+    "staff-attendance": "الحضور والانصراف",
     lookups: "البيانات المرجعية",
-    tracking: viewTab === "search" ? "بحث بين تاريخين" : "دفتر اليومية والحركات",
+    tracking: "التتبع العام",
     access: "إدارة الوصول",
   };
   const pageTitle = pageTitles[view];
@@ -1344,9 +1377,14 @@ export default function CenterDashboard({
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark" aria-hidden="true">
-            ق
-          </div>
+          <Image
+            className="brand-mark"
+            src="/david-lyre-logo-v2.svg"
+            alt="شعار مركز قيثارة داود"
+            width={46}
+            height={46}
+            priority
+          />
           <div>
             <p className="brand-name">مركز قيثارة داود</p>
             <p className="brand-subtitle">نظام إدارة المركز</p>
@@ -1388,7 +1426,7 @@ export default function CenterDashboard({
             {persistent ? "Neon PostgreSQL" : "نموذج أولي محلي"}
           </strong>
           {persistent
-            ? "السجلات محفوظة في قاعدة البيانات؛ لم تُستورد سجلات Access."
+            ? "البيانات محفوظة في قاعدة بيانات المركز."
             : "لا يتصل بقاعدة بيانات ولا يحفظ التغييرات بعد تحديث الصفحة."}
         </div>
       </aside>
@@ -1444,15 +1482,14 @@ export default function CenterDashboard({
             <PrintBrand title={pageTitle} />
           </div>
 
-          <div className="prototype-banner" role="note">
+          {!persistent && <div className="prototype-banner" role="note">
             <span className="banner-mark" aria-hidden="true">
               !
             </span>
             <span>
               {persistent ? (
                 <>
-                  <strong>لا توجد سجلات Access مستوردة.</strong> استخدم بيانات
-                  اختبار حتى مراجعة الترحيلات وإعدادات قاعدة الإنتاج.
+                  <strong>قاعدة البيانات جاهزة للعمل.</strong> يمكنك متابعة التسجيل وإدارة بيانات المركز من هنا.
                 </>
               ) : (
                 <>
@@ -1462,7 +1499,18 @@ export default function CenterDashboard({
                 </>
               )}
             </span>
-          </div>
+          </div>}
+
+          <ClassicAccessNavigator
+            onNavigate={(targetView, targetTab) =>
+              openView(targetView as View, targetTab ?? null)
+            }
+            visibleViews={visibleViews}
+            canIssueInvoices={canIssueInvoices}
+            canManageMeatSales={canManageMeatSales}
+            canViewResidentReferences={canViewResidentReferences}
+            isAdministrator={activeUser.role === "admin"}
+          />
 
           <div className="page-heading">
             <div>
@@ -1492,6 +1540,8 @@ export default function CenterDashboard({
                     ? activeUser.role === "admin"
                       ? "إدارة ملفات الموظفين وسجلات الإجازات وربط حسابات الدخول."
                       : "عرض ملفك الشخصي وسجل إجازاتك المرتبط بحسابك."
+                  : view === "staff-attendance"
+                    ? "تسجيل الحضور والانصراف مع سجل زمني لكل موظف."
                   : persistent
                     ? "إدارة السجلات والإقامة المحفوظة في قاعدة البيانات."
                     : "متابعة سجلات تجريبية وإدارة الإقامة."}
@@ -1511,15 +1561,22 @@ export default function CenterDashboard({
             <PrintToolbar />
           </div>
 
-          {view === "overview" && (
+          {view === "no-access" && (
+            <div className="content-panel empty-state" role="status">
+              لا توجد شاشة مسموح بها لهذا الحساب. اطلب من مدير النظام ضبط
+              الصلاحيات.
+            </div>
+          )}
+
+          {view === "overview" && isScreenAllowed("overview") && (
             <ExecutiveOverview
               residents={residents}
               sales={sales}
               meatSales={meatSales}
               treatment={treatment}
               residentFinance={residentFinance}
-              custody={custody}
               lookups={lookups}
+              visibleViews={visibleViews}
               onNavigate={(targetView, targetTab) =>
                 openView(targetView as View, targetTab ?? null)
               }
@@ -1596,25 +1653,9 @@ export default function CenterDashboard({
                       <tr key={resident.id}>
                         <td>
                           <div className="person-cell">
-                            {resident.imagePath ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={resident.imagePath}
-                                alt={resident.name}
-                                style={{
-                                  width: "36px",
-                                  height: "36px",
-                                  borderRadius: "10px",
-                                  objectFit: "cover",
-                                  border: "1.5px solid #0f766e",
-                                  flexShrink: 0,
-                                }}
-                              />
-                            ) : (
-                              <span className="person-avatar" aria-hidden="true">
-                                {initials(resident.name)}
-                              </span>
-                            )}
+                            <span className="person-avatar" aria-hidden="true">
+                              {initials(resident.name)}
+                            </span>
                             <span className="person-info">
                               <strong>{resident.name}</strong>
                               {activeUser.role === "admin" && (
@@ -1742,6 +1783,7 @@ export default function CenterDashboard({
               key={viewTab ?? "names"}
               residents={residents}
               treatment={treatment}
+              canViewTreatment={isScreenAllowed("treatment")}
               initialReport={viewTab}
               persistent={persistent}
             />
@@ -1808,12 +1850,14 @@ export default function CenterDashboard({
 
           {view === "sales" && isScreenAllowed("sales") && (
             <CanteenSalesPanel
+              key={viewTab ?? "sale"}
               sales={sales}
               lookups={lookups}
               residents={residents}
               canteen={canteen}
               persistent={persistent}
               canManage={canIssueInvoices}
+              initialSection={viewTab}
               onSalesChange={setSales}
               onCanteenChange={setCanteen}
             />
@@ -1849,14 +1893,24 @@ export default function CenterDashboard({
             />
           )}
 
+          {view === "staff-attendance" && (
+            <StaffAttendancePanel
+              bundle={staffAttendance}
+              role={activeUser.role}
+              persistent={persistent}
+            />
+          )}
+
           {view === "lookups" && (
             <LookupManagerPanel
+              key={viewTab ?? "resident"}
               lookups={lookups}
               residents={residents}
               staffData={staffData}
               sales={sales}
               currentUser={activeUser}
               persistent={persistent}
+              initialReferenceTab={viewTab}
               onLookupsChange={setLookups}
               onResidentsChange={setResidents}
               onStaffDataChange={setStaffData}
@@ -1896,6 +1950,7 @@ export default function CenterDashboard({
               <AccessManagerPanel
                 users={users}
                 inventory={inventory}
+                auditLogs={initialAuditLogs ?? []}
                 persistent={persistent}
                 onUsersChange={setUsers}
                 onAddingStaffToggle={() => setAddingStaff((v) => !v)}
@@ -1925,7 +1980,7 @@ export default function CenterDashboard({
         <ResidentDetails
           resident={selectedResident}
           canEdit={canEdit}
-          basicOnly={activeUser.role !== "admin"}
+          basicOnly={!canViewFullResidentProfile(activeUser.role, activeUser.allowedScreens)}
           persistent={persistent}
           onClose={() => setSelectedId(null)}
           onPrintProfile={() => setProfilePrintResident(selectedResident)}
@@ -1992,6 +2047,8 @@ export default function CenterDashboard({
               checkIn={checkInMode}
               basicOnly={activeUser.role !== "admin"}
               villaOptions={lookups.villas}
+              churches={residentChurchReferences}
+              confessors={residentConfessorReferences}
               error={formError}
               onSave={saveResident}
               onCancel={() => {
@@ -2103,7 +2160,6 @@ function ResidentDetails({
     ? stayFields
     : [
         ["تاريخ الميلاد", formatDate(resident.birthDate)],
-        ["الرقم القومي", displayValue(resident.nationalId ?? "")],
         ["رقم الهاتف", displayValue(resident.phone)],
         ["الحالة الاجتماعية", displayValue(resident.maritalStatus ?? "")],
         ["المؤهل الدراسي", displayValue(resident.qualification ?? "")],
@@ -2111,6 +2167,8 @@ function ResidentDetails({
         ["أماكن العمل السابقة", displayValue(resident.previousWorkplaces ?? "")],
         ["العنوان", displayValue(resident.address)],
         ["المحافظة / المنطقة", displayValue(resident.district)],
+        ["الكنيسة", displayValue(resident.church)],
+        ["أب الاعتراف", displayValue(resident.confessor)],
         ["جهة اتصال للطوارئ", displayValue(resident.emergencyContact)],
         ["هاتف جهة الاتصال", displayValue(resident.emergencyPhone)],
         ["صلة القرابة", displayValue(resident.relationship)],
@@ -2119,13 +2177,6 @@ function ResidentDetails({
         ["ساعة الدخول", displayValue(resident.entryTime ?? "")],
         ["طريقة الدخول", displayValue(resident.residentEntry ?? "")],
         ["طريقة الخروج", displayValue(resident.exitMethod ?? "")],
-        ["رقم الطبيب المعالج", displayValue(resident.treatingDoctorNumber ?? "")],
-        ["عنوان الطبيب المعالج", displayValue(resident.treatingDoctorAddress ?? "")],
-        ["فريق التأهيل والإرشاد", displayValue(resident.rehabilitationTeam ?? "")],
-        ["مرحلة التأهيل والتعافي", displayValue(resident.rehabilitationStage ?? "")],
-        ["المدرب", displayValue(resident.trainer ?? "")],
-        ["المشرف", displayValue(resident.supervisor ?? "")],
-        ["المحاضر", displayValue(resident.lecturer ?? "")],
       ];
 
   return (
@@ -2158,26 +2209,9 @@ function ResidentDetails({
         </div>
         <div className="modal-content">
           <div className="detail-person" style={{ display: "flex", gap: "14px", alignItems: "center" }}>
-            {resident.imagePath ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={resident.imagePath}
-                alt={resident.name}
-                style={{
-                  width: "58px",
-                  height: "58px",
-                  borderRadius: "14px",
-                  objectFit: "cover",
-                  border: "2px solid #0f766e",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                  flexShrink: 0,
-                }}
-              />
-            ) : (
-              <span className="person-avatar" aria-hidden="true">
-                {initials(resident.name)}
-              </span>
-            )}
+            <span className="person-avatar" aria-hidden="true">
+              {initials(resident.name)}
+            </span>
             <div>
               <h4>{resident.name}</h4>
               <p>

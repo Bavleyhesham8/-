@@ -13,6 +13,7 @@ import {
   warehouseHeaders,
 } from "@/db/schema";
 import { requireAnyStaffPermission } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import { listCustodyDataForCurrentUser } from "@/lib/custody-data";
 import type { CustodyBundle } from "@/lib/custody-types";
 
@@ -38,29 +39,31 @@ function toDate(value: string) {
 function calculateBalances(
   movements: {
     number: number;
-    incoming: number;
-    outgoing: number;
+    incoming: number | null;
+    outgoing: number | null;
+    needsReview: boolean;
   }[],
 ) {
   const balances = new Map<number, number>();
   for (const movement of movements) {
+    if (movement.needsReview) continue;
     balances.set(
       movement.number,
       (balances.get(movement.number) ?? 0) +
-        movement.incoming -
-        movement.outgoing,
+        (movement.incoming ?? 0) -
+        (movement.outgoing ?? 0),
     );
   }
   return balances;
 }
 
 function outstandingQuantity(
-  quantity: number,
+  quantity: number | null,
   events: { kind: "return" | "transfer" | "void"; quantity: number }[],
 ) {
   return Math.max(
     0,
-    quantity -
+    (quantity ?? 0) -
       events.reduce(
         (total, event) =>
           total +
@@ -117,6 +120,13 @@ export async function saveWarehouseCatalogItemAction(
   if ("error" in result && result.error) {
     return { ok: false, error: result.error };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "warehouseHeaders",
+    entityId: result.itemNumber,
+    metadata: { fields: "itemName,price" },
+  });
   return { ok: true, bundle: await listCustodyDataForCurrentUser() };
 }
 
@@ -124,7 +134,7 @@ export async function updateWarehouseItemPriceAction(
   itemNumberInput: number,
   priceInput: number,
 ): Promise<{ ok: true; bundle: CustodyBundle } | { ok: false; error: string }> {
-  await requireAnyStaffPermission("canManageCustody", "canManageWarehouse");
+  const session = await requireAnyStaffPermission("canManageCustody", "canManageWarehouse");
   const itemNumber = itemNumberSchema.safeParse(itemNumberInput);
   const price = priceSchema.safeParse(priceInput);
   if (!itemNumber.success || !price.success) {
@@ -147,9 +157,15 @@ export async function updateWarehouseItemPriceAction(
     return true;
   });
 
-  return updated
-    ? { ok: true, bundle: await listCustodyDataForCurrentUser() }
-    : { ok: false, error: "لم يتم العثور على صنف المخزن." };
+  if (!updated) return { ok: false, error: "لم يتم العثور على صنف المخزن." };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "warehouseHeaders",
+    entityId: itemNumber.data,
+    metadata: { fields: "price" },
+  });
+  return { ok: true, bundle: await listCustodyDataForCurrentUser() };
 }
 
 export async function recordWarehouseReceiptAction(
@@ -182,16 +198,18 @@ export async function recordWarehouseReceiptAction(
         number: warehouseDetails.number,
         incoming: warehouseDetails.incoming,
         outgoing: warehouseDetails.outgoing,
+        needsReview: warehouseDetails.needsReview,
       })
       .from(warehouseDetails)
       .where(
         and(
           eq(warehouseDetails.number, item.number),
           eq(warehouseDetails.deleted, false),
+          eq(warehouseDetails.needsReview, false),
         ),
       );
     const balance = calculateBalances(previousMovements).get(item.number) ?? 0;
-    await transaction.insert(warehouseDetails).values({
+    const [receipt] = await transaction.insert(warehouseDetails).values({
       number: item.number,
       balance,
       incoming: parsed.data.quantity,
@@ -202,13 +220,21 @@ export async function recordWarehouseReceiptAction(
       deleted: false,
       movementKind: "receipt",
       createdBy: session.user.id,
-    });
-    return { ok: true } as const;
+    }).returning({ id: warehouseDetails.id });
+    if (!receipt) throw new Error("تعذر تسجيل وارد المخزن.");
+    return { ok: true, id: receipt.id } as const;
   });
 
   if ("error" in result && result.error) {
     return { ok: false, error: result.error };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "warehouseDetails",
+    entityId: result.id,
+    metadata: { fields: "number,quantity,receivedDate" },
+  });
   return { ok: true, bundle: await listCustodyDataForCurrentUser() };
 }
 
@@ -281,12 +307,14 @@ export async function createCustodyIssueAction(
         number: warehouseDetails.number,
         incoming: warehouseDetails.incoming,
         outgoing: warehouseDetails.outgoing,
+        needsReview: warehouseDetails.needsReview,
       })
       .from(warehouseDetails)
       .where(
         and(
           inArray(warehouseDetails.number, itemNumbers),
           eq(warehouseDetails.deleted, false),
+          eq(warehouseDetails.needsReview, false),
         ),
       );
     const balances = calculateBalances(movementRows);
@@ -360,12 +388,19 @@ export async function createCustodyIssueAction(
       balances.set(item.number, remaining);
     }
 
-    return { ok: true } as const;
+    return { ok: true, custodyNumber: header.custodyNumber } as const;
   });
 
   if ("error" in result && result.error) {
     return { ok: false, error: result.error };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "custodyHeaders",
+    entityId: result.custodyNumber,
+    metadata: { fields: "custodyDate,recipientEmployeeNumber,items" },
+  });
   return { ok: true, bundle: await listCustodyDataForCurrentUser() };
 }
 
@@ -414,7 +449,7 @@ export async function returnCustodyItemAction(
     if (header.voided || detail.currentEmployeeNumber === null) {
       return { error: "لا يمكن استلام بند مغلق أو ملغى." } as const;
     }
-    if (parsed.data.eventDate < detail.transactionDate.toISOString().slice(0, 10)) {
+    if (detail.transactionDate && parsed.data.eventDate < detail.transactionDate.toISOString().slice(0, 10)) {
       return { error: "تاريخ المرتجع لا يمكن أن يسبق تاريخ العهدة." } as const;
     }
 
@@ -427,6 +462,9 @@ export async function returnCustodyItemAction(
       return { error: "كمية المرتجع أكبر من الكمية المتبقية في العهدة." } as const;
     }
 
+    if (!detail.warehouseNumber) {
+      return { error: "بند العهدة غير مرتبط بصنف في المخزن." } as const;
+    }
     const [warehouseItem] = await transaction
       .select({ number: warehouseHeaders.number })
       .from(warehouseHeaders)
@@ -442,12 +480,14 @@ export async function returnCustodyItemAction(
         number: warehouseDetails.number,
         incoming: warehouseDetails.incoming,
         outgoing: warehouseDetails.outgoing,
+        needsReview: warehouseDetails.needsReview,
       })
       .from(warehouseDetails)
       .where(
         and(
           eq(warehouseDetails.number, warehouseItem.number),
           eq(warehouseDetails.deleted, false),
+          eq(warehouseDetails.needsReview, false),
         ),
       );
     const balance =
@@ -492,6 +532,13 @@ export async function returnCustodyItemAction(
   if ("error" in result && result.error) {
     return { ok: false, error: result.error };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "custodyDetails",
+    entityId: parsed.data.detailId,
+    metadata: { fields: "return" },
+  });
   return { ok: true, bundle: await listCustodyDataForCurrentUser() };
 }
 
@@ -540,7 +587,7 @@ export async function transferCustodyItemAction(
     if (header.voided || detail.currentEmployeeNumber === null) {
       return { error: "لا يمكن نقل بند مغلق أو ملغى." } as const;
     }
-    if (parsed.data.eventDate < detail.transactionDate.toISOString().slice(0, 10)) {
+    if (detail.transactionDate && parsed.data.eventDate < detail.transactionDate.toISOString().slice(0, 10)) {
       return { error: "تاريخ النقل لا يمكن أن يسبق تاريخ العهدة." } as const;
     }
 
@@ -585,6 +632,13 @@ export async function transferCustodyItemAction(
   if ("error" in result && result.error) {
     return { ok: false, error: result.error };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "custodyDetails",
+    entityId: parsed.data.detailId,
+    metadata: { fields: "currentEmployeeNumber" },
+  });
   return { ok: true, bundle: await listCustodyDataForCurrentUser() };
 }
 
@@ -613,7 +667,7 @@ export async function voidCustodyAction(
       .for("update");
     if (!header) return { error: "لم يتم العثور على سجل العهدة." } as const;
     if (header.voided) return { error: "سجل العهدة ملغى بالفعل." } as const;
-    if (parsed.data.eventDate < header.custodyDate.toISOString().slice(0, 10)) {
+    if (header.custodyDate && parsed.data.eventDate < header.custodyDate.toISOString().slice(0, 10)) {
       return { error: "تاريخ الإلغاء لا يمكن أن يسبق تاريخ العهدة." } as const;
     }
 
@@ -626,6 +680,7 @@ export async function voidCustodyAction(
     if (
       details.some(
         (detail) =>
+          detail.transactionDate &&
           parsed.data.eventDate < detail.transactionDate.toISOString().slice(0, 10),
       )
     ) {
@@ -663,7 +718,11 @@ export async function voidCustodyAction(
       }))
       .filter((entry) => entry.outstanding > 1e-9);
     const itemNumbers = [
-      ...new Set(activeDetails.map((entry) => entry.detail.warehouseNumber)),
+      ...new Set(
+        activeDetails
+          .map((entry) => entry.detail.warehouseNumber)
+          .filter((n): n is number => n !== null),
+      ),
     ].sort((a, b) => a - b);
     const warehouseItems = itemNumbers.length
       ? await transaction
@@ -685,18 +744,21 @@ export async function voidCustodyAction(
             number: warehouseDetails.number,
             incoming: warehouseDetails.incoming,
             outgoing: warehouseDetails.outgoing,
+            needsReview: warehouseDetails.needsReview,
           })
           .from(warehouseDetails)
           .where(
             and(
               inArray(warehouseDetails.number, itemNumbers),
               eq(warehouseDetails.deleted, false),
+              eq(warehouseDetails.needsReview, false),
             ),
           )
       : [];
     const balances = calculateBalances(stockRows);
     for (const entry of activeDetails) {
       const number = entry.detail.warehouseNumber;
+      if (!number) continue;
       const balance = balances.get(number) ?? 0;
       const [movement] = await transaction
         .insert(warehouseDetails)
@@ -748,5 +810,12 @@ export async function voidCustodyAction(
   if ("error" in result && result.error) {
     return { ok: false, error: result.error };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "delete",
+    entity: "custodyHeaders",
+    entityId: parsed.data.custodyNumber,
+    metadata: { fields: "voided,voidReason" },
+  });
   return { ok: true, bundle: await listCustodyDataForCurrentUser() };
 }

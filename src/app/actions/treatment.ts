@@ -8,8 +8,9 @@ import {
   legacyTreatmentHeaders,
 } from "@/db/schema";
 import { requireStaffPermission } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import { isDevelopmentDemoMode } from "@/lib/app-config";
-import { listTreatmentForAdministrator } from "@/lib/treatment-data";
+import { listTreatmentForCurrentUser } from "@/lib/treatment-data";
 import { demoTreatmentBundle } from "@/lib/treatment-demo-data";
 import type { TreatmentBundle } from "@/lib/treatment-types";
 
@@ -57,6 +58,9 @@ export async function createTreatmentHeaderAction(
     demoTreatmentBundle.records.push({
       residentNumber: parsed.data.residentNumber,
       residentName: parsed.data.residentName,
+      residentId: null,
+      matchScore: null,
+      matchAmbiguous: false,
       entries: [],
       totalBilled: 0,
     });
@@ -76,10 +80,17 @@ export async function createTreatmentHeaderAction(
   if (!created) {
     return { ok: false, error: "رقم النزيل مسجل بالفعل في سجلات العلاج." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "legacyTreatmentHeaders",
+    entityId: created.residentNumber,
+    metadata: { fields: "residentNumber,residentName" },
+  });
 
   return {
     ok: true,
-    bundle: await listTreatmentForAdministrator(),
+    bundle: await listTreatmentForCurrentUser(),
   };
 }
 
@@ -151,7 +162,7 @@ export async function recordTreatmentEntryAction(
       return { ok: false as const, error: "سجل النزيل غير موجود." };
     }
 
-    await transaction.insert(legacyTreatmentDetails).values({
+    const [entry] = await transaction.insert(legacyTreatmentDetails).values({
       residentNumber: parsed.data.residentNumber,
       medicationName: parsed.data.medicationName.normalize("NFC"),
       amount: parsed.data.amount,
@@ -160,19 +171,92 @@ export async function recordTreatmentEntryAction(
       total: calculatedTotal,
       treatmentDate: toDate(parsed.data.treatmentDate),
       createdBy: session.user.id,
-    });
+    }).returning({ id: legacyTreatmentDetails.id });
 
-    return { ok: true as const };
+    return { ok: true as const, id: entry?.id };
   });
 
   if (!result.ok) {
     return result;
   }
+  if (result.id === undefined) throw new Error("Treatment entry ID is missing.");
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "legacyTreatmentDetails",
+    entityId: result.id,
+    metadata: { fields: "medicationName,amount,quantity,discount,treatmentDate" },
+  });
 
   return {
     ok: true,
-    bundle: await listTreatmentForAdministrator(),
+    bundle: await listTreatmentForCurrentUser(),
   };
+}
+
+export async function editTreatmentEntryAction(input: unknown): Promise<ActionResult> {
+  const session = await requireStaffPermission("canAccessClinic");
+  const parsed = z.object({
+    id: z.number().int().positive(),
+    medicationName: z.string().trim().min(1).max(250),
+    amount: z.number().finite().positive().max(1_000_000),
+    quantity: z.number().finite().positive().max(10_000),
+    discount: z.number().finite().nonnegative().max(1_000_000),
+    treatmentDate: dateSchema,
+  }).safeParse(input);
+  if (!parsed.success || parsed.data.discount > parsed.data.amount * parsed.data.quantity) {
+    return { ok: false, error: "راجع اسم الدواء والسعر والكمية والخصم والتاريخ." };
+  }
+  const total = parsed.data.amount * parsed.data.quantity - parsed.data.discount;
+  if (isDevelopmentDemoMode()) {
+    for (const record of demoTreatmentBundle.records) {
+      const entry = record.entries.find((item) => item.id === parsed.data.id);
+      if (!entry || entry.voided) continue;
+      record.totalBilled = Math.max(0, record.totalBilled - entry.total + total);
+      Object.assign(entry, {
+        medicationName: parsed.data.medicationName.trim().normalize("NFC"),
+        amount: parsed.data.amount,
+        quantity: parsed.data.quantity,
+        discount: parsed.data.discount,
+        total,
+        treatmentDate: parsed.data.treatmentDate,
+      });
+      return { ok: true, bundle: { ...demoTreatmentBundle } };
+    }
+    return { ok: false, error: "قيد العلاج غير موجود أو ملغى." };
+  }
+
+  const updated = await getDatabase().transaction(async (transaction) => {
+    const [entry] = await transaction
+      .select({ id: legacyTreatmentDetails.id, voided: legacyTreatmentDetails.voided })
+      .from(legacyTreatmentDetails)
+      .where(eq(legacyTreatmentDetails.id, parsed.data.id))
+      .limit(1)
+      .for("update");
+    if (!entry || entry.voided) return null;
+    const [row] = await transaction
+      .update(legacyTreatmentDetails)
+      .set({
+        medicationName: parsed.data.medicationName.normalize("NFC"),
+        amount: parsed.data.amount,
+        quantity: parsed.data.quantity,
+        discount: parsed.data.discount,
+        total,
+        treatmentDate: toDate(parsed.data.treatmentDate),
+      })
+      .where(eq(legacyTreatmentDetails.id, entry.id))
+      .returning({ id: legacyTreatmentDetails.id });
+    return row ?? null;
+  });
+  if (!updated) return { ok: false, error: "قيد العلاج غير موجود أو ملغى." };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "legacyTreatmentDetails",
+    entityId: updated.id,
+    metadata: { fields: "medicationName,amount,quantity,discount,treatmentDate" },
+  });
+  return { ok: true, bundle: await listTreatmentForCurrentUser() };
 }
 
 export async function voidTreatmentEntryAction(
@@ -232,16 +316,22 @@ export async function voidTreatmentEntryAction(
       })
       .where(eq(legacyTreatmentDetails.id, parsed.data.id));
 
-    return { ok: true as const };
+    return { ok: true as const, id: entry.id };
   });
 
   if (!result.ok) {
     return result;
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "delete",
+    entity: "legacyTreatmentDetails",
+    entityId: result.id,
+    metadata: { fields: "voided,voidReason" },
+  });
 
   return {
     ok: true,
-    bundle: await listTreatmentForAdministrator(),
+    bundle: await listTreatmentForCurrentUser(),
   };
 }
-

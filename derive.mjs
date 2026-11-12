@@ -1,4 +1,7 @@
-export async function applyDerivations({ plan, client, tables, norm }) {
+import fs from "node:fs";
+import path from "node:path";
+
+export async function applyDerivations({ plan, client, tables, norm, group }) {
   const problems = [];
   const N = (row) =>
     Object.fromEntries(Object.entries(row).map(([key, value]) => [norm(key), value]));
@@ -17,21 +20,15 @@ export async function applyDerivations({ plan, client, tables, norm }) {
     return Number.isFinite(parsed) ? parsed : null;
   };
   const key = (value) => norm(String(value ?? ""));
-  const productKey = (value) => {
-    let normalized = key(value);
-    const poultrySuffix = "\u0641\u0631\u0627\u062e";
-    if (normalized.length > poultrySuffix.length && normalized.endsWith(poultrySuffix)) {
-      normalized = normalized.slice(0, -poultrySuffix.length);
-    }
-    return normalized.replace(/\u0629/g, "\u0647");
-  };
-  const first = (value) => key(String(value ?? "").split("/")[0]);
+  const productKey = (value) => key(value);
   const ent = (table) => plan.find((entry) => entry.table === table);
   const ids = (rows, indexes) =>
     indexes
       .slice(0, 15)
       .map((index) => g(rows[index], "ID") ?? `#${index + 2}`)
       .join(", ") + (indexes.length > 15 ? " ..." : "");
+  const sourceIds = (rows, indexes) =>
+    indexes.map((index) => String(g(rows[index], "ID") ?? `row:${index + 2}`));
 
   async function rowsOf(table) {
     const entry = ent(table);
@@ -64,7 +61,6 @@ export async function applyDerivations({ plan, client, tables, norm }) {
     parentKey,
     parentVal,
     fallback,
-    childText,
   }) {
     const rows = e.rows.map(N);
     const index = new Map();
@@ -96,19 +92,17 @@ export async function applyDerivations({ plan, client, tables, norm }) {
     });
 
     const matched = rows.length - missing.length - ambiguous.length;
+    e.matchStats = {
+      matched,
+      missingIds: sourceIds(rows, missing),
+      ambiguousIds: sourceIds(rows, ambiguous),
+    };
     console.log(
       `${missing.length || ambiguous.length ? "✖" : "✔"} ${label}: ${matched}/${rows.length} اتطابقوا (الأب فيه ${parents.length} صف)`
     );
     if (missing.length) {
-      let extra = "";
-      if (childText) {
-        const values = [
-          ...new Set(missing.map((rowIndex) => String(childText(rows[rowIndex]) ?? ""))),
-        ].slice(0, 10);
-        extra = ` | القيم: ${values.join(" | ")}`;
-      }
       problems.push(
-        `${label}: ${missing.length} صف مفيش ليهم أب مطابق (ID: ${ids(rows, missing)})${extra}`
+        `${label}: ${missing.length} صف مفيش ليهم أب مطابق (ID: ${ids(rows, missing)})`
       );
     }
     if (ambiguous.length) {
@@ -120,6 +114,20 @@ export async function applyDerivations({ plan, client, tables, norm }) {
   }
 
   const refrigeratorCatalog = await rowsOf("الاصناف / الفئة");
+  const refrigeratorCatalogEntry = ent("الاصناف / الفئة");
+  for (const raw of refrigeratorCatalogEntry?.rows ?? []) {
+    const row = N(raw);
+    const itemName = key(g(row, "الصنف / الفئة"));
+    const hasPrice = !blank(g(row, "السعر"));
+    const hasQuantity = !blank(g(row, "الكمية"));
+    if (
+      [key("السعر القديم"), key("السعر الجديد")].includes(itemName) &&
+      !hasPrice &&
+      !hasQuantity
+    ) {
+      raw.__quarantineReason = "source_section_label_not_catalog_item";
+    }
+  }
   const catalogById = new Map();
   for (const row of refrigeratorCatalog) {
     const id = key(g(row, "ID"));
@@ -127,9 +135,15 @@ export async function applyDerivations({ plan, client, tables, norm }) {
     catalogById.get(id).push(row);
   }
 
-  let e = ent("راس الثلاجة");
+  let   e = ent("راس الثلاجة");
   if (e) {
     const rows = e.rows.map(N);
+    const catalogById = new Map();
+    for (const catalogRow of refrigeratorCatalog) {
+      const id = key(g(catalogRow, "ID"));
+      if (!catalogById.has(id)) catalogById.set(id, []);
+      catalogById.get(id).push(catalogRow);
+    }
     const catalogIds = [];
     const invalid = [];
     rows.forEach((row, index) => {
@@ -145,7 +159,8 @@ export async function applyDerivations({ plan, client, tables, norm }) {
         : [];
       if (
         matches.length !== 1 ||
-        key(g(matches[0] ?? {}, "الصنف / الفئة")) !== key(g(row, "الصنف / الفئة"))
+        key(g(matches[0] ?? {}, "الصنف / الفئة")) !==
+          key(g(row, "الصنف / الفئة"))
       ) {
         catalogIds.push(null);
         invalid.push(index);
@@ -154,7 +169,7 @@ export async function applyDerivations({ plan, client, tables, norm }) {
       }
     });
     console.log(
-      `${invalid.length ? "✖" : "✔"} راس الثلاجة.catalog_id: ${rows.length - invalid.length}/${rows.length} اتربطوا حسب ترتيب مجموعتي السعر القديم والجديد`
+      `${invalid.length ? "✖" : "✔"} راس الثلاجة.catalog_id: ${rows.length - invalid.length}/${rows.length} validated source-ID and exact-name matches`
     );
     if (invalid.length) {
       problems.push(
@@ -166,17 +181,127 @@ export async function applyDerivations({ plan, client, tables, norm }) {
 
   e = ent("راس المخزن");
   if (e) {
+    const warehouseCatalog = ent("الاصناف");
+    if (!warehouseCatalog) throw new Error("WAREHOUSE_CATALOG_CSV_MISSING");
+    const sourceCatalogRows = warehouseCatalog.rows.map(N);
+    const existingCatalog = await client.query(
+      'SELECT "ID", "الاصناف" FROM public."الاصناف"',
+    );
+    const catalogRowsById = new Map();
+    const conflictingCatalogIds = new Set();
+    for (const row of [...sourceCatalogRows, ...existingCatalog.rows.map(N)]) {
+      const id = key(g(row, "ID"));
+      const previous = catalogRowsById.get(id);
+      if (!previous) {
+        catalogRowsById.set(id, row);
+      } else if (key(g(previous, "الاصناف")) !== key(g(row, "الاصناف"))) {
+        conflictingCatalogIds.add(id);
+      }
+    }
+    const knownCatalogRows = [...catalogRowsById]
+      .filter(([id]) => !conflictingCatalogIds.has(id))
+      .map(([, row]) => row);
+    let nextCatalogId = Math.max(
+      0,
+      ...knownCatalogRows.map((row) => Number(g(row, "ID")) || 0),
+    );
+    const catalogByName = new Map();
+    for (const row of knownCatalogRows) {
+      const name = key(g(row, "الاصناف"));
+      if (name) {
+        const ids = catalogByName.get(name) ?? new Set();
+        ids.add(g(row, "ID"));
+        catalogByName.set(name, ids);
+      }
+    }
+    const addedIds = [];
+    const sourceHeaders = e.rows.map(N);
+    for (const row of sourceHeaders) {
+      const sourceId = Number(g(row, "ID"));
+      if (!Number.isInteger(sourceId) || sourceId < 73 || sourceId > 80) continue;
+      const itemName = String(g(row, "الصنف") ?? "");
+      const nameKey = key(itemName);
+      if (!nameKey) continue;
+      const matchingCatalogIds = catalogByName.get(nameKey);
+      let catalogId = matchingCatalogIds?.size === 1
+        ? [...matchingCatalogIds][0]
+        : undefined;
+      if (!matchingCatalogIds) {
+        catalogId = ++nextCatalogId;
+        const rawRow = {};
+        const idHeader = Object.keys(warehouseCatalog.rows[0] ?? {}).find(
+          (header) => norm(header) === norm("ID"),
+        ) ?? "ID";
+        const nameHeader = Object.keys(warehouseCatalog.rows[0] ?? {}).find(
+          (header) => norm(header) === norm("الاصناف"),
+        ) ?? "الاصناف";
+        rawRow[idHeader] = String(catalogId);
+        rawRow[nameHeader] = itemName;
+        warehouseCatalog.rows.push(rawRow);
+        catalogByName.set(nameKey, new Set([catalogId]));
+        addedIds.push(catalogId);
+      }
+    }
+    if (addedIds.length) {
+      console.log(`WAREHOUSE_CATALOG_ADDED_COUNT=${addedIds.length} IDS=${addedIds.join(",")}`);
+    }
     resolve({
       label: "راس المخزن.catalog_id",
       e,
       outCol: "catalog_id",
-      parents: await rowsOf("الاصناف"),
+      parents: [...knownCatalogRows, ...warehouseCatalog.rows.slice(sourceCatalogRows.length).map(N)],
       childKey: (child) => key(g(child, "الصنف")),
       parentKey: (parent) => key(g(parent, "الاصناف")),
       parentVal: (parent) => g(parent, "ID"),
-      fallback: (child) => first(g(child, "الصنف")),
-      childText: (child) => g(child, "الصنف"),
     });
+  }
+
+  e = ent("كانتين");
+  if (e) {
+    const rows = e.rows.map(N);
+    addCol(
+      e,
+      "needs_review",
+      rows.map((row) => blank(g(row, "السعر"))),
+    );
+  }
+
+  e = ent("طرف الكانين");
+  if (e) {
+    const rows = e.rows.map(N);
+    const balances = [];
+    const needsReview = [];
+    rows.forEach((row) => {
+      const balance = exactNumber(g(row, "الرصيد"));
+      balances.push(balance === null ? 0 : balance);
+      needsReview.push(balance === null);
+    });
+    addCol(e, "الرصيد", balances);
+    addCol(e, "needs_review", needsReview);
+  }
+
+  e = ent("راس الكانتين");
+  if (e) {
+    const rows = e.rows.map(N);
+    addCol(
+      e,
+      "needs_review",
+      rows.map((row) => blank(g(row, "المستلم"))),
+    );
+  }
+
+  e = ent("مشتريات النزلاء");
+  if (e) {
+    const rows = e.rows.map(N);
+    const prices = [];
+    const needsReview = [];
+    rows.forEach((row) => {
+      const price = exactNumber(g(row, "السعر"));
+      prices.push(price === null ? 0 : price);
+      needsReview.push(price === null);
+    });
+    addCol(e, "السعر", prices);
+    addCol(e, "needs_review", needsReview);
   }
 
   e = ent("راس العهدة");
@@ -202,8 +327,151 @@ export async function applyDerivations({ plan, client, tables, norm }) {
       childKey: (child) => key(g(child, "الاصناف / الفئة")),
       parentKey: (parent) => key(g(parent, "الصنف")),
       parentVal: (parent) => g(parent, "رقم"),
-      fallback: (child) => first(g(child, "الاصناف / الفئة")),
     });
+  }
+
+  e = ent("راس العهدة");
+  if (e) {
+    const rows = e.rows.map(N);
+    addCol(
+      e,
+      "needs_review",
+      rows.map(
+        (row) =>
+          blank(g(row, "التاريخ")) ||
+          blank(g(row, "recipient_employee_number")),
+      ),
+    );
+  }
+
+  e = ent("العهدة");
+  if (e) {
+    const rows = e.rows.map(N);
+    const prices = [];
+    const totals = [];
+    const needsReview = [];
+    rows.forEach((row) => {
+      const quantity = exactNumber(g(row, "الكمية"));
+      const price = exactNumber(g(row, "السعر"));
+      prices.push(price === null ? 0 : price);
+      totals.push(quantity !== null && price !== null ? quantity * price : 0);
+      needsReview.push(
+        blank(g(row, "الاصناف / الفئة")) ||
+          quantity === null ||
+          price === null ||
+          blank(g(row, "التاريخ")) ||
+          blank(g(row, "warehouse_number")),
+      );
+    });
+    addCol(e, "السعر", prices);
+    addCol(e, "الإجمالى", totals);
+    addCol(e, "needs_review", needsReview);
+  }
+
+  const custodyHeaders = ent("راس العهدة");
+  const custodyDetails = ent("العهدة");
+  if (group === "C" && (custodyHeaders || custodyDetails)) {
+    const headerToEmployeeNumber = {};
+    const detailToWarehouseNumber = {};
+    for (const [index, raw] of (custodyHeaders?.rows ?? []).entries()) {
+      const row = N(raw);
+      const employeeNumber = g(row, "recipient_employee_number");
+      if (!blank(employeeNumber)) {
+        headerToEmployeeNumber[String(g(row, "ID") ?? `row:${index + 2}`)] =
+          String(employeeNumber);
+      }
+    }
+    for (const [index, raw] of (custodyDetails?.rows ?? []).entries()) {
+      const row = N(raw);
+      const warehouseNumber = g(row, "warehouse_number");
+      if (!blank(warehouseNumber)) {
+        detailToWarehouseNumber[String(g(row, "ID") ?? `row:${index + 2}`)] =
+          String(warehouseNumber);
+      }
+    }
+    const directory = path.resolve("mappings");
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(
+      path.join(directory, "custody.json"),
+      `${JSON.stringify({ headerToEmployeeNumber, detailToWarehouseNumber }, null, 2)}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    const rawBase = (value) => String(value ?? "").normalize("NFKC").toLowerCase();
+    const withoutSpaces = (value) => rawBase(value).replace(/\s/gu, "");
+    const hamzaNormalized = (value) =>
+      rawBase(value).replace(/[أإآٱ]/gu, "ا").replace(/[ؤئء]/gu, "");
+    const withoutCommonPrefix = (value) =>
+      key(value).replace(/^(?:ال|ابو|اب|الشيخ|الاب)/u, "");
+    const sortedWords = (value) =>
+      rawBase(value)
+        .split(/[^\p{L}\p{N}]+/u)
+        .map(key)
+        .filter(Boolean)
+        .sort()
+        .join("");
+    const slashParts = (value) =>
+      String(value ?? "").split("/").map(key).filter(Boolean).sort().join("");
+    const patternCounts = {
+      whitespace: 0,
+      hamza: 0,
+      prefix: 0,
+      word_order: 0,
+      slash: 0,
+    };
+    const inspectPatterns = (entry, childField, parentRows, parentField) => {
+      if (!entry) return;
+      const sourceRows = entry.rows.map(N);
+      const childTransforms = [
+        withoutSpaces, hamzaNormalized, withoutCommonPrefix, sortedWords, slashParts,
+      ];
+      const parentIndexes = childTransforms.map(() => new Set());
+      const exactParents = new Set(parentRows.map((row) => key(g(row, parentField))));
+      sourceRows.forEach((row, rowIndex) => {
+        const childName = g(row, childField);
+        if (exactParents.has(key(childName))) return;
+        const transforms = childTransforms.map((transform) => transform(childName));
+        parentRows.forEach((parent) => {
+          const parentName = g(parent, parentField);
+          childTransforms.forEach((transform, transformIndex) => {
+            if (transforms[transformIndex] &&
+              transforms[transformIndex] === transform(parentName)) {
+              parentIndexes[transformIndex].add(rowIndex);
+            }
+          });
+        });
+      });
+      Object.keys(patternCounts).forEach((name, index) => {
+        patternCounts[name] += parentIndexes[index].size;
+      });
+    };
+    inspectPatterns(
+      custodyHeaders,
+      "العهدة",
+      (await rowsOf("الموظفين")).map(N),
+      "اسم الموظف / العامل",
+    );
+    inspectPatterns(
+      custodyDetails,
+      "الاصناف / الفئة",
+      (await rowsOf("راس المخزن")).map(N),
+      "الصنف",
+    );
+    const report = {
+      headerToEmployeeNumber: custodyHeaders?.matchStats ?? null,
+      detailToWarehouseNumber: custodyDetails?.matchStats ?? null,
+      patternCandidateCounts: patternCounts,
+    };
+    const reportsDirectory = path.resolve("reports");
+    fs.mkdirSync(reportsDirectory, { recursive: true });
+    fs.writeFileSync(
+      path.join(reportsDirectory, "custody-review.json"),
+      `${JSON.stringify(report, null, 2)}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    console.log(
+      `CUSTODY_EXACT_MAPPINGS headers=${Object.keys(headerToEmployeeNumber).length} details=${Object.keys(detailToWarehouseNumber).length}`,
+    );
+    console.log(`CUSTODY_PATTERN_CANDIDATES=${JSON.stringify(patternCounts)}`);
   }
 
   e = ent("اطراف فواتير البيع");
@@ -339,75 +607,58 @@ export async function applyDerivations({ plan, client, tables, norm }) {
     });
   }
 
+  e = ent("اطراف الكانتين");
+  if (e) {
+    const products = await rowsOf("كانتين");
+    const productNameByItem = new Map();
+    for (const product of products) {
+      const itemNumber = key(g(product, "رقم الصنف"));
+      const name = String(g(product, "اسم الصنف") ?? "");
+      if (itemNumber && !productNameByItem.has(itemNumber)) {
+        productNameByItem.set(itemNumber, name);
+      }
+    }
+    const rows = e.rows.map(N);
+    const itemNames = [];
+    const balances = [];
+    const needsReview = [];
+    rows.forEach((row) => {
+      const itemNumber = key(g(row, "رقم الصنف"));
+      const name = productNameByItem.get(itemNumber);
+      const balance = exactNumber(g(row, "الرصيد"));
+      itemNames.push(name ?? "");
+      balances.push(balance === null ? 0 : balance);
+      needsReview.push(!name || balance === null);
+    });
+    addCol(e, "اسم الصنف", itemNames);
+    addCol(e, "الرصيد", balances);
+    addCol(e, "needs_review", needsReview);
+  }
+
   e = ent("اطراف الثلاجة");
   if (e) {
-    const originalRowCount = e.rows.length;
-    e.rows = e.rows.filter((row) =>
-      Object.entries(row).some(
-        ([column, value]) => norm(column) !== norm("ID") && !blank(value)
-      )
-    );
-    const emptyRowCount = originalRowCount - e.rows.length;
-    if (emptyRowCount) {
-      console.log(
-        `ℹ اطراف الثلاجة: اتخطّى ${emptyRowCount} صف فارغ لا يحتوي بيانات حركة`
-      );
-    }
     const rows = e.rows.map(N);
     const refrigeratorHeaders = await rowsOf("راس الثلاجة");
     const validItemNumbers = new Set(
       refrigeratorHeaders.map((row) => key(g(row, "رقم الصنف"))).filter(Boolean)
     );
-    const firstIssueDateByItem = new Map();
-    const firstIssueDateByName = new Map();
-    rows.forEach((row) => {
-      const incoming = num(g(row, "الكمية"));
-      const outgoing = num(g(row, "المنصرف"));
-      const itemNumber = key(g(row, "رقم الصنف"));
-      const itemName = key(g(row, "الصنف / الفئة"));
-      const issueDate = g(row, "تاريخ الصرف");
-      if (
-        incoming !== 0 ||
-        outgoing === null ||
-        outgoing <= 0 ||
-        (!itemNumber && !itemName) ||
-        blank(issueDate)
-      ) {
-        return;
-      }
-
-      const timestamp = Date.parse(String(issueDate));
-      if (Number.isNaN(timestamp)) return;
-      if (itemNumber) {
-        const previous = firstIssueDateByItem.get(itemNumber);
-        if (!previous || timestamp < previous.timestamp) {
-          firstIssueDateByItem.set(itemNumber, { timestamp, value: issueDate });
-        }
-      }
-      if (itemName) {
-        const previous = firstIssueDateByName.get(itemName);
-        if (!previous || timestamp < previous.timestamp) {
-          firstIssueDateByName.set(itemName, { timestamp, value: issueDate });
-        }
-      }
-    });
-
     const directions = [];
     const receivedDates = [];
+    const needsReview = [];
     const invalid = [];
-    const missingReceivedDates = [];
     const missingItemNumbers = [];
     rows.forEach((row, index) => {
       const raw = e.rows[index];
       const incoming = num(g(row, "الكمية"));
       const outgoing = num(g(row, "المنصرف"));
       const itemNumber = key(g(row, "رقم الصنف"));
-      const itemName = key(g(row, "الصنف / الفئة"));
-      const firstIssueDate =
-        firstIssueDateByItem.get(itemNumber) ?? firstIssueDateByName.get(itemName);
       const incomingKey = rk(raw, "الكمية");
       const outgoingKey = rk(raw, "المنصرف");
       const issueDateKey = rk(raw, "تاريخ الصرف");
+      const empty = Object.entries(raw).every(
+        ([column, value]) => norm(column) === norm("ID") || blank(value),
+      );
+      if (empty) raw.__quarantineReason = "empty_source_record";
       if (!itemNumber || !validItemNumbers.has(itemNumber)) {
         missingItemNumbers.push(index);
       }
@@ -415,25 +666,24 @@ export async function applyDerivations({ plan, client, tables, norm }) {
       if (outgoing !== null && outgoing > 0 && incoming === 0) {
         directions.push("out");
         receivedDates.push(null);
+        needsReview.push(false);
         if (incomingKey) raw[incomingKey] = "";
       } else if (incoming !== null && incoming > 0 && outgoing === 0) {
         directions.push("in");
-        receivedDates.push(firstIssueDate?.value ?? null);
+        receivedDates.push(null);
+        needsReview.push(true);
         if (outgoingKey) raw[outgoingKey] = "";
         if (issueDateKey) raw[issueDateKey] = "";
-        if (!firstIssueDate) missingReceivedDates.push(index);
       } else {
         directions.push(null);
         receivedDates.push(null);
+        needsReview.push(false);
         invalid.push(index);
       }
     });
 
     console.log(
-      `ℹ اطراف الثلاجة: ${directions.filter((value) => value === "in").length} وارد، ${directions.filter((value) => value === "out").length} منصرف، ${invalid.length} غير محدد`
-    );
-    console.log(
-      `ℹ اطراف الثلاجة: ${receivedDates.filter((value) => value !== null).length} تاريخ استلام مشتق من أول صرف مسجل لنفس الصنف`
+      `REFRIGERATOR_MOVEMENTS incoming=${directions.filter((value) => value === "in").length} outgoing=${directions.filter((value) => value === "out").length} needs_review=${needsReview.filter(Boolean).length} invalid=${invalid.length}`
     );
     if (missingItemNumbers.length) {
       problems.push(
@@ -445,32 +695,34 @@ export async function applyDerivations({ plan, client, tables, norm }) {
         `اطراف الثلاجة: ${invalid.length} صف مش واضح وارد ولا منصرف (الاتنين فاضيين أو الاتنين فيهم قيمة/قيمة غير رقمية) (ID: ${ids(rows, invalid)})`
       );
     }
-    if (missingReceivedDates.length) {
-      problems.push(
-        `اطراف الثلاجة: ${missingReceivedDates.length} حركة واردة مفيش لها تاريخ أول صرف مسجل لنفس الصنف (ID: ${ids(rows, missingReceivedDates)})`
-      );
-    }
     addCol(e, "movement_direction", directions);
     addCol(e, "received_date", receivedDates);
+    addCol(e, "needs_review", needsReview);
   }
 
   e = ent("اطراف المخزن");
   if (e) {
     const rows = e.rows.map(N);
     const kinds = [];
+    const needsReview = [];
     const invalid = [];
     rows.forEach((row, index) => {
       const incoming = num(g(row, "الوارد"));
       const outgoing = num(g(row, "المنصرف"));
-      if (incoming === null || outgoing === null || (incoming > 0 && outgoing > 0)) {
+      if (incoming !== null && outgoing !== null && incoming > 0 && outgoing > 0) {
+        kinds.push("receipt");
+        needsReview.push(true);
+      } else if (incoming === null || outgoing === null) {
         kinds.push(null);
+        needsReview.push(false);
         invalid.push(index);
       } else {
         kinds.push(outgoing > 0 ? "custody_issue" : "receipt");
+        needsReview.push(false);
       }
     });
     console.log(
-      `ℹ اطراف المخزن: ${kinds.filter((value) => value === "receipt").length} receipt، ${kinds.filter((value) => value === "custody_issue").length} custody_issue (افتراض)`
+      `WAREHOUSE_MOVEMENTS receipt=${kinds.filter((value) => value === "receipt").length} custody_issue=${kinds.filter((value) => value === "custody_issue").length} needs_review=${needsReview.filter(Boolean).length}`
     );
     if (invalid.length) {
       problems.push(
@@ -478,6 +730,7 @@ export async function applyDerivations({ plan, client, tables, norm }) {
       );
     }
     addCol(e, "movement_kind", kinds);
+    addCol(e, "needs_review", needsReview);
   }
 
   e = ent("راس الفاتورة");

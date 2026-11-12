@@ -5,6 +5,7 @@ import {
   index,
   doublePrecision,
   integer,
+  jsonb,
   primaryKey,
   pgEnum,
   uniqueIndex,
@@ -66,6 +67,40 @@ export const user = pgTable("user", {
   canManageMeatSales: boolean("can_manage_meat_sales").notNull().default(false),
   allowedScreens: text("allowed_screens").notNull().default(""),
 });
+
+export const importQuarantine = pgTable(
+  "import_quarantine",
+  {
+    id: serial("id").primaryKey(),
+    sourceTable: text("source_table").notNull(),
+    sourceId: text("source_id").notNull(),
+    payload: jsonb("payload"),
+    reason: text("reason").notNull(),
+    status: text("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: text("resolved_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    uniqueIndex("import_quarantine_source_unique").on(
+      table.sourceTable,
+      table.sourceId,
+    ),
+    index("import_quarantine_status_created_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+    index("import_quarantine_resolved_by_idx").on(table.resolvedBy),
+    check(
+      "import_quarantine_status_check",
+      sql`${table.status} IN ('pending', 'resolved')`,
+    ),
+  ],
+);
 
 export const session = pgTable(
   "session",
@@ -183,6 +218,7 @@ export const residents = pgTable(
   (table) => [
     index("residents_archived_idx").on(table.archived),
     index("residents_name_idx").on(table.name),
+    index("residents_created_by_idx").on(table.createdBy),
   ],
 );
 
@@ -249,19 +285,28 @@ export const residentLegacyLinks = pgTable(
       onDelete: "set null",
     }),
   },
+  (table) => [
+    index("resident_legacy_links_linked_by_idx").on(table.linkedBy),
+  ],
 );
 
-export const legacyResidentHeaders = pgTable("راس النزيل", {
-  id: integer("ID"),
-  residentNumber: integer("رقم النزيل").primaryKey(),
-  residentName: text("اسم النزيل"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  createdBy: text("created_by").references(() => user.id, {
-    onDelete: "set null",
-  }),
-});
+export const legacyResidentHeaders = pgTable(
+  "راس النزيل",
+  {
+    id: integer("ID"),
+    residentNumber: integer("رقم النزيل").primaryKey(),
+    residentName: text("اسم النزيل"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    index("legacy_resident_headers_created_by_idx").on(table.createdBy),
+  ],
+);
 
 export const legacyResidentDetails = pgTable(
   "اطراف النزيل",
@@ -291,6 +336,8 @@ export const legacyResidentDetails = pgTable(
     index("resident_finance_details_resident_number_idx").on(
       table.residentNumber,
     ),
+    index("resident_finance_details_voided_by_idx").on(table.voidedBy),
+    index("resident_finance_details_created_by_idx").on(table.createdBy),
     check(
       "resident_finance_details_void_audit_check",
       sql`(${table.voided} = false AND ${table.voidedAt} IS NULL AND ${table.voidedBy} IS NULL) OR (${table.voided} = true AND ${table.voidedAt} IS NOT NULL AND ${table.voidedBy} IS NOT NULL)`,
@@ -298,17 +345,23 @@ export const legacyResidentDetails = pgTable(
   ],
 );
 
-export const legacyTreatmentHeaders = pgTable("راس العلاج", {
-  id: integer("ID"),
-  residentNumber: integer("رقم النزيل").primaryKey(),
-  residentName: text("اسم النزيل"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  createdBy: text("created_by").references(() => user.id, {
-    onDelete: "set null",
-  }),
-});
+export const legacyTreatmentHeaders = pgTable(
+  "راس العلاج",
+  {
+    id: integer("ID"),
+    residentNumber: integer("رقم النزيل").primaryKey(),
+    residentName: text("اسم النزيل"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    index("legacy_treatment_headers_created_by_idx").on(table.createdBy),
+  ],
+);
 
 export const legacyTreatmentDetails = pgTable(
   "اطراف العلاج",
@@ -339,6 +392,8 @@ export const legacyTreatmentDetails = pgTable(
   },
   (table) => [
     index("treatment_details_resident_number_idx").on(table.residentNumber),
+    index("treatment_details_voided_by_idx").on(table.voidedBy),
+    index("treatment_details_created_by_idx").on(table.createdBy),
     check(
       "treatment_details_void_audit_check",
       sql`(${table.voided} = false AND ${table.voidedAt} IS NULL AND ${table.voidedBy} IS NULL) OR (${table.voided} = true AND ${table.voidedAt} IS NOT NULL AND ${table.voidedBy} IS NOT NULL)`,
@@ -377,6 +432,7 @@ export const residentStays = pgTable(
   },
   (table) => [
     index("resident_stays_resident_id_idx").on(table.residentId),
+    index("resident_stays_created_by_idx").on(table.createdBy),
     uniqueIndex("resident_stays_one_current_idx")
       .on(table.residentId)
       .where(sql`${table.exitDate} IS NULL`),
@@ -449,7 +505,7 @@ export const warehouseHeaders = pgTable(
     id: integer("ID"),
     number: integer("رقم").generatedByDefaultAsIdentity().primaryKey(),
     itemName: text("الصنف").notNull(),
-    price: doublePrecision("السعر").notNull().default(0),
+    price: doublePrecision("السعر").default(0),
     responsible: text("المسئول").notNull(),
     catalogId: integer("catalog_id")
       .notNull()
@@ -468,11 +524,11 @@ export const custodyHeaders = pgTable(
     custodyNumber: integer("رقم العهدة")
       .generatedByDefaultAsIdentity()
       .primaryKey(),
-    custodyDate: timestamp("التاريخ", { mode: "date" }).notNull(),
+    custodyDate: timestamp("التاريخ", { mode: "date" }),
     custody: text("العهدة").notNull(),
     recipientEmployeeNumber: integer("recipient_employee_number")
-      .notNull()
       .references(() => staffEmployees.employeeNumber, { onDelete: "restrict" }),
+    needsReview: boolean("needs_review").notNull().default(false),
     voided: boolean("voided").notNull().default(false),
     voidReason: text("void_reason").notNull().default(""),
     voidedAt: timestamp("voided_at", { withTimezone: true }),
@@ -489,6 +545,9 @@ export const custodyHeaders = pgTable(
   (table) => [
     index("custody_headers_recipient_idx").on(table.recipientEmployeeNumber),
     index("custody_headers_date_idx").on(table.custodyDate),
+    index("custody_headers_needs_review_idx").on(table.needsReview),
+    index("custody_headers_voided_by_idx").on(table.voidedBy),
+    index("custody_headers_created_by_idx").on(table.createdBy),
     check(
       "custody_headers_void_audit_check",
       sql`(${table.voided} = false AND ${table.voidedAt} IS NULL AND ${table.voidedBy} IS NULL) OR (${table.voided} = true AND ${table.voidedAt} IS NOT NULL AND ${table.voidedBy} IS NOT NULL)`,
@@ -502,26 +561,28 @@ export const custodyDetails = pgTable(
     id: integer("ID"),
     webId: uuid("web_id").primaryKey().defaultRandom(),
     itemCategory: text("الاصناف / الفئة").notNull(),
-    quantity: doublePrecision("الكمية").notNull(),
+    quantity: doublePrecision("الكمية"),
     price: doublePrecision("السعر").notNull(),
     total: doublePrecision("الإجمالى").notNull(),
-    transactionDate: timestamp("التاريخ", { mode: "date" }).notNull(),
+    transactionDate: timestamp("التاريخ", { mode: "date" }),
     custodyNumber: integer("رقم")
       .notNull()
       .references(() => custodyHeaders.custodyNumber, { onDelete: "restrict" }),
     warehouseNumber: integer("warehouse_number")
-      .notNull()
       .references(() => warehouseHeaders.number, { onDelete: "restrict" }),
     currentEmployeeNumber: integer("current_employee_number").references(
       () => staffEmployees.employeeNumber,
       { onDelete: "restrict" },
     ),
+    needsReview: boolean("needs_review").notNull().default(false),
   },
   (table) => [
     index("custody_details_header_idx").on(table.custodyNumber),
+    index("custody_details_warehouse_number_idx").on(table.warehouseNumber),
     index("custody_details_current_employee_idx").on(
       table.currentEmployeeNumber,
     ),
+    index("custody_details_needs_review_idx").on(table.needsReview),
     check("custody_details_quantity_check", sql`${table.quantity} > 0`),
     check("custody_details_price_check", sql`${table.price} >= 0`),
     check("custody_details_total_check", sql`${table.total} >= 0`),
@@ -532,12 +593,12 @@ export const warehouseDetails = pgTable(
   "اطراف المخزن",
   {
     id: integer("ID").generatedByDefaultAsIdentity().primaryKey(),
-    balance: doublePrecision("الرصيد").notNull(),
-    incoming: doublePrecision("الوارد").notNull().default(0),
+    balance: doublePrecision("الرصيد"),
+    incoming: doublePrecision("الوارد").default(0),
     incomingDate: timestamp("تاريخ الوارد", { mode: "date" }),
-    outgoing: doublePrecision("المنصرف").notNull().default(0),
+    outgoing: doublePrecision("المنصرف").default(0),
     outgoingDate: timestamp("تاريخ الصرف", { mode: "date" }),
-    remaining: doublePrecision("المتبقى").notNull(),
+    remaining: doublePrecision("المتبقى"),
     deleted: boolean("حذف").notNull().default(false),
     number: integer("رقم")
       .notNull()
@@ -547,6 +608,7 @@ export const warehouseDetails = pgTable(
       () => custodyDetails.webId,
       { onDelete: "restrict" },
     ),
+    needsReview: boolean("needs_review").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -558,6 +620,9 @@ export const warehouseDetails = pgTable(
     index("warehouse_details_number_idx").on(table.number),
     index("warehouse_details_incoming_date_idx").on(table.incomingDate),
     index("warehouse_details_outgoing_date_idx").on(table.outgoingDate),
+    index("warehouse_details_needs_review_idx").on(table.needsReview),
+    index("warehouse_details_custody_detail_id_idx").on(table.custodyDetailId),
+    index("warehouse_details_created_by_idx").on(table.createdBy),
     check("warehouse_details_balance_check", sql`${table.balance} >= 0`),
     check("warehouse_details_incoming_check", sql`${table.incoming} >= 0`),
     check("warehouse_details_outgoing_check", sql`${table.outgoing} >= 0`),
@@ -599,6 +664,10 @@ export const custodyEvents = pgTable(
     index("custody_events_detail_idx").on(table.detailId),
     index("custody_events_from_employee_idx").on(table.fromEmployeeNumber),
     index("custody_events_to_employee_idx").on(table.toEmployeeNumber),
+    index("custody_events_warehouse_movement_id_idx").on(
+      table.warehouseMovementId,
+    ),
+    index("custody_events_created_by_idx").on(table.createdBy),
     check("custody_events_quantity_check", sql`${table.quantity} > 0`),
     check(
       "custody_events_transfer_target_check",
@@ -638,6 +707,8 @@ export const inventoryMovements = pgTable(
   (table) => [
     index("inventory_movements_item_id_idx").on(table.itemId),
     index("inventory_movements_date_idx").on(table.movementDate),
+    index("inventory_movements_created_by_idx").on(table.createdBy),
+    index("inventory_movements_voided_by_idx").on(table.voidedBy),
     check("inventory_movements_quantity_check", sql`${table.quantity} > 0`),
     check("inventory_movements_unit_price_check", sql`${table.unitPrice} >= 0`),
   ],
@@ -665,6 +736,7 @@ export const userInventoryCategories = pgTable(
       columns: [table.userId, table.categoryId],
     }),
     index("user_inventory_categories_category_id_idx").on(table.categoryId),
+    index("user_inventory_categories_granted_by_idx").on(table.grantedBy),
   ],
 );
 
@@ -675,7 +747,11 @@ export const canteenProducts = pgTable(
     name: text("اسم الصنف").notNull(),
     price: doublePrecision("السعر").notNull().default(0),
     itemNumber: serial("رقم الصنف").primaryKey(),
+    needsReview: boolean("needs_review").notNull().default(false),
   },
+  (table) => [
+    index("canteen_products_needs_review_idx").on(table.needsReview),
+  ],
 );
 
 export const canteenStockLedger = pgTable(
@@ -690,9 +766,11 @@ export const canteenStockLedger = pgTable(
     itemNumber: integer("رقم")
       .notNull()
       .references(() => canteenProducts.itemNumber, { onDelete: "restrict" }),
+    needsReview: boolean("needs_review").notNull().default(false),
   },
   (table) => [
     index("canteen_stock_ledger_item_number_idx").on(table.itemNumber),
+    index("canteen_stock_ledger_needs_review_idx").on(table.needsReview),
     check("canteen_stock_ledger_balance_check", sql`${table.balance} >= 0`),
     check(
       "canteen_stock_ledger_direction_check",
@@ -710,6 +788,7 @@ export const canteenIssueVouchers = pgTable(
       .references(() => canteenProducts.itemNumber, { onDelete: "restrict" }),
     recipient: text("المستلم").notNull(),
     itemCategory: text("الصنف / الفئة").notNull().default(""),
+    needsReview: boolean("needs_review").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -719,6 +798,8 @@ export const canteenIssueVouchers = pgTable(
   },
   (table) => [
     index("canteen_issue_vouchers_item_number_idx").on(table.itemNumber),
+    index("canteen_issue_vouchers_needs_review_idx").on(table.needsReview),
+    index("canteen_issue_vouchers_created_by_idx").on(table.createdBy),
   ],
 );
 
@@ -738,10 +819,12 @@ export const canteenIssueLines = pgTable(
     voucherId: integer("رقم المستند")
       .notNull()
       .references(() => canteenIssueVouchers.id, { onDelete: "restrict" }),
+    needsReview: boolean("needs_review").notNull().default(false),
   },
   (table) => [
     index("canteen_issue_lines_item_number_idx").on(table.itemNumber),
     index("canteen_issue_lines_voucher_id_idx").on(table.voucherId),
+    index("canteen_issue_lines_needs_review_idx").on(table.needsReview),
     check("canteen_issue_lines_balance_check", sql`${table.balance} >= 0`),
     check(
       "canteen_issue_lines_outgoing_check",
@@ -764,6 +847,7 @@ export const canteenStockVoids = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
   },
+  (table) => [index("canteen_stock_voids_voided_by_idx").on(table.voidedBy)],
 );
 
 export const canteenStockMovementLinks = pgTable(
@@ -794,6 +878,7 @@ export const userCanteenAccess = pgTable(
       onDelete: "set null",
     }),
   },
+  (table) => [index("user_canteen_access_granted_by_idx").on(table.grantedBy)],
 );
 
 export const invoiceCategories = pgTable(
@@ -839,6 +924,7 @@ export const residentPurchases = pgTable(
       () => canteenProducts.itemNumber,
       { onDelete: "restrict" },
     ),
+    needsReview: boolean("needs_review").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -847,7 +933,11 @@ export const residentPurchases = pgTable(
     }),
   },
   (table) => [
-    uniqueIndex("resident_purchases_item_name_unique").on(table.itemName),
+    index("resident_purchases_canteen_item_number_idx").on(
+      table.canteenItemNumber,
+    ),
+    index("resident_purchases_needs_review_idx").on(table.needsReview),
+    index("resident_purchases_created_by_idx").on(table.createdBy),
     check("resident_purchases_price_check", sql`${table.price} >= 0`),
   ],
 );
@@ -875,6 +965,8 @@ export const residentInvoices = pgTable(
   (table) => [
     index("resident_invoices_resident_id_idx").on(table.residentId),
     index("resident_invoices_invoice_date_idx").on(table.invoiceDate),
+    index("resident_invoices_resident_number_idx").on(table.residentNumber),
+    index("resident_invoices_created_by_idx").on(table.createdBy),
     check(
       "resident_invoices_sale_type_check",
       sql`${table.saleType} IN ('resident', 'cash')`,
@@ -913,6 +1005,7 @@ export const residentInvoiceLines = pgTable(
   (table) => [
     index("resident_invoice_lines_invoice_number_idx").on(table.invoiceNumber),
     index("resident_invoice_lines_category_id_idx").on(table.categoryId),
+    index("resident_invoice_lines_purchase_id_idx").on(table.purchaseId),
     check("resident_invoice_lines_total_check", sql`${table.total} > 0`),
   ],
 );
@@ -940,6 +1033,7 @@ export const residentInvoicePayments = pgTable(
     index("resident_invoice_payments_invoice_number_idx").on(
       table.invoiceNumber,
     ),
+    index("resident_invoice_payments_created_by_idx").on(table.createdBy),
     check("resident_invoice_payments_amount_check", sql`${table.amount} > 0`),
   ],
 );
@@ -960,6 +1054,7 @@ export const residentInvoiceVoids = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
   },
+  (table) => [index("resident_invoice_voids_voided_by_idx").on(table.voidedBy)],
 );
 
 export const invoiceStockMovementLinks = pgTable(
@@ -984,9 +1079,6 @@ export const refrigeratorItemCatalog = pgTable(
     quantity: doublePrecision("الكمية").notNull().default(0),
   },
   (table) => [
-    uniqueIndex("refrigerator_item_catalog_name_unique").on(
-      table.itemCategory,
-    ),
     check("refrigerator_item_catalog_price_check", sql`${table.price} >= 0`),
     check(
       "refrigerator_item_catalog_quantity_check",
@@ -1016,8 +1108,8 @@ export const refrigeratorStockLedger = pgTable(
     id: serial("ID").primaryKey(),
     itemCategory: text("الصنف / الفئة").notNull(),
     quantity: doublePrecision("الكمية"),
-    price: doublePrecision("السعر").notNull(),
-    total: doublePrecision("الاجمالى").notNull(),
+    price: doublePrecision("السعر"),
+    total: doublePrecision("الاجمالى"),
     outgoing: doublePrecision("المنصرف"),
     outgoingDate: date("تاريخ الصرف", { mode: "string" }),
     issuePermitNumber: doublePrecision("رقم اذن الصرف"),
@@ -1027,6 +1119,7 @@ export const refrigeratorStockLedger = pgTable(
       .references(() => refrigeratorItems.itemNumber, { onDelete: "restrict" }),
     direction: refrigeratorMovementDirection("movement_direction").notNull(),
     receivedDate: date("received_date", { mode: "string" }),
+    needsReview: boolean("needs_review").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1038,11 +1131,13 @@ export const refrigeratorStockLedger = pgTable(
     index("refrigerator_stock_ledger_item_number_idx").on(table.itemNumber),
     index("refrigerator_stock_ledger_received_date_idx").on(table.receivedDate),
     index("refrigerator_stock_ledger_outgoing_date_idx").on(table.outgoingDate),
+    index("refrigerator_stock_ledger_needs_review_idx").on(table.needsReview),
+    index("refrigerator_stock_ledger_created_by_idx").on(table.createdBy),
     check("refrigerator_stock_ledger_price_check", sql`${table.price} >= 0`),
     check("refrigerator_stock_ledger_total_check", sql`${table.total} >= 0`),
     check(
       "refrigerator_stock_ledger_direction_check",
-      sql`(${table.direction} = 'in' AND ${table.quantity} > 0 AND ${table.receivedDate} IS NOT NULL AND ${table.outgoing} IS NULL AND ${table.outgoingDate} IS NULL) OR (${table.direction} = 'out' AND ${table.outgoing} > 0 AND ${table.outgoingDate} IS NOT NULL AND ${table.quantity} IS NULL AND ${table.receivedDate} IS NULL)`,
+      sql`(${table.direction} = 'in' AND ${table.quantity} > 0 AND (${table.receivedDate} IS NOT NULL OR ${table.needsReview} = true) AND ${table.outgoing} IS NULL AND ${table.outgoingDate} IS NULL) OR (${table.direction} = 'out' AND ${table.outgoing} > 0 AND ${table.outgoingDate} IS NOT NULL AND ${table.quantity} IS NULL AND ${table.receivedDate} IS NULL)`,
     ),
   ],
 );
@@ -1062,7 +1157,10 @@ export const meatSalesInvoices = pgTable(
       onDelete: "set null",
     }),
   },
-  (table) => [index("meat_sales_invoice_date_idx").on(table.saleDate)],
+  (table) => [
+    index("meat_sales_invoice_date_idx").on(table.saleDate),
+    index("meat_sales_invoices_created_by_idx").on(table.createdBy),
+  ],
 );
 
 export const meatSalesInvoiceLines = pgTable(
@@ -1072,7 +1170,7 @@ export const meatSalesInvoiceLines = pgTable(
     itemCategory: text("الصنف / الفئة").notNull(),
     price: doublePrecision("السعر").notNull(),
     quantity: doublePrecision("الكمية").notNull(),
-    total: doublePrecision("الاجمالى").notNull(),
+    total: doublePrecision("الاجمالى"),
     saleDate: date("تاريخ البيع", { mode: "string" }).notNull(),
     invoiceNumber: integer("رقم")
       .notNull()
@@ -1112,6 +1210,9 @@ export const refrigeratorStockVoids = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
   },
+  (table) => [
+    index("refrigerator_stock_voids_voided_by_idx").on(table.voidedBy),
+  ],
 );
 
 export const meatSaleStockMovementLinks = pgTable(
@@ -1148,6 +1249,7 @@ export const meatSalePayments = pgTable(
   },
   (table) => [
     index("meat_sale_payments_invoice_number_idx").on(table.invoiceNumber),
+    index("meat_sale_payments_created_by_idx").on(table.createdBy),
     check("meat_sale_payments_amount_check", sql`${table.amount} > 0`),
   ],
 );
@@ -1168,6 +1270,7 @@ export const meatSaleVoids = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
   },
+  (table) => [index("meat_sale_voids_voided_by_idx").on(table.voidedBy)],
 );
 
 export const staffProfiles = pgTable(
@@ -1210,6 +1313,7 @@ export const staffProfiles = pgTable(
   (table) => [
     index("staff_profiles_employee_id_idx").on(table.employeeId),
     index("staff_profiles_name_idx").on(table.firstName, table.thirdName),
+    index("staff_profiles_created_by_idx").on(table.createdBy),
   ],
 );
 
@@ -1240,6 +1344,7 @@ export const staffLeaveEntries = pgTable(
   (table) => [
     index("staff_leave_employee_number_idx").on(table.employeeNumber),
     index("staff_leave_date_idx").on(table.leaveDate),
+    index("staff_leave_created_by_idx").on(table.createdBy),
     check(
       "staff_leave_dates_check",
       sql`${table.returnDate} >= ${table.leaveDate}`,
@@ -1268,6 +1373,65 @@ export const staffAccountLinks = pgTable(
       onDelete: "set null",
     }),
   },
+  (table) => [index("staff_account_links_linked_by_idx").on(table.linkedBy)],
+);
+
+export const staffAttendance = pgTable(
+  "staff_attendance",
+  {
+    id: serial("id").primaryKey(),
+    employeeNumber: integer("employee_number")
+      .notNull()
+      .references(() => staffEmployees.employeeNumber, { onDelete: "restrict" }),
+    clockInAt: timestamp("clock_in_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    clockOutAt: timestamp("clock_out_at", { withTimezone: true }),
+    clockInBy: text("clock_in_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clockOutBy: text("clock_out_by").references(() => user.id, {
+      onDelete: "restrict",
+    }),
+  },
+  (table) => [
+    index("staff_attendance_clock_in_by_idx").on(table.clockInBy),
+    index("staff_attendance_clock_out_by_idx").on(table.clockOutBy),
+    index("staff_attendance_employee_clock_in_idx").on(
+      table.employeeNumber,
+      table.clockInAt,
+    ),
+    uniqueIndex("staff_attendance_one_open_per_employee_idx")
+      .on(table.employeeNumber)
+      .where(sql`${table.clockOutAt} is null`),
+  ],
+);
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: serial("id").primaryKey(),
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    action: text("action").notNull(),
+    entity: text("entity").notNull(),
+    entityId: text("entity_id"),
+    metadata: jsonb("metadata").$type<Record<string, string>>(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("audit_logs_actor_occurred_idx").on(
+      table.actorUserId,
+      table.occurredAt,
+    ),
+    index("audit_logs_entity_occurred_idx").on(
+      table.entity,
+      table.occurredAt,
+    ),
+  ],
 );
 
 export const authSchema = {

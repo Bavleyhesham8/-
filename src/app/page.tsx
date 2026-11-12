@@ -18,9 +18,11 @@ import { listCanteenSalesForAdministrator } from "@/lib/canteen-sales-data";
 import { listMeatSalesForAdministrator } from "@/lib/meat-sales-data";
 import { listCustodyDataForCurrentUser } from "@/lib/custody-data";
 import { listStaffDataForCurrentUser } from "@/lib/staff-data";
+import { listStaffAttendanceForCurrentUser } from "@/lib/staff-attendance-data";
+import { listAuditLogsForAdministrator } from "@/lib/audit-log-data";
 import { listLookupDataForCurrentUser } from "@/lib/lookup-data";
 import { listResidentFinanceForAdministrator } from "@/lib/resident-finance-data";
-import { listTreatmentForAdministrator } from "@/lib/treatment-data";
+import { listTreatmentForCurrentUser } from "@/lib/treatment-data";
 import { hasScreenAccess } from "@/lib/access-control";
 import CenterDashboard from "@/components/center-dashboard";
 import SetupRequired from "@/app/setup-required";
@@ -67,17 +69,23 @@ async function DashboardPage() {
   const role: "admin" | "staff" | "viewer" =
     userRole === "admin" ? "admin" : userRole === "viewer" ? "viewer" : "staff";
   const canAccessClinic =
-    role === "admin" || session.user.canAccessClinic === true;
+    role === "admin" ||
+    (role === "staff" && session.user.canAccessClinic === true);
   const canManageCanteen =
-    role === "admin" || session.user.canManageCanteen === true;
+    role === "admin" ||
+    (role === "staff" && session.user.canManageCanteen === true);
   const canIssueInvoices =
-    role === "admin" || session.user.canIssueInvoices === true;
+    role === "admin" ||
+    (role === "staff" && session.user.canIssueInvoices === true);
   const canManageWarehouse =
-    role === "admin" || session.user.canManageWarehouse === true;
+    role === "admin" ||
+    (role === "staff" && session.user.canManageWarehouse === true);
   const canManageCustody =
-    role === "admin" || session.user.canManageCustody === true;
+    role === "admin" ||
+    (role === "staff" && session.user.canManageCustody === true);
   const canManageMeatSales =
-    role === "admin" || session.user.canManageMeatSales === true;
+    role === "admin" ||
+    (role === "staff" && session.user.canManageMeatSales === true);
   const allowedScreens = session.user.allowedScreens
     ? session.user.allowedScreens.split(",").filter(Boolean)
     : [];
@@ -97,15 +105,12 @@ async function DashboardPage() {
     "invoice-reports",
     "canteen-reports",
     "treatment",
-    "lookups",
   );
-  const needsCanteen = canAccessAny(
-    "canteen",
-    "sales",
-    "canteen-reports",
-    "invoice-reports",
-    "tracking",
-  );
+  const needsCanteen =
+    canAccessAny("canteen", "canteen-reports", "tracking") ||
+    (canAccessScreen("sales") &&
+      (role === "admin" ||
+        (role === "staff" && canIssueInvoices)));
   const [
     residents,
     staffAccessUsers,
@@ -146,10 +151,15 @@ async function DashboardPage() {
       canAccessScreen("resident-finance")
         ? listResidentFinanceForAdministrator()
         : Promise.resolve(undefined),
-      canAccessScreen("treatment") || canAccessScreen("resident-reports")
-        ? listTreatmentForAdministrator()
+      canAccessScreen("treatment")
+        ? listTreatmentForCurrentUser()
         : Promise.resolve(undefined),
     ]);
+  const staffAttendance = canAccessScreen("staff-attendance")
+    ? await listStaffAttendanceForCurrentUser()
+    : undefined;
+  const auditLogs =
+    role === "admin" ? await listAuditLogsForAdministrator() : undefined;
 
   return (
     <CenterDashboard
@@ -182,6 +192,8 @@ async function DashboardPage() {
       initialMeatSales={meatSales}
       initialCustody={custody}
       initialStaffData={staffData}
+      initialStaffAttendance={staffAttendance}
+      initialAuditLogs={auditLogs}
       initialLookups={lookups}
       initialResidentFinance={residentFinance}
       initialTreatment={treatment}

@@ -3,6 +3,7 @@ export type CanteenProduct = {
   name: string;
   price: number;
   itemNumber: number;
+  needsReview?: boolean;
 };
 
 export type CanteenMovement = {
@@ -18,6 +19,7 @@ export type CanteenMovement = {
   voucherId: number | null;
   voided: boolean;
   voidReason: string;
+  needsReview?: boolean;
 };
 
 export type CanteenBundle = {

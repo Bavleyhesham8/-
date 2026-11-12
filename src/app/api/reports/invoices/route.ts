@@ -7,6 +7,7 @@ import {
 import { getDemoInvoiceReport } from "@/lib/invoice-report-demo-data";
 import { isDevelopmentDemoMode } from "@/lib/app-config";
 import { invoiceReportToCsv } from "@/lib/invoice-report-utils";
+import { getAuthorizationErrorStatus } from "@/lib/auth-session";
 
 function csvResponse(
   csv: string,
@@ -53,14 +54,11 @@ export async function GET(request: NextRequest) {
       filters.endDate,
     );
   } catch (error) {
-    if (error instanceof Error && error.message === "Authentication required.") {
-      return new Response("Authentication required.", { status: 401 });
-    }
-    if (
-      error instanceof Error &&
-      error.message === "Canteen access is required for this report."
-    ) {
-      return new Response("Canteen access is required.", { status: 403 });
+    const authorizationStatus = getAuthorizationErrorStatus(error);
+    if (authorizationStatus) {
+      return new Response(authorizationStatus === 401 ? "Authentication required." : "Report access is required.", {
+        status: authorizationStatus,
+      });
     }
     if (
       error instanceof Error &&

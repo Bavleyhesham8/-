@@ -1,16 +1,29 @@
-"use client";
+﻿"use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   deleteLookupAction,
   saveLookupAction,
 } from "@/app/actions/lookups";
+import { getResidentStayReportAction } from "@/app/actions/resident-stay-report";
 import PrintBrand from "@/components/print-brand";
 import { printCurrentView } from "@/lib/print";
+import {
+  canonicalRoom,
+  canonicalVilla,
+  formatRoom,
+  formatVilla,
+} from "@/lib/stay-location";
+import {
+  canViewResidentChurchData,
+  hasScreenAccess,
+} from "@/lib/access-control";
+import { normalizeArabicName } from "@/lib/resident-matching";
 import ResidentPicker from "@/components/resident-picker";
 import type { DemoUser, Resident } from "@/lib/demo-data";
 import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
 import type { StaffBundle } from "@/lib/staff-types";
+import type { ResidentStayReportRow } from "@/lib/resident-stay-report-types";
 import type {
   LookupData,
   LookupKind,
@@ -23,6 +36,7 @@ type Props = {
   sales: CanteenSalesBundle;
   currentUser: DemoUser;
   persistent: boolean;
+  initialReferenceTab?: string | null;
   onLookupsChange: (lookups: LookupData) => void;
   onResidentsChange: (residents: Resident[]) => void;
   onStaffDataChange: (staffData: StaffBundle) => void;
@@ -33,7 +47,6 @@ type LookupDraft = {
   number: string;
   name: string;
   acheshe: string;
-  father: string;
   governorate: string;
   district: string;
   day: string;
@@ -44,7 +57,6 @@ const emptyDraft: LookupDraft = {
   number: "",
   name: "",
   acheshe: "",
-  father: "",
   governorate: "",
   district: "",
   day: "",
@@ -52,17 +64,85 @@ const emptyDraft: LookupDraft = {
 };
 
 const lookupKinds: { key: LookupKind; label: string }[] = [
-  { key: "church", label: "الكنيسة التابع لها" },
+  { key: "church", label: "الكنائس وأب الاعتراف" },
   { key: "governorate", label: "المحافظة" },
-  { key: "day", label: "اليوم" },
-  { key: "alternate-category", label: "الفئه" },
-  { key: "villa", label: "رقم الفيلا" },
+  { key: "day", label: "أيام الفواتير" },
+  { key: "alternate-category", label: "فئات الفواتير" },
+  { key: "villa", label: "الفيلا" },
+  { key: "room", label: "الغرف" },
 ];
 
 const numberFormatter = new Intl.NumberFormat("ar-EG");
+const referenceTabs = [
+  { key: "resident", label: "بحث النزلاء" },
+  { key: "church", label: "حسب الكنيسة وأب الاعتراف" },
+  { key: "governorate", label: "حسب المحافظة" },
+  { key: "period", label: "الدخول خلال فترة" },
+  { key: "villa", label: "الفيلا والغرف" },
+] as const;
+type ReferenceTab = (typeof referenceTabs)[number]["key"];
+type PeriodMode = "day" | "range";
+
+function localDateValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeChurchName(value: string | null | undefined) {
+  return normalizeArabicName(value);
+}
+
+function csvCell(value: string | number) {
+  let text = String(value);
+  if (/^[\s]*[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
+}
 
 function nextId(rows: { id: number }[]) {
   return Math.max(0, ...rows.map((row) => row.id)) + 1;
+}
+
+function ResidentTable({
+  rows,
+  emptyMessage,
+  columns,
+}: {
+  rows: Resident[];
+  emptyMessage: string;
+  columns: {
+    key: "governorate" | "district" | "villa" | "room";
+    label: string;
+  }[];
+}) {
+  return (
+    <div className="table-wrap report-detail">
+      <table className="resident-table lookup-table">
+        <thead>
+          <tr>
+            <th>اسم النزيل</th>
+            <th>رقم الملف</th>
+            <th>الحالة</th>
+            {columns.map((column) => <th key={column.key}>{column.label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((resident) => (
+            <tr key={resident.id}>
+              <td>{resident.name}</td>
+              <td>{resident.fileNumber}</td>
+              <td>{resident.status === "current" ? "مقيم" : "غادر"}</td>
+              {columns.map((column) => (
+                <td key={`${resident.id}-${column.key}`}>{resident[column.key] || "—"}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!rows.length && <div className="empty-state">{emptyMessage}</div>}
+    </div>
+  );
 }
 
 export default function LookupManagerPanel({
@@ -72,6 +152,7 @@ export default function LookupManagerPanel({
   sales,
   currentUser,
   persistent,
+  initialReferenceTab,
   onLookupsChange,
   onResidentsChange,
   onStaffDataChange,
@@ -79,18 +160,54 @@ export default function LookupManagerPanel({
 }: Props) {
   const isAdministrator = currentUser.role === "admin";
   const [kind, setKind] = useState<LookupKind>("church");
+  const [referenceTab, setReferenceTab] = useState<ReferenceTab>(() => {
+    const requestedTab =
+      referenceTabs.find((tab) => tab.key === initialReferenceTab)?.key ??
+      "resident";
+    return requestedTab;
+  });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<LookupDraft>(emptyDraft);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [managementOpen, setManagementOpen] = useState(
+    () => initialReferenceTab === "manage" && isAdministrator,
+  );
   const [residentQuery, setResidentQuery] = useState("");
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [reverseChurch, setReverseChurch] = useState("");
-  const [reverseGovernorate, setReverseGovernorate] = useState("");
+  const [reverseConfessor, setReverseConfessor] = useState("");
   const [selectedReportGovernorate, setSelectedReportGovernorate] = useState("");
-  const canManageCurrentKind =
-    isAdministrator || (kind === "villa" && Boolean(currentUser.canEdit));
+  const [selectedVilla, setSelectedVilla] = useState("");
+  const [periodStart, setPeriodStart] = useState(() =>
+    localDateValue(new Date()),
+  );
+  const [periodEnd, setPeriodEnd] = useState(() =>
+    localDateValue(new Date()),
+  );
+  const [periodMode, setPeriodMode] = useState<PeriodMode>("day");
+  const [appliedPeriod, setAppliedPeriod] = useState(() => ({
+    mode: "day" as PeriodMode,
+    startDate: localDateValue(new Date()),
+    endDate: localDateValue(new Date()),
+  }));
+  const [periodRows, setPeriodRows] = useState<ResidentStayReportRow[]>([]);
+  const [periodLoading, setPeriodLoading] = useState(false);
+  const [periodError, setPeriodError] = useState("");
+  const canManageCurrentKind = isAdministrator && kind !== "church";
+  const canViewResidentReferences = canViewResidentChurchData(
+    currentUser.role,
+    currentUser.allowedScreens ?? [],
+    currentUser.canEdit,
+  );
+  const canViewPeriodReport =
+    isAdministrator ||
+    hasScreenAccess(
+      currentUser.role,
+      currentUser.allowedScreens ?? [],
+      "resident-stay-reports",
+    );
 
   function resetForm() {
     setEditingId(null);
@@ -147,9 +264,19 @@ export default function LookupManagerPanel({
           !!record?.villaNumber &&
           residents.some(
             (resident) =>
-              !resident.archived &&
-              resident.status === "current" &&
-              resident.villa === record.villaNumber,
+              canonicalVilla(resident.villa) ===
+              canonicalVilla(record.villaNumber),
+          )
+        );
+      }
+      case "room": {
+        const record = lookups.rooms.find((item) => item.id === recordId);
+        return (
+          !!record?.villaNumber &&
+          residents.some(
+            (resident) =>
+              canonicalRoom(resident.room) ===
+              canonicalRoom(record.villaNumber),
           )
         );
       }
@@ -169,7 +296,6 @@ export default function LookupManagerPanel({
           number: record.number ?? "",
           name: record.name ?? "",
           acheshe: record.acheshe ?? "",
-          father: record.father ?? "",
         });
         return;
       }
@@ -202,7 +328,19 @@ export default function LookupManagerPanel({
       case "villa": {
         const record = lookups.villas.find((item) => item.id === recordId);
         if (!record) return;
-        setDraft({ ...emptyDraft, villaNumber: record.villaNumber ?? "" });
+        setDraft({
+          ...emptyDraft,
+          villaNumber: canonicalVilla(record.villaNumber),
+        });
+        return;
+      }
+      case "room": {
+        const record = lookups.rooms.find((item) => item.id === recordId);
+        if (!record) return;
+        setDraft({
+          ...emptyDraft,
+          villaNumber: formatRoom(record.villaNumber),
+        });
       }
     }
   }
@@ -218,7 +356,9 @@ export default function LookupManagerPanel({
             ? lookups.days
               : kind === "alternate-category"
                 ? lookups.alternateCategories
-                : lookups.villas,
+                : kind === "villa"
+                  ? lookups.villas
+                  : lookups.rooms,
     );
     switch (kind) {
       case "church": {
@@ -227,7 +367,6 @@ export default function LookupManagerPanel({
           number: normalized(draft.number) || null,
           name: normalized(draft.name),
           acheshe: normalized(draft.acheshe) || null,
-          father: normalized(draft.father) || null,
         };
         onLookupsChange({
           ...lookups,
@@ -275,11 +414,22 @@ export default function LookupManagerPanel({
       case "villa": {
         const record = {
           id,
-          villaNumber: normalized(draft.villaNumber),
+          villaNumber: canonicalVilla(draft.villaNumber),
         };
         onLookupsChange({
           ...lookups,
           villas: [...lookups.villas.filter((item) => item.id !== id), record],
+        });
+        return;
+      }
+      case "room": {
+        const record = {
+          id,
+          villaNumber: formatRoom(draft.villaNumber),
+        };
+        onLookupsChange({
+          ...lookups,
+          rooms: [...lookups.rooms.filter((item) => item.id !== id), record],
         });
       }
     }
@@ -359,12 +509,36 @@ export default function LookupManagerPanel({
         const oldNumber = lookups.villas.find(
           (item) => item.id === editingId,
         )?.villaNumber;
-        const newNumber = draft.villaNumber.trim().normalize("NFC");
-        if (oldNumber && oldNumber !== newNumber) {
+        const newNumber = canonicalVilla(draft.villaNumber);
+        if (
+          oldNumber &&
+          newNumber &&
+          canonicalVilla(oldNumber) !== newNumber
+        ) {
           onResidentsChange(
             residents.map((resident) =>
-              resident.villa === oldNumber
+              canonicalVilla(resident.villa) === canonicalVilla(oldNumber)
                 ? { ...resident, villa: newNumber }
+                : resident,
+            ),
+          );
+        }
+        return;
+      }
+      case "room": {
+        const oldNumber = lookups.rooms.find(
+          (item) => item.id === editingId,
+        )?.villaNumber;
+        const newNumber = formatRoom(draft.villaNumber);
+        if (
+          oldNumber &&
+          newNumber &&
+          canonicalRoom(oldNumber) !== canonicalRoom(newNumber)
+        ) {
+          onResidentsChange(
+            residents.map((resident) =>
+              canonicalRoom(resident.room) === canonicalRoom(oldNumber)
+                ? { ...resident, room: newNumber }
                 : resident,
             ),
           );
@@ -383,7 +557,6 @@ export default function LookupManagerPanel({
           number: draft.number,
           name: draft.name,
           acheshe: draft.acheshe,
-          father: draft.father,
         };
       case "governorate":
         return {
@@ -397,7 +570,17 @@ export default function LookupManagerPanel({
       case "alternate-category":
         return { kind, id: editingId, name: draft.name };
       case "villa":
-        return { kind, id: editingId, villaNumber: draft.villaNumber };
+        return {
+          kind,
+          id: editingId,
+          villaNumber: canonicalVilla(draft.villaNumber),
+        };
+      case "room":
+        return {
+          kind,
+          id: editingId,
+          villaNumber: formatRoom(draft.villaNumber),
+        };
     }
   }
 
@@ -491,6 +674,12 @@ export default function LookupManagerPanel({
               villas: lookups.villas.filter((item) => item.id !== recordId),
             });
             break;
+          case "room":
+            onLookupsChange({
+              ...lookups,
+              rooms: lookups.rooms.filter((item) => item.id !== recordId),
+            });
+            break;
         }
       }
       if (editingId === recordId) resetForm();
@@ -502,9 +691,37 @@ export default function LookupManagerPanel({
     }
   }
 
+  const activeResidents = useMemo(
+    () => residents.filter((resident) => !resident.archived),
+    [residents],
+  );
+  const churchResidentReferences = useMemo(() => {
+    const references = new Map<string, { church: string; confessor: string; count: number }>();
+    for (const resident of activeResidents) {
+      const church = resident.church?.trim() ?? "";
+      const confessor = resident.confessor?.trim() ?? "";
+      if (!church && !confessor) continue;
+      const key = `${normalizeChurchName(church)}\u0000${normalizeChurchName(confessor)}`;
+      const current = references.get(key);
+      if (current) current.count += 1;
+      else references.set(key, { church, confessor, count: 1 });
+    }
+    return [...references.values()].sort((left, right) =>
+      left.church.localeCompare(right.church, "ar") ||
+      left.confessor.localeCompare(right.confessor, "ar"),
+    );
+  }, [activeResidents]);
+  const residentChurchOptions = useMemo(
+    () => [...new Map(activeResidents
+      .map((resident) => resident.church?.trim() ?? "")
+      .filter(Boolean)
+      .map((name) => [normalizeChurchName(name), name] as const)).values()]
+      .sort((left, right) => left.localeCompare(right, "ar")),
+    [activeResidents],
+  );
   const columns =
     kind === "church"
-      ? ["رقم الكنيسة", "اسم الكنيسة", "أب الاعتراف", "الأب الكاهن"]
+      ? ["الكنيسة المسجلة بملفات النزلاء", "أب الاعتراف", "عدد النزلاء"]
       : kind === "governorate"
         ? ["المحافظة", "المركز / الحي"]
         : kind === "day"
@@ -515,9 +732,9 @@ export default function LookupManagerPanel({
 
   const rows =
     kind === "church"
-      ? lookups.churches.map((item) => ({
-          id: item.id,
-          values: [item.number, item.name, item.acheshe, item.father],
+      ? churchResidentReferences.map((item, index) => ({
+          id: index + 1,
+          values: [item.church, item.confessor, numberFormatter.format(item.count)],
         }))
       : kind === "governorate"
         ? lookups.governorates.map((item) => ({
@@ -534,45 +751,80 @@ export default function LookupManagerPanel({
                 id: item.id,
                 values: [item.name],
               }))
-            : lookups.villas.map((item) => ({
+            : (kind === "villa" ? lookups.villas : lookups.rooms).map((item) => ({
                 id: item.id,
                 values: [item.villaNumber],
               }));
 
-  const activeResidents = useMemo(
-    () => residents.filter((resident) => !resident.archived),
-    [residents],
-  );
-  const selectedResidentChurch = lookups.churches.find(
-    (church) => church.name === selectedResident?.church,
-  );
   const reverseChurchResidents = activeResidents.filter(
-    (resident) => resident.church === reverseChurch,
+    (resident) =>
+        (!reverseChurch ||
+          normalizeChurchName(resident.church)
+            .includes(normalizeChurchName(reverseChurch))) &&
+        (!reverseConfessor ||
+          normalizeChurchName(resident.confessor)
+            .includes(normalizeChurchName(reverseConfessor))) &&
+      Boolean(reverseChurch || reverseConfessor),
   );
-  const reverseGovernorateResidents = activeResidents.filter(
-    (resident) => resident.governorate === reverseGovernorate,
-  );
-  const governorateOptions = useMemo(
-    () =>
-      [
-        ...new Set(
-          activeResidents
-            .map((resident) => resident.governorate)
-            .filter((value): value is string => Boolean(value)),
-        ),
-      ]
-        .sort((left, right) => left.localeCompare(right, "ar")),
+  const governorateGroups = useMemo(() => {
+    const groups = new Map<string, Resident[]>();
+    for (const resident of activeResidents) {
+      const governorate = resident.governorate?.trim() || "غير محدد";
+      const group = groups.get(governorate) ?? [];
+      group.push(resident);
+      groups.set(governorate, group);
+    }
+    return [...groups.entries()]
+      .map(([governorate, rows]) => ({
+        governorate,
+        rows: rows.sort((left, right) => left.name.localeCompare(right.name, "ar")),
+      }))
+      .sort((left, right) => left.governorate.localeCompare(right.governorate, "ar"));
+  }, [activeResidents]);
+  const visibleGovernorateGroups = selectedReportGovernorate
+    ? governorateGroups.filter((group) => group.governorate === selectedReportGovernorate)
+    : governorateGroups;
+  const confessorOptions = useMemo(
+    () => [...new Map(activeResidents
+      .map((resident) => resident.confessor?.trim() ?? "")
+      .filter(Boolean)
+      .map((name) => [normalizeChurchName(name), name] as const)).values()]
+      .sort((left, right) => left.localeCompare(right, "ar")),
     [activeResidents],
   );
-  const selectedReportResidents = activeResidents.filter(
-    (resident) => resident.governorate === selectedReportGovernorate,
+  const selectedVillaResidents = activeResidents
+    .filter(
+      (resident) =>
+        canonicalVilla(resident.villa) === canonicalVilla(selectedVilla) &&
+        resident.status === "current",
+    )
+    .sort((left, right) =>
+      left.room.localeCompare(right.room, "ar", { numeric: true }),
+    );
+  const villaOptions = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...lookups.villas
+            .map((item) => item.villaNumber?.trim() ?? "")
+            .filter(Boolean),
+          ...activeResidents
+            .map((resident) => canonicalVilla(resident.villa))
+            .filter(Boolean),
+        ]),
+      ].sort((left, right) => left.localeCompare(right, "ar", { numeric: true })),
+    [activeResidents, lookups.villas],
   );
   const governorateDistribution = useMemo(() => {
-    const districts = new Map(
-      lookups.governorates
-        .filter((item) => item.governorate)
-        .map((item) => [item.governorate as string, item.district ?? ""]),
-    );
+    const districts = new Map<string, Set<string>>();
+    for (const item of lookups.governorates) {
+      const governorate = item.governorate?.trim();
+      const district = item.district?.trim();
+      if (!governorate || !district) continue;
+      const values = districts.get(governorate) ?? new Set<string>();
+      values.add(district);
+      districts.set(governorate, values);
+    }
     const groups = new Map<
       string,
       { total: number; current: number; departed: number }
@@ -592,7 +844,7 @@ export default function LookupManagerPanel({
     return [...groups.entries()]
       .map(([governorate, counts]) => ({
         governorate,
-        district: districts.get(governorate) ?? "",
+        district: [...(districts.get(governorate) ?? [])].join("، "),
         ...counts,
       }))
       .sort((a, b) => b.total - a.total);
@@ -602,397 +854,565 @@ export default function LookupManagerPanel({
     0,
   );
 
+  useEffect(() => {
+    if (referenceTab !== "period" || !canViewPeriodReport) return;
+    let active = true;
+
+    async function loadPeriodRows() {
+      try {
+        const result = persistent
+          ? await getResidentStayReportAction({
+              startDate: appliedPeriod.startDate,
+              endDate: appliedPeriod.endDate,
+              villa: "",
+              room: "",
+              search: "",
+              includeArchived: false,
+            })
+          : {
+              rows: activeResidents
+                .filter(
+                  (resident) =>
+                    resident.admissionDate >= appliedPeriod.startDate &&
+                    resident.admissionDate <= appliedPeriod.endDate,
+                )
+                .map((resident) => ({
+                  stayId: resident.id,
+                  fileNumber: resident.fileNumber,
+                  residentName: resident.name,
+                  birthDate: "",
+                  admissionDate: resident.admissionDate,
+                  exitDate: resident.exitDate,
+                  villa: resident.villa,
+                  room: resident.room,
+                  archived: resident.archived,
+                })),
+            };
+        if (active) setPeriodRows(result.rows);
+      } catch {
+        if (active) {
+          setPeriodRows([]);
+          setPeriodError("تعذر تحميل تقرير الدخول لهذه الفترة.");
+        }
+      } finally {
+        if (active) setPeriodLoading(false);
+      }
+    }
+
+    void loadPeriodRows();
+    return () => {
+      active = false;
+    };
+  }, [
+    activeResidents,
+    appliedPeriod,
+    canViewPeriodReport,
+    persistent,
+    referenceTab,
+  ]);
+
+  function downloadCsv(
+    filename: string,
+    headers: string[],
+    rows: (string | number)[][],
+  ) {
+    const contents = [headers, ...rows]
+      .map((row) => row.map(csvCell).join(","))
+      .join("\r\n");
+    const blob = new Blob(["\uFEFF", contents], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function printSelectedReport() {
+    document.body.classList.add("lookup-report-print");
+    const cleanup = () => {
+      document.body.classList.remove("lookup-report-print");
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    printCurrentView();
+  }
+
+  function exportSelectedReport() {
+    switch (referenceTab) {
+      case "resident":
+        if (!selectedResident) return;
+        downloadCsv(
+          "resident-reference.csv",
+          ["الاسم", "رقم الملف", "الكنيسة", "أب الاعتراف", "المحافظة", "المركز / الحي", "الفيلا", "الغرفة", "تاريخ الدخول", "تاريخ الخروج", "الحالة"],
+          [[
+            selectedResident.name,
+            selectedResident.fileNumber,
+            selectedResident.church,
+            selectedResident.confessor,
+            selectedResident.governorate ?? "",
+            selectedResident.district,
+            selectedResident.villa,
+            selectedResident.room,
+            selectedResident.admissionDate,
+            selectedResident.exitDate,
+            selectedResident.status === "current" ? "مقيم" : "غادر",
+          ]],
+        );
+        return;
+      case "church":
+        if (!reverseChurch && !reverseConfessor) return;
+        downloadCsv(
+          "church-residents.csv",
+          ["الاسم", "رقم الملف", "الكنيسة", "أب الاعتراف", "الحالة", "المحافظة", "المركز / الحي", "الفيلا", "الغرفة"],
+          reverseChurchResidents.map((resident) => [
+            resident.name,
+            resident.fileNumber,
+            resident.church,
+            resident.confessor,
+            resident.status === "current" ? "مقيم" : "غادر",
+            resident.governorate ?? "",
+            resident.district,
+            resident.villa,
+            resident.room,
+          ]),
+        );
+        return;
+      case "governorate":
+        downloadCsv(
+          "governorate-residents.csv",
+          ["المحافظة", "اسم النزيل", "رقم الملف", "الحالة", "المركز / الحي", "الفيلا", "الغرفة"],
+          visibleGovernorateGroups.flatMap((group) =>
+            group.rows.map((resident) => [
+              group.governorate,
+              resident.name,
+              resident.fileNumber,
+              resident.status === "current" ? "مقيم" : "غادر",
+              resident.district,
+              resident.villa,
+              resident.room,
+            ]),
+          ),
+        );
+        return;
+      case "period":
+        downloadCsv(
+          "resident-admissions.csv",
+          ["اسم النزيل", "رقم الملف", "تاريخ الدخول", "تاريخ الخروج", "الفيلا", "الغرفة"],
+          periodRows.map((row) => [
+            row.residentName,
+            row.fileNumber,
+            row.admissionDate,
+            row.exitDate,
+            row.villa,
+            row.room,
+          ]),
+        );
+        return;
+      case "villa":
+        if (!selectedVilla) return;
+        downloadCsv(
+          "villa-occupancy.csv",
+          ["الفيلا", "الغرفة", "اسم النزيل", "رقم الملف", "الحالة"],
+          selectedVillaResidents.map((resident) => [
+            resident.villa,
+            resident.room,
+            resident.name,
+            resident.fileNumber,
+            resident.status === "current" ? "مقيم" : "غادر",
+          ]),
+        );
+        return;
+    }
+  }
+
+  const canExportSelectedReport =
+    (referenceTab === "period"
+      ? canViewPeriodReport && periodRows.length > 0
+      : canViewResidentReferences) &&
+    ((referenceTab === "resident" && Boolean(selectedResident)) ||
+      (referenceTab === "church" && Boolean(reverseChurch || reverseConfessor)) ||
+      (referenceTab === "governorate" && governorateDistribution.length > 0) ||
+      (referenceTab === "period" && periodRows.length > 0) ||
+      (referenceTab === "villa" && Boolean(selectedVilla)));
+  const canPrintSelectedReport =
+    referenceTab === "period"
+      ? canViewPeriodReport
+      : canViewResidentReferences;
+  const reportTitle =
+    referenceTabs.find((tab) => tab.key === referenceTab)?.label ??
+    "البيانات المرجعية";
+
   return (
     <section className="content-panel lookup-manager-panel" dir="rtl">
+      <div className="lookup-report-print-area">
       <PrintBrand
-        title="البيانات المرجعية"
-        subtitle="بحث الكنائس وأب الاعتراف وتوزيع النزلاء حسب المحافظة"
+        title={reportTitle}
+        subtitle="تقارير النزلاء والمرجعيات"
       />
       <div className="panel-heading">
         <div>
-          <h3>البيانات المرجعية</h3>
-          <p>
-            إدارة قوائم Access الأصلية مع إبقاء «الفئة» و«الفئه» منفصلتين.
-            تُحدّث أرقام الفيلات المرتبطة بالإقامات عند إعادة التسمية.
-          </p>
+          <h3>البحث والتقارير</h3>
+          <p>ابحث عن نزيل أو اعرض تقارير الكنائس والمحافظات والسكن، ثم اطبعها أو نزّلها.</p>
         </div>
-        <div className="resident-report-actions">
+        <div className="resident-report-actions no-print">
           <button
             className="secondary-button"
             type="button"
-            onClick={printCurrentView}
+            disabled={!canExportSelectedReport}
+            onClick={exportSelectedReport}
           >
-            طباعة / حفظ PDF
+            تنزيل التقرير CSV
           </button>
-        </div>
-      </div>
-
-      <section className="lookup-reference-search">
-        <div className="panel-heading">
-          <div>
-            <h3>البحث في بيانات النزلاء والمرجعيات</h3>
-            <p>
-              اختر نزيلًا لعرض مرجعه الكنسي والجغرافي، أو اختر كنيسة ومحافظة
-              لعرض النزلاء المرتبطين بهما.
-            </p>
-          </div>
-        </div>
-        <div className="lookup-form">
-          <label className="form-field">
-            اسم النزيل
-            <ResidentPicker
-              residents={activeResidents}
-              value={residentQuery}
-              onChange={(value, resident) => {
-                setResidentQuery(value);
-                setSelectedResident(resident);
-              }}
-              placeholder="ابحث واختر نزيلًا..."
-            />
-          </label>
-        </div>
-        {selectedResident && (
-          <div className="resident-report-summary report-summary">
-            <article>
-              <span>الكنيسة</span>
-              <strong>{selectedResident.church || "غير مسجل"}</strong>
-            </article>
-            <article>
-              <span>أب الاعتراف</span>
-              <strong>
-                {selectedResidentChurch?.acheshe ||
-                  selectedResident.confessor ||
-                  "غير مسجل"}
-              </strong>
-            </article>
-            <article>
-              <span>الأب الكاهن</span>
-              <strong>{selectedResidentChurch?.father || "غير مسجل"}</strong>
-            </article>
-            <article>
-              <span>رقم الكنيسة</span>
-              <strong>{selectedResidentChurch?.number || "غير مسجل"}</strong>
-            </article>
-            <article>
-              <span>المحافظة</span>
-              <strong>{selectedResident.governorate || "غير مسجل"}</strong>
-            </article>
-            <article>
-              <span>الفيلا</span>
-              <strong>{selectedResident.villa || "غير مسجل"}</strong>
-            </article>
-          </div>
-        )}
-        <div className="lookup-form">
-          <label className="form-field">
-            الكنيسة
-            <select
-              value={reverseChurch}
-              onChange={(event) => setReverseChurch(event.target.value)}
-            >
-              <option value="">اختر كنيسة</option>
-              {lookups.churches.map((church) =>
-                church.name ? (
-                  <option key={church.id} value={church.name}>
-                    {church.name}
-                  </option>
-                ) : null,
-              )}
-            </select>
-          </label>
-          <label className="form-field">
-            المحافظة
-            <select
-              value={reverseGovernorate}
-              onChange={(event) => setReverseGovernorate(event.target.value)}
-            >
-              <option value="">اختر محافظة</option>
-              {governorateOptions.map((governorate) => (
-                <option key={governorate} value={governorate}>
-                  {governorate}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        {reverseChurch && (
-          <div className="lookup-count" aria-live="polite">
-            {numberFormatter.format(reverseChurchResidents.length)} نزيل في{" "}
-            {reverseChurch || "الكنيسة المختارة"}
-          </div>
-        )}
-        {reverseChurch && (
-          <div className="table-wrap report-detail">
-            <table className="resident-table lookup-table">
-              <thead>
-                <tr>
-                  <th>اسم النزيل</th>
-                  <th>رقم الملف</th>
-                  <th>الحالة</th>
-                  <th>المحافظة</th>
-                  <th>الفيلا</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reverseChurchResidents.map((resident) => (
-                  <tr key={resident.id}>
-                    <td>{resident.name}</td>
-                    <td>{resident.fileNumber}</td>
-                    <td>{resident.status === "current" ? "مقيم" : "غادر"}</td>
-                    <td>{resident.governorate || "—"}</td>
-                    <td>{resident.villa || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!reverseChurchResidents.length && (
-              <div className="empty-state">لا يوجد نزلاء مرتبطون بهذه الكنيسة.</div>
-            )}
-          </div>
-        )}
-        {reverseGovernorate && (
-          <div className="lookup-count" aria-live="polite">
-            {numberFormatter.format(reverseGovernorateResidents.length)} نزيل في{" "}
-            {reverseGovernorate}
-          </div>
-        )}
-        {reverseGovernorate && (
-          <div className="table-wrap report-detail">
-            <table className="resident-table lookup-table">
-              <thead>
-                <tr>
-                  <th>اسم النزيل</th>
-                  <th>رقم الملف</th>
-                  <th>الحالة</th>
-                  <th>الكنيسة</th>
-                  <th>الفيلا</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reverseGovernorateResidents.map((resident) => (
-                  <tr key={resident.id}>
-                    <td>{resident.name}</td>
-                    <td>{resident.fileNumber}</td>
-                    <td>{resident.status === "current" ? "مقيم" : "غادر"}</td>
-                    <td>{resident.church || "—"}</td>
-                    <td>{resident.villa || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!reverseGovernorateResidents.length && (
-              <div className="empty-state">لا يوجد نزلاء في هذه المحافظة.</div>
-            )}
-          </div>
-        )}
-      </section>
-
-      <section className="lookup-governorate-report">
-        <div className="panel-heading">
-          <div>
-            <h3>تقرير توزيع النزلاء حسب المحافظة</h3>
-            <p>اضغط على اسم المحافظة لعرض نزلائها.</p>
-          </div>
-        </div>
-        <div className="resident-report-summary report-summary">
-          <article>
-            <span>إجمالي النزلاء</span>
-            <strong>{numberFormatter.format(distributionTotal)}</strong>
-          </article>
-          <article>
-            <span>عدد المحافظات</span>
-            <strong>{numberFormatter.format(governorateDistribution.length)}</strong>
-          </article>
-          <article>
-            <span>المقيمون</span>
-            <strong>
-              {numberFormatter.format(
-                governorateDistribution.reduce(
-                  (sum, row) => sum + row.current,
-                  0,
-                ),
-              )}
-            </strong>
-          </article>
-          <article>
-            <span>الغادرون</span>
-            <strong>
-              {numberFormatter.format(
-                governorateDistribution.reduce(
-                  (sum, row) => sum + row.departed,
-                  0,
-                ),
-              )}
-            </strong>
-          </article>
-        </div>
-        <div className="table-wrap report-detail">
-          <table className="resident-table lookup-table">
-            <thead>
-              <tr>
-                <th>المحافظة</th>
-                <th>المركز / الحي</th>
-                <th>عدد النزلاء</th>
-                <th>المقيمون</th>
-                <th>الغادرون</th>
-                <th>النسبة</th>
-              </tr>
-            </thead>
-            <tbody>
-              {governorateDistribution.map((row) => (
-                <tr key={row.governorate}>
-                  <td>
-                    <button
-                      className="table-action"
-                      type="button"
-                      aria-pressed={selectedReportGovernorate === row.governorate}
-                      onClick={() =>
-                        setSelectedReportGovernorate(
-                          selectedReportGovernorate === row.governorate
-                            ? ""
-                            : row.governorate,
-                        )
-                      }
-                    >
-                      {row.governorate}
-                    </button>
-                  </td>
-                  <td>{row.district || "—"}</td>
-                  <td>{numberFormatter.format(row.total)}</td>
-                  <td>{numberFormatter.format(row.current)}</td>
-                  <td>{numberFormatter.format(row.departed)}</td>
-                  <td>
-                    {distributionTotal
-                      ? `${numberFormatter.format(
-                          Math.round((row.total / distributionTotal) * 100),
-                        )}%`
-                      : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!governorateDistribution.length && (
-            <div className="empty-state">لا توجد بيانات نزلاء بعد.</div>
-          )}
-        </div>
-        {selectedReportGovernorate && (
-          <div className="table-wrap report-detail">
-            <h4>
-              نزلاء محافظة {selectedReportGovernorate} (
-              {numberFormatter.format(selectedReportResidents.length)})
-            </h4>
-            <table className="resident-table lookup-table">
-              <thead>
-                <tr>
-                  <th>اسم النزيل</th>
-                  <th>رقم الملف</th>
-                  <th>الحالة</th>
-                  <th>الفيلا</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedReportResidents.map((resident) => (
-                  <tr key={resident.id}>
-                    <td>{resident.name}</td>
-                    <td>{resident.fileNumber}</td>
-                    <td>{resident.status === "current" ? "مقيم" : "غادر"}</td>
-                    <td>{resident.villa || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <div className="lookup-tabs" role="tablist" aria-label="قوائم البيانات">
-        {lookupKinds.map((item) => (
           <button
-            aria-selected={kind === item.key}
-            className={kind === item.key ? "active" : ""}
-            key={item.key}
-            onClick={() => changeKind(item.key)}
-            role="tab"
+            className="secondary-button"
             type="button"
+            disabled={!canPrintSelectedReport}
+            onClick={printSelectedReport}
           >
-            {item.label}
+            طباعة التقرير
           </button>
-        ))}
+          {isAdministrator && (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                setManagementOpen(true);
+                window.setTimeout(
+                  () => document.getElementById("lookup-admin-management")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                  0,
+                );
+              }}
+            >
+              إعدادات القوائم
+            </button>
+          )}
+        </div>
       </div>
 
-      {!persistent && (
-        <p className="lookup-demo-note">
-          بيانات تجريبية فقط؛ التغييرات لا تُحفظ بعد تحديث الصفحة.
-        </p>
-      )}
-      {!isAdministrator && (
-        <p className="lookup-demo-note">
-          {kind === "villa" && currentUser.canEdit
-            ? "يمكنك إدارة أرقام الفيلات بصلاحية تعديل النزلاء؛ بقية القوائم للأدمن فقط."
-            : "لديك صلاحية عرض فقط. يضيف المسؤول القيم ويعدلها ويحذفها."}
-        </p>
-      )}
+      <nav className="lookup-report-tabs no-print" aria-label="نوع التقرير">
+        {referenceTabs
+          .map((tab) => (
+            <button
+              aria-current={referenceTab === tab.key ? "page" : undefined}
+              className={referenceTab === tab.key ? "active" : ""}
+              key={tab.key}
+              onClick={() => {
+                if (
+                  tab.key === "period" &&
+                  canViewPeriodReport &&
+                  referenceTab !== "period"
+                ) {
+                  setPeriodLoading(true);
+                  setPeriodError("");
+                }
+                setReferenceTab(tab.key);
+              }}
+              type="button"
+            >
+              {tab.label}
+            </button>
+          ))}
+      </nav>
 
-      {canManageCurrentKind && (
-        <form className="lookup-form" onSubmit={submit}>
+      <div className="lookup-report-content">
+        {!canViewResidentReferences && referenceTab !== "period" ? (
+          <div className="empty-state">
+            تقارير الكنائس وبياناتها متاحة للأدمن والموظف المصرح له بتعديل
+            بيانات النزلاء فقط.
+          </div>
+        ) : (
+          <>
+            {referenceTab === "resident" && (
+              <section className="lookup-report-section">
+                <h3>تقرير شخص واحد</h3>
+                <p>ابحث بالاسم أو رقم الملف واختر النزيل لعرض بياناته المرجعية.</p>
+                <label className="form-field">
+                  النزيل
+                  <ResidentPicker
+                    residents={activeResidents}
+                    value={residentQuery}
+                    onChange={(value, resident) => {
+                      setResidentQuery(value);
+                      setSelectedResident(resident);
+                    }}
+                    placeholder="اكتب الاسم أو رقم الملف ثم اختر من القائمة"
+                  />
+                </label>
+                {selectedResident ? (
+                  <div className="resident-report-summary report-summary">
+                    <article><span>الاسم</span><strong>{selectedResident.name}</strong></article>
+                    <article><span>رقم الملف</span><strong>{selectedResident.fileNumber}</strong></article>
+                    <article><span>الكنيسة</span><strong>{selectedResident.church || "غير مسجل"}</strong></article>
+                    <article><span>أب الاعتراف</span><strong>{selectedResident.confessor || "غير مسجل"}</strong></article>
+                    <article><span>المحافظة</span><strong>{selectedResident.governorate || "غير مسجل"}</strong></article>
+                    <article><span>المركز / الحي</span><strong>{selectedResident.district || "غير مسجل"}</strong></article>
+                    <article><span>الفيلا / الغرفة</span><strong>{[selectedResident.villa, selectedResident.room].filter(Boolean).join(" / ") || "غير مسجل"}</strong></article>
+                    <article><span>تاريخ الدخول</span><strong>{selectedResident.admissionDate || "غير مسجل"}</strong></article>
+                    <article><span>تاريخ الخروج</span><strong>{selectedResident.exitDate || "—"}</strong></article>
+                    <article><span>الحالة</span><strong>{selectedResident.status === "current" ? "مقيم" : "غادر"}</strong></article>
+                  </div>
+                ) : (
+                  <div className="empty-state">اختر نزيلًا لعرض تقريره.</div>
+                )}
+              </section>
+            )}
+
+            {referenceTab === "church" && (
+              <section className="lookup-report-section">
+                <h3>بحث النزلاء حسب الكنيسة وأب الاعتراف</h3>
+                <p>تُبنى القائمتان من ملفات النزلاء. أضف الكنيسة وأب الاعتراف من ملف النزيل، وسيظهران هنا للبحث والطباعة.</p>
+                <div className="lookup-filter-grid no-print">
+                  <label className="form-field">
+                    ابحث بالكنيسة
+                    <input type="search" list="resident-church-search-options" value={reverseChurch} onChange={(event) => setReverseChurch(event.target.value)} placeholder="اكتب جزءًا من اسم الكنيسة" />
+                    <datalist id="resident-church-search-options">
+                      {residentChurchOptions.map((church) => <option key={church} value={church} />)}
+                    </datalist>
+                  </label>
+                  <label className="form-field">
+                    ابحث بأب الاعتراف
+                    <input type="search" list="resident-confessor-search-options" value={reverseConfessor} onChange={(event) => setReverseConfessor(event.target.value)} placeholder="اكتب اسم أب الاعتراف" />
+                    <datalist id="resident-confessor-search-options">
+                      {confessorOptions.map((confessor) => <option key={confessor} value={confessor} />)}
+                    </datalist>
+                  </label>
+                  {(reverseChurch || reverseConfessor) && (
+                    <button className="secondary-button self-end" type="button" onClick={() => { setReverseChurch(""); setReverseConfessor(""); }}>
+                      مسح الاختيارات
+                    </button>
+                  )}
+                </div>
+                {(reverseChurch || reverseConfessor) && (
+                  <>
+                    {(() => {
+                      return (
+                        <div className="resident-report-summary report-summary">
+                          {reverseChurch && <article><span>الكنيسة</span><strong>{reverseChurch}</strong></article>}
+                          {reverseConfessor && <article><span>أب الاعتراف</span><strong>{reverseConfessor}</strong></article>}
+                          <article><span>عدد النزلاء</span><strong>{numberFormatter.format(reverseChurchResidents.length)}</strong></article>
+                        </div>
+                      );
+                    })()}
+                    <ResidentTable
+                      rows={reverseChurchResidents}
+                      emptyMessage="لا يوجد نزلاء مطابقون للاختيارات."
+                      columns={[
+                        { key: "governorate", label: "المحافظة" },
+                        { key: "villa", label: "الفيلا" },
+                        { key: "room", label: "الغرفة" },
+                      ]}
+                    />
+                  </>
+                )}
+                {!reverseChurch && !reverseConfessor && <div className="empty-state">اختر كنيسة أو أب اعتراف لعرض الأسماء وطباعتها.</div>}
+              </section>
+            )}
+
+            {referenceTab === "governorate" && (
+              <section className="lookup-report-section">
+                <h3>تقرير أسماء النزلاء حسب المحافظة</h3>
+                <p>تظهر أسماء النزلاء تحت المحافظة المسجلين بها. اختر محافظة لتصفية التقرير، أو اترك الكل لطباعة القائمة كاملة.</p>
+                <div className="resident-report-summary report-summary">
+                  <article><span>إجمالي النزلاء</span><strong>{numberFormatter.format(distributionTotal)}</strong></article>
+                  <article><span>عدد المحافظات</span><strong>{numberFormatter.format(governorateDistribution.length)}</strong></article>
+                  <article><span>المقيمون</span><strong>{numberFormatter.format(governorateDistribution.reduce((sum, row) => sum + row.current, 0))}</strong></article>
+                  <article><span>الغادرون</span><strong>{numberFormatter.format(governorateDistribution.reduce((sum, row) => sum + row.departed, 0))}</strong></article>
+                </div>
+                <label className="form-field lookup-governorate-filter no-print">
+                  المحافظة
+                  <select value={selectedReportGovernorate} onChange={(event) => setSelectedReportGovernorate(event.target.value)}>
+                    <option value="">كل المحافظات</option>
+                    {governorateGroups.map((group) => <option key={group.governorate} value={group.governorate}>{group.governorate}</option>)}
+                  </select>
+                </label>
+                <div className="governorate-report-groups">
+                  {visibleGovernorateGroups.map((group) => (
+                    <section className="governorate-report-group" key={group.governorate}>
+                      <h4>{group.governorate}<span>{numberFormatter.format(group.rows.length)} نزيل</span></h4>
+                      <ResidentTable
+                        rows={group.rows}
+                        emptyMessage="لا يوجد نزلاء في هذه المحافظة."
+                        columns={[{ key: "district", label: "المركز / الحي" }, { key: "villa", label: "الفيلا" }, { key: "room", label: "الغرفة" }]}
+                      />
+                    </section>
+                  ))}
+                  {!visibleGovernorateGroups.length && <div className="empty-state">لا توجد بيانات نزلاء لهذه المحافظة.</div>}
+                </div>
+              </section>
+            )}
+
+            {referenceTab === "period" && (
+              <section className="lookup-report-section">
+                <h3>تقرير الدخول خلال يوم أو فترة</h3>
+                <p>اختر يومًا محددًا أو فترة، وسيظهر من كان تاريخ دخوله خلالها.</p>
+                {!canViewPeriodReport ? (
+                  <div className="empty-state">يتطلب هذا التقرير صلاحية شاشة «الفترة الزمنية».</div>
+                ) : (
+                  <>
+                    <form
+                      className="lookup-form no-print"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                      const endDate =
+                        periodMode === "day" ? periodStart : periodEnd;
+                      if (
+                        !periodStart ||
+                        !endDate ||
+                        periodStart > endDate
+                      ) {
+                        setPeriodError("اختر نطاقًا صحيحًا للتاريخ.");
+                        setPeriodLoading(false);
+                        return;
+                      }
+                      setPeriodError("");
+                      setPeriodLoading(true);
+                      setAppliedPeriod({
+                        mode: periodMode,
+                        startDate: periodStart,
+                        endDate,
+                      });
+                      }}
+                    >
+                      <fieldset className="lookup-period-mode">
+                      <legend>نوع البحث</legend>
+                      <label>
+                        <input
+                          checked={periodMode === "day"}
+                          name="lookup-period-mode"
+                          onChange={() => setPeriodMode("day")}
+                          type="radio"
+                        />
+                        يوم محدد
+                      </label>
+                      <label>
+                        <input
+                          checked={periodMode === "range"}
+                          name="lookup-period-mode"
+                          onChange={() => setPeriodMode("range")}
+                          type="radio"
+                        />
+                        فترة
+                      </label>
+                      </fieldset>
+                      <label className="form-field">
+                      {periodMode === "day"
+                        ? "تاريخ الدخول"
+                        : "من تاريخ الدخول"}
+                      <input
+                        type="date"
+                        required
+                        value={periodStart}
+                        onChange={(event) =>
+                          setPeriodStart(event.target.value)
+                        }
+                      />
+                      </label>
+                      {periodMode === "range" && (
+                      <label className="form-field">
+                        إلى تاريخ الدخول
+                        <input
+                          type="date"
+                          required
+                          value={periodEnd}
+                          onChange={(event) =>
+                            setPeriodEnd(event.target.value)
+                          }
+                        />
+                      </label>
+                    )}
+                    <button className="primary-button" type="submit">
+                      عرض التقرير
+                    </button>
+                    </form>
+                    <p className="lookup-count" aria-live="polite">
+                    {numberFormatter.format(periodRows.length)} دخول{" "}
+                    {appliedPeriod.mode === "day"
+                      ? `في يوم ${appliedPeriod.startDate}`
+                      : `من ${appliedPeriod.startDate} إلى ${appliedPeriod.endDate}`}
+                    </p>
+                    {periodError && <p className="lookup-message error" role="alert">{periodError}</p>}
+                    {periodLoading ? <div className="empty-state">جارٍ تحميل التقرير...</div> : (
+                      <div className="table-wrap report-detail">
+                        <table className="resident-table lookup-table">
+                          <thead><tr><th>اسم النزيل</th><th>رقم الملف</th><th>تاريخ الدخول</th><th>تاريخ الخروج</th><th>الفيلا</th><th>الغرفة</th></tr></thead>
+                          <tbody>{periodRows.map((row) => <tr key={row.stayId}><td>{row.residentName}</td><td>{row.fileNumber}</td><td>{row.admissionDate}</td><td>{row.exitDate || "—"}</td><td>{row.villa || "—"}</td><td>{row.room || "—"}</td></tr>)}</tbody>
+                        </table>
+                        {!periodRows.length && <div className="empty-state">لا توجد حالات دخول في الفترة المحددة.</div>}
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
+
+            {referenceTab === "villa" && (
+              <section className="lookup-report-section">
+                <h3>تقرير الفيلا والغرف</h3>
+                <p>اختر فيلا لمعرفة الغرف والنزلاء المقيمين حاليًا.</p>
+                <label className="form-field">الفيلا
+                  <select value={selectedVilla} onChange={(event) => setSelectedVilla(event.target.value)}>
+                    <option value="">اختر فيلا</option>
+                    {villaOptions.map((villa) => <option key={villa} value={villa}>{formatVilla(villa)}</option>)}
+                  </select>
+                </label>
+                {selectedVilla && (
+                  <>
+                    <p className="lookup-count">{numberFormatter.format(selectedVillaResidents.length)} نزيل مقيم في الفيلا {selectedVilla}</p>
+                    <ResidentTable rows={selectedVillaResidents} emptyMessage="لا يوجد نزلاء مقيمون حاليًا في هذه الفيلا." columns={[{ key: "room", label: "الغرفة" }]} />
+                  </>
+                )}
+              </section>
+            )}
+          </>
+        )}
+      </div>
+      </div>
+
+      {isAdministrator && (
+        <details
+          className="lookup-admin-management no-print"
+          id="lookup-admin-management"
+          open={managementOpen}
+          onToggle={(event) => setManagementOpen(event.currentTarget.open)}
+        >
+          <summary>إعدادات القوائم المنسدلة</summary>
+            <p className="lookup-settings-explanation">
+            الكنائس وأب الاعتراف تُستمد تلقائيًا من ملفات النزلاء. أضفهما أو صححهما من ملف الشخص؛ أما المحافظات والأيام والفئات والفيلات والغرف فتُدار من هنا.
+          </p>
+          <div className="lookup-tabs" role="tablist" aria-label="قوائم البيانات">
+            {lookupKinds.map((item) => (
+              <button
+                aria-selected={kind === item.key}
+                className={kind === item.key ? "active" : ""}
+                key={item.key}
+                onClick={() => changeKind(item.key)}
+                role="tab"
+                type="button"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
           {kind === "church" && (
-            <>
-              <label className="form-field">
-                رقم الكنيسة
-                <input
-                  maxLength={255}
-                  value={draft.number}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      number: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label className="form-field">
-                اسم الكنيسة
-                <input
-                  maxLength={255}
-                  required
-                  value={draft.name}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label className="form-field">
-                أب الاعتراف
-                <input
-                  maxLength={255}
-                  value={draft.acheshe}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      acheshe: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label className="form-field">
-                الأب الكاهن
-                <input
-                  maxLength={255}
-                  value={draft.father}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      father: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-            </>
+            <p className="lookup-settings-explanation">
+              هذه القيم للبحث والتقارير فقط وتُجمع من ملفات النزلاء غير المؤرشفة. لتعديل اسم أو إضافة اسم جديد، افتح ملف النزيل وعدّل الكنيسة أو أب الاعتراف هناك.
+            </p>
           )}
+
+          {!persistent && (
+            <p className="lookup-demo-note">
+              بيانات تجريبية فقط؛ التغييرات لا تُحفظ بعد تحديث الصفحة.
+            </p>
+          )}
+
+          {canManageCurrentKind && (
+            <form className="lookup-form" onSubmit={submit}>
           {kind === "governorate" && (
             <>
               <label className="form-field">
@@ -1057,9 +1477,9 @@ export default function LookupManagerPanel({
               />
             </label>
           )}
-          {kind === "villa" && (
+          {(kind === "villa" || kind === "room") && (
             <label className="form-field">
-              رقم الفيلا
+              {kind === "villa" ? "رقم الفيلا (A إلى D)" : "اسم الغرفة"}
               <input
                 maxLength={64}
                 required
@@ -1092,8 +1512,8 @@ export default function LookupManagerPanel({
               </button>
             )}
           </div>
-        </form>
-      )}
+            </form>
+          )}
 
       {error && (
         <p className="lookup-message error" role="alert">
@@ -1161,12 +1581,14 @@ export default function LookupManagerPanel({
       )}
       {kind === "villa" && (
         <p className="lookup-footer">
-          القيم غير المسجلة لا تُقبل للإقامات الجديدة، ولا تُحذف قيمة مستخدمة.
+          القيم غير المسجلة لا تُقبل للإقامات الجديدة، ولا تُحذف فيلا لها سجل إقامة.
         </p>
       )}
       <span className="lookup-count" aria-live="polite">
         {numberFormatter.format(rows.length)} سجل
       </span>
+        </details>
+      )}
     </section>
   );
 }

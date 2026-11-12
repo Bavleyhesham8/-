@@ -4,6 +4,7 @@ import { and, asc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import { residents, residentStays } from "@/db/schema";
+import { canViewResidentBirthDate } from "@/lib/access-control";
 import { requireScreenAccess } from "@/lib/auth-session";
 import type {
   ResidentStayReportData,
@@ -51,7 +52,12 @@ export async function getResidentStayReport(
   input: unknown,
 ): Promise<ResidentStayReportData> {
   const filters = parseResidentStayReportFilters(input);
-  await requireScreenAccess("resident-stay-reports");
+  const session = await requireScreenAccess("resident-stay-reports");
+  const canSeeBirthDate = canViewResidentBirthDate(
+    session.user.role === "admin" || session.user.role === "viewer"
+      ? session.user.role
+      : "staff",
+  );
 
   const conditions = [
     gte(residentStays.admissionDate, filters.startDate),
@@ -110,7 +116,7 @@ export async function getResidentStayReport(
   return {
     rows: rows.map((row) => ({
       ...row,
-      birthDate: row.birthDate ?? "",
+      birthDate: canSeeBirthDate ? row.birthDate ?? "" : "",
       exitDate: row.exitDate ?? "",
     })),
   };

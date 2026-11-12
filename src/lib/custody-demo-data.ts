@@ -32,6 +32,7 @@ export const demoCustody: CustodyBundle = {
       deleted: false,
       kind: "receipt",
       custodyDetailId: null,
+      needsReview: false,
     },
     {
       id: 2,
@@ -45,6 +46,7 @@ export const demoCustody: CustodyBundle = {
       deleted: false,
       kind: "custody_issue",
       custodyDetailId: "demo-custody-detail-1",
+      needsReview: false,
     },
     {
       id: 3,
@@ -58,6 +60,7 @@ export const demoCustody: CustodyBundle = {
       deleted: false,
       kind: "receipt",
       custodyDetailId: null,
+      needsReview: false,
     },
     {
       id: 4,
@@ -71,6 +74,7 @@ export const demoCustody: CustodyBundle = {
       deleted: false,
       kind: "custody_issue",
       custodyDetailId: "demo-custody-detail-2",
+      needsReview: false,
     },
   ],
   employees: [
@@ -132,4 +136,5 @@ export const demoCustody: CustodyBundle = {
     },
   ],
   linkedEmployeeNumber: null,
+  needsReviewCount: 0,
 };

@@ -10,8 +10,9 @@ import {
   canteenStockVoids,
   userCanteenAccess,
 } from "@/db/schema";
+import { hasScreenAccess } from "@/lib/access-control";
 import { requireAnyScreenAccess, requireCurrentSession } from "@/lib/auth-session";
-import type { CanteenBundle } from "@/lib/canteen-types";
+import type { CanteenBundle, CanteenMovement } from "@/lib/canteen-types";
 
 export async function listCanteenForCurrentUser(): Promise<{
   bundle: CanteenBundle;
@@ -26,26 +27,55 @@ export async function listCanteenForCurrentUser(): Promise<{
     "tracking",
   );
   const database = getDatabase();
-  const [grant] =
-    session.user.role === "admin" || session.user.canManageCanteen === true
-      ? [true]
-      : await database
-          .select({ userId: userCanteenAccess.userId })
-          .from(userCanteenAccess)
-          .where(eq(userCanteenAccess.userId, session.user.id))
-          .limit(1);
+  const canManageCanteen =
+    session.user.role === "admin" ||
+    (session.user.role === "staff" &&
+      session.user.canManageCanteen === true);
+  let hasFullAccess =
+    canManageCanteen ||
+    (session.user.role === "viewer" &&
+      (["canteen", "canteen-reports", "tracking"] as const).some((screen) =>
+        hasScreenAccess("viewer", session.user.allowedScreens, screen),
+      ));
+  if (!hasFullAccess && session.user.role === "staff") {
+    const [grant] = await database
+      .select({ userId: userCanteenAccess.userId })
+      .from(userCanteenAccess)
+      .where(eq(userCanteenAccess.userId, session.user.id))
+      .limit(1);
+    hasFullAccess = Boolean(grant);
+  }
+  const canReadSalesStock =
+    session.user.role === "viewer" &&
+    hasScreenAccess("viewer", session.user.allowedScreens, "sales");
+  const canIssueSales =
+    session.user.role === "staff" &&
+    session.user.canIssueInvoices === true &&
+    hasScreenAccess(
+      "staff",
+      session.user.allowedScreens,
+      "sales",
+    );
 
-  const [products, movements] = await Promise.all([
-    database
-      .select({
-        id: canteenProducts.id,
-        name: canteenProducts.name,
-        price: canteenProducts.price,
-        itemNumber: canteenProducts.itemNumber,
-      })
-      .from(canteenProducts)
-      .orderBy(canteenProducts.itemNumber),
-    database
+  if (!hasFullAccess && !canIssueSales && !canReadSalesStock) {
+    return {
+      bundle: { products: [], movements: [] },
+      hasAccess: false,
+    };
+  }
+
+  const productsPromise = database
+    .select({
+      id: canteenProducts.id,
+      name: canteenProducts.name,
+      price: canteenProducts.price,
+      itemNumber: canteenProducts.itemNumber,
+      needsReview: canteenProducts.needsReview,
+    })
+    .from(canteenProducts)
+    .orderBy(canteenProducts.itemNumber);
+  const movementsPromise = hasFullAccess
+    ? database
       .select({
         id: canteenStockLedger.id,
         itemNumber: canteenProducts.itemNumber,
@@ -59,6 +89,7 @@ export async function listCanteenForCurrentUser(): Promise<{
         voucherId: canteenStockMovementLinks.voucherId,
         voided: sql<boolean>`${canteenStockVoids.movementId} IS NOT NULL`,
         voidReason: sql<string>`coalesce(${canteenStockVoids.reason}, '')`,
+        needsReview: canteenStockLedger.needsReview,
       })
       .from(canteenStockLedger)
       .innerJoin(
@@ -79,13 +110,74 @@ export async function listCanteenForCurrentUser(): Promise<{
       )
       .orderBy(
         desc(canteenStockLedger.id),
-      ),
+      )
+    : database
+        .select({
+          id: canteenStockLedger.id,
+          itemNumber: canteenProducts.itemNumber,
+          itemName: canteenProducts.name,
+          balance: canteenStockLedger.balance,
+          incoming: canteenStockLedger.incoming,
+          outgoing: canteenStockLedger.outgoing,
+          voided: sql<boolean>`${canteenStockVoids.movementId} IS NOT NULL`,
+          needsReview: canteenStockLedger.needsReview,
+        })
+        .from(canteenStockLedger)
+        .innerJoin(
+          canteenProducts,
+          eq(canteenProducts.itemNumber, canteenStockLedger.itemNumber),
+        )
+        .leftJoin(
+          canteenStockVoids,
+          eq(canteenStockVoids.movementId, canteenStockLedger.id),
+        )
+        .orderBy(desc(canteenStockLedger.id));
+  const [products, movementRows] = await Promise.all([
+    productsPromise,
+    movementsPromise,
   ]);
+  const movements: CanteenMovement[] = movementRows.map((movement) => ({
+    id: movement.id,
+    itemNumber: movement.itemNumber,
+    itemName: movement.itemName,
+    balance: movement.balance,
+    incoming: movement.incoming,
+    incomingDate:
+      hasFullAccess &&
+      "incomingDate" in movement &&
+      typeof movement.incomingDate === "string"
+        ? movement.incomingDate
+        : null,
+    outgoing: movement.outgoing,
+    outgoingDate:
+      hasFullAccess &&
+      "outgoingDate" in movement &&
+      typeof movement.outgoingDate === "string"
+        ? movement.outgoingDate
+        : null,
+    recipient:
+      hasFullAccess &&
+      "recipient" in movement &&
+      typeof movement.recipient === "string"
+        ? movement.recipient
+        : "",
+    voucherId:
+      hasFullAccess &&
+      "voucherId" in movement &&
+      typeof movement.voucherId === "number"
+        ? movement.voucherId
+        : null,
+    voided: movement.voided,
+    voidReason:
+      hasFullAccess &&
+      "voidReason" in movement &&
+      typeof movement.voidReason === "string"
+        ? movement.voidReason
+        : "",
+    needsReview: movement.needsReview,
+  }));
   return {
     bundle: { products, movements },
-    hasAccess:
-      session.user.role === "admin" ||
-      session.user.canManageCanteen === true ||
-      Boolean(grant),
+    hasAccess: hasFullAccess && session.user.role !== "viewer",
   };
 }

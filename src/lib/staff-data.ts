@@ -9,6 +9,7 @@ import {
   staffProfiles,
   user,
 } from "@/db/schema";
+import { hasScreenAccess } from "@/lib/access-control";
 import { requireCurrentSession } from "@/lib/auth-session";
 import type {
   StaffAccountLink,
@@ -59,7 +60,11 @@ export async function listStaffDataForCurrentUser(): Promise<StaffBundle> {
   const session = await requireCurrentSession();
   const database = getDatabase();
 
-  if (session.user.role === "admin") {
+  const canViewAllStaff =
+    session.user.role === "admin" ||
+    (session.user.role === "viewer" &&
+      hasScreenAccess("viewer", session.user.allowedScreens, "staff"));
+  if (canViewAllStaff) {
     const [profiles, employees, leaveRows, accounts, links] = await Promise.all(
       [
         database.select().from(staffProfiles).orderBy(staffProfiles.firstName),
@@ -83,18 +88,18 @@ export async function listStaffDataForCurrentUser(): Promise<StaffBundle> {
             eq(staffLeaveEntries.employeeNumber, staffEmployees.employeeNumber),
           )
           .orderBy(desc(staffLeaveEntries.leaveDate)),
-        database
+        session.user.role === "admin" ? database
           .select({ id: user.id, name: user.name, email: user.email })
           .from(user)
           .where(ne(user.role, "admin"))
-          .orderBy(user.name),
-        database
+          .orderBy(user.name) : Promise.resolve([]),
+        session.user.role === "admin" ? database
           .select({
             userId: staffAccountLinks.userId,
             profileNumber: staffAccountLinks.profileNumber,
             employeeNumber: staffAccountLinks.employeeNumber,
           })
-          .from(staffAccountLinks),
+          .from(staffAccountLinks) : Promise.resolve([]),
       ],
     );
 

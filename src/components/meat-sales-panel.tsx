@@ -9,7 +9,7 @@ import {
 } from "@/app/actions/meat-sales";
 import PrintBrand from "@/components/print-brand";
 import { formatDate, localDateValue } from "@/lib/date-format";
-import { printCurrentView } from "@/lib/print";
+import { printCurrentView, printSingleRecord } from "@/lib/print";
 import type {
   MeatSaleInvoice,
   MeatSaleLine,
@@ -61,6 +61,10 @@ const numberFormatter = new Intl.NumberFormat("ar-EG", {
   maximumFractionDigits: 2,
 });
 
+function formatOptionalNumber(value: number | null) {
+  return value === null ? "—" : numberFormatter.format(value);
+}
+
 export default function MeatSalesPanel({
   sales,
   persistent,
@@ -100,7 +104,7 @@ export default function MeatSalesPanel({
   const balances = useMemo(() => {
     const result = new Map<number, number>();
     for (const movement of sales.movements) {
-      if (movement.voided) continue;
+      if (movement.voided || movement.needsReview) continue;
       result.set(
         movement.itemNumber,
         (result.get(movement.itemNumber) ?? 0) +
@@ -137,17 +141,21 @@ export default function MeatSalesPanel({
   const reportSummary = useMemo(() => {
     let incomingQuantity = 0;
     let incomingValue = 0;
+    let incomingValueComplete = true;
     let outgoingQuantity = 0;
     let outgoingValue = 0;
+    let outgoingValueComplete = true;
     for (const movement of reportMovements) {
-      if (movement.voided) continue;
+      if (movement.voided || movement.needsReview) continue;
       if (movement.quantity !== null) {
         incomingQuantity += movement.quantity;
-        incomingValue += movement.quantity * movement.price;
+        if (movement.price === null) incomingValueComplete = false;
+        else incomingValue += movement.quantity * movement.price;
       }
       if (movement.outgoing !== null) {
         outgoingQuantity += movement.outgoing;
-        outgoingValue += movement.outgoing * movement.price;
+        if (movement.price === null) outgoingValueComplete = false;
+        else outgoingValue += movement.outgoing * movement.price;
       }
     }
     const activeInvoices = reportInvoices.filter(
@@ -155,24 +163,29 @@ export default function MeatSalesPanel({
     );
     return {
       incomingQuantity,
-      incomingValue,
+      incomingValue: incomingValueComplete ? incomingValue : null,
       outgoingQuantity,
-      outgoingValue,
+      outgoingValue: outgoingValueComplete ? outgoingValue : null,
       remainingQuantity: incomingQuantity - outgoingQuantity,
-      remainingValue: incomingValue - outgoingValue,
+      remainingValue:
+        incomingValueComplete && outgoingValueComplete
+          ? incomingValue - outgoingValue
+          : null,
       invoiceCount: activeInvoices.length,
-      invoiceTotal: activeInvoices.reduce(
-        (sum, invoice) => sum + invoice.total,
-        0,
-      ),
+      invoiceTotal: activeInvoices.every((invoice) => invoice.total !== null)
+        ? activeInvoices.reduce((sum, invoice) => sum + (invoice.total ?? 0), 0)
+        : null,
       invoicePaid: activeInvoices.reduce(
         (sum, invoice) => sum + invoice.paid,
         0,
       ),
-      invoiceOutstanding: activeInvoices.reduce(
-        (sum, invoice) => sum + Math.max(0, invoice.total - invoice.paid),
-        0,
-      ),
+      invoiceOutstanding: activeInvoices.every((invoice) => invoice.total !== null)
+        ? activeInvoices.reduce(
+            (sum, invoice) =>
+              sum + Math.max(0, (invoice.total ?? 0) - invoice.paid),
+            0,
+          )
+        : null,
     };
   }, [reportMovements, reportInvoices]);
 
@@ -185,7 +198,11 @@ export default function MeatSalesPanel({
         let incoming = 0;
         let outgoing = 0;
         for (const movement of sales.movements) {
-          if (movement.voided || movement.itemNumber !== product.itemNumber) {
+          if (
+            movement.voided ||
+            movement.needsReview ||
+            movement.itemNumber !== product.itemNumber
+          ) {
             continue;
           }
           incoming += movement.quantity ?? 0;
@@ -409,6 +426,7 @@ export default function MeatSalesPanel({
               outgoingDate: null,
               issuePermitNumber: null,
               recipient: "",
+              needsReview: false,
               voided: false,
               voidReason: "",
             },
@@ -510,6 +528,7 @@ export default function MeatSalesPanel({
             outgoingDate: saleDate,
             issuePermitNumber: parsedPermit,
             recipient: beneficiary.trim(),
+            needsReview: false,
             voided: false,
             voidReason: "",
           });
@@ -720,6 +739,12 @@ export default function MeatSalesPanel({
           {error}
         </p>
       )}
+      {sales.needsReviewCount > 0 && (
+        <p className="review-warning" role="status">
+          يوجد {numberFormatter.format(sales.needsReviewCount)} حركة ثلاجة قيد
+          المراجعة؛ لا تدخل في حساب الرصيد.
+        </p>
+      )}
 
       {canManage && section === "catalog" && (
         <>
@@ -925,7 +950,9 @@ export default function MeatSalesPanel({
                       )}
                     </td>
                     <td>
-                      {movement.voided
+                      {movement.needsReview
+                        ? "قيد المراجعة"
+                        : movement.voided
                         ? `ملغاة: ${movement.voidReason}`
                         : movement.recipient || "سارية"}
                     </td>
@@ -1101,7 +1128,7 @@ export default function MeatSalesPanel({
                   </p>
                 </div>
                 <div className="sales-invoice-totals">
-                  <span>الإجمالي: {numberFormatter.format(invoice.total)}</span>
+                  <span>الإجمالي: {formatOptionalNumber(invoice.total)}</span>
                   <span>المسدد: {numberFormatter.format(invoice.paid)}</span>
                   <strong>{invoice.voided ? "ملغاة" : "مسددة"}</strong>
                   {invoice.voided && <span>{invoice.voidReason}</span>}
@@ -1123,7 +1150,7 @@ export default function MeatSalesPanel({
                         <td>{line.itemCategory}</td>
                         <td>{numberFormatter.format(line.price)}</td>
                         <td>{numberFormatter.format(line.quantity)}</td>
-                        <td>{numberFormatter.format(line.total)}</td>
+                        <td>{formatOptionalNumber(line.total)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1279,7 +1306,7 @@ export default function MeatSalesPanel({
             </article>
             <article>
               <span>الوارد (قيمة)</span>
-              <strong>{numberFormatter.format(reportSummary.incomingValue)}</strong>
+              <strong>{formatOptionalNumber(reportSummary.incomingValue)}</strong>
             </article>
             <article>
               <span>المنصرف (كمية)</span>
@@ -1289,7 +1316,7 @@ export default function MeatSalesPanel({
             </article>
             <article>
               <span>المنصرف (قيمة)</span>
-              <strong>{numberFormatter.format(reportSummary.outgoingValue)}</strong>
+              <strong>{formatOptionalNumber(reportSummary.outgoingValue)}</strong>
             </article>
             <article>
               <span>الرصيد المتبقي (كمية)</span>
@@ -1300,7 +1327,7 @@ export default function MeatSalesPanel({
             <article>
               <span>الرصيد المتبقي (قيمة)</span>
               <strong>
-                {numberFormatter.format(reportSummary.remainingValue)}
+                {formatOptionalNumber(reportSummary.remainingValue)}
               </strong>
             </article>
             <article>
@@ -1309,7 +1336,7 @@ export default function MeatSalesPanel({
             </article>
             <article>
               <span>إجمالي الفواتير</span>
-              <strong>{numberFormatter.format(reportSummary.invoiceTotal)}</strong>
+              <strong>{formatOptionalNumber(reportSummary.invoiceTotal)}</strong>
             </article>
             <article>
               <span>المسدد</span>
@@ -1318,7 +1345,7 @@ export default function MeatSalesPanel({
             <article>
               <span>المتبقي على النزلاء</span>
               <strong>
-                {numberFormatter.format(reportSummary.invoiceOutstanding)}
+                {formatOptionalNumber(reportSummary.invoiceOutstanding)}
               </strong>
             </article>
           </div>
@@ -1359,16 +1386,16 @@ export default function MeatSalesPanel({
                         ? "—"
                         : numberFormatter.format(movement.outgoing)}
                     </td>
-                    <td>{numberFormatter.format(movement.price)}</td>
+                    <td>{formatOptionalNumber(movement.price)}</td>
                     <td>
-                      {movement.quantity === null
+                      {movement.quantity === null || movement.price === null
                         ? "—"
                         : numberFormatter.format(
                             movement.quantity * movement.price,
                           )}
                     </td>
                     <td>
-                      {movement.outgoing === null
+                      {movement.outgoing === null || movement.price === null
                         ? "—"
                         : numberFormatter.format(
                             movement.outgoing * movement.price,
@@ -1380,7 +1407,9 @@ export default function MeatSalesPanel({
                       )}
                     </td>
                     <td>
-                      {movement.voided
+                      {movement.needsReview
+                        ? "قيد المراجعة"
+                        : movement.voided
                         ? `ملغاة: ${movement.voidReason}`
                         : movement.recipient || "سارية"}
                     </td>
@@ -1410,6 +1439,7 @@ export default function MeatSalesPanel({
                   <th>المسدد</th>
                   <th>المتبقي</th>
                   <th>الحالة</th>
+                  <th>الإجراءات</th>
                 </tr>
               </thead>
               <tbody>
@@ -1418,19 +1448,43 @@ export default function MeatSalesPanel({
                     <td>{invoice.invoiceNumber}</td>
                     <td>{formatDate(invoice.saleDate)}</td>
                     <td>{invoice.beneficiary}</td>
-                    <td>{numberFormatter.format(invoice.total)}</td>
+                    <td>{formatOptionalNumber(invoice.total)}</td>
                     <td>{numberFormatter.format(invoice.paid)}</td>
                     <td>
-                      {numberFormatter.format(
-                        Math.max(0, invoice.total - invoice.paid),
-                      )}
+                      {invoice.total === null
+                        ? "—"
+                        : numberFormatter.format(
+                            Math.max(0, invoice.total - invoice.paid),
+                          )}
                     </td>
                     <td>{invoice.voided ? "ملغاة" : "سارية"}</td>
+                    <td>
+                      <PrintBrand
+                        title={`فاتورة رقم ${invoice.invoiceNumber}`}
+                        subtitle={invoice.beneficiary}
+                        meta={[
+                          { label: "التاريخ", value: formatDate(invoice.saleDate) },
+                          { label: "الإجمالي", value: formatOptionalNumber(invoice.total) },
+                          { label: "المسدد", value: numberFormatter.format(invoice.paid) },
+                          { label: "المتبقي", value: invoice.total === null ? "—" : numberFormatter.format(Math.max(0, invoice.total - invoice.paid)) },
+                        ]}
+                      />
+                      <button
+                        className="table-action no-print"
+                        type="button"
+                        onClick={(event) => {
+                          const row = event.currentTarget.closest("tr");
+                          if (row instanceof HTMLElement) printSingleRecord(row);
+                        }}
+                      >
+                        طباعة الفاتورة
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {!reportInvoices.length && (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <div className="empty-state">
                         لا توجد فواتير بيع خلال الفترة المحددة.
                       </div>

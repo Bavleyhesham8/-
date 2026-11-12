@@ -8,6 +8,7 @@ import type { ResidentFinanceBundle } from "@/lib/resident-finance-types";
 import { formatDate } from "@/lib/date-format";
 import PrintBrand from "@/components/print-brand";
 import { printDocument } from "@/lib/print";
+import { findRecordForResident } from "@/lib/resident-matching";
 
 type Props = {
   resident: Resident;
@@ -42,14 +43,7 @@ export default function ResidentStatementModal({
   // 1. تجميع المقبوضات والأمانات (له - Credit)
   const deposits = useMemo(() => {
     if (!residentFinance) return [];
-    const residentNumber = resident.residentNumber?.trim();
-    const record = residentFinance.records.find(
-      (r) =>
-        (residentNumber && String(r.residentNumber) === residentNumber) ||
-        (!residentNumber &&
-          r.residentName?.trim().toLowerCase() ===
-            resident.name.trim().toLowerCase()),
-    );
+    const record = findRecordForResident(resident, residentFinance.records);
     if (!record) return [];
     return record.entries
       .filter((e) => !e.voided && e.amount)
@@ -92,17 +86,26 @@ export default function ResidentStatementModal({
     return items;
   }, [sales, resident]);
 
+  const canteenPayments = useMemo(() => {
+    if (!sales) return [];
+    return sales.invoices
+      .filter((invoice) => !invoice.voided && invoice.residentId === resident.id)
+      .flatMap((invoice) => invoice.payments.map((payment): LedgerItem => ({
+        id: `payment-${invoice.invoiceNumber}-${payment.id}`,
+        date: payment.paymentDate,
+        type: "deposit",
+        typeLabel: payment.kind === "refund" ? "استرداد من فاتورة" : "سداد فاتورة كانتين",
+        description: `فاتورة رقم ${invoice.invoiceNumber}`,
+        debit: 0,
+        credit: payment.kind === "refund" ? -payment.amount : payment.amount,
+        status: payment.kind === "refund" ? "مسترد" : "مسدد",
+      })));
+  }, [sales, resident]);
+
   // 3. تجميع أدوية العيادة (عليه - Debit)
   const clinicMedications = useMemo(() => {
     if (!treatment) return [];
-    const residentNumber = resident.residentNumber?.trim();
-    const record = treatment.records.find(
-      (r) =>
-        (residentNumber && String(r.residentNumber) === residentNumber) ||
-        (!residentNumber &&
-          r.residentName?.trim().toLowerCase() ===
-            resident.name.trim().toLowerCase()),
-    );
+    const record = findRecordForResident(resident, treatment.records);
     if (!record) return [];
     return record.entries
       .filter((e) => !e.voided)
@@ -122,15 +125,16 @@ export default function ResidentStatementModal({
 
   // 4. دمج السجل الزمني
   const ledger = useMemo(() => {
-    const combined = [...deposits, ...canteenPurchases, ...clinicMedications];
+    const combined = [...deposits, ...canteenPayments, ...canteenPurchases, ...clinicMedications];
     return combined.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  }, [deposits, canteenPurchases, clinicMedications]);
+  }, [deposits, canteenPayments, canteenPurchases, clinicMedications]);
 
   const totalDeposits = useMemo(() => deposits.reduce((s, i) => s + i.credit, 0), [deposits]);
+  const totalInvoicePayments = useMemo(() => canteenPayments.reduce((s, i) => s + i.credit, 0), [canteenPayments]);
   const totalCanteen = useMemo(() => canteenPurchases.reduce((s, i) => s + i.debit, 0), [canteenPurchases]);
   const totalMedications = useMemo(() => clinicMedications.reduce((s, i) => s + i.debit, 0), [clinicMedications]);
   const totalDebits = totalCanteen + totalMedications;
-  const netBalance = totalDeposits - totalDebits; // موجب = رصيد له / سالب = مديونية عليه
+  const netBalance = totalDeposits + totalInvoicePayments - totalDebits; // موجب = رصيد له / سالب = مديونية عليه
 
   return (
     <div
@@ -201,11 +205,18 @@ export default function ResidentStatementModal({
           </div>
 
           {/* بطاقات الملخص المالي الثلاثية */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4 text-center">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-5 text-center">
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
               <span className="block text-xs font-bold text-emerald-800 mb-1">إجمالي الأمانات المودعة (+)</span>
               <span className="text-xl font-black text-emerald-700">
                 {currencyFormatter.format(totalDeposits)} ج.م
+              </span>
+            </div>
+
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
+              <span className="block text-xs font-bold text-blue-800 mb-1">مسددات فواتير الكانتين</span>
+              <span className="text-xl font-black text-blue-700">
+                {currencyFormatter.format(totalInvoicePayments)} ج.م
               </span>
             </div>
 

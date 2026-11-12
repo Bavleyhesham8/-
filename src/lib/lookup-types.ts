@@ -1,9 +1,10 @@
 export type ChurchLookup = {
   id: number;
   number: string | null;
+  /** اسم الكنيسة. */
   name: string | null;
+  /** أب الاعتراف. */
   acheshe: string | null;
-  father: string | null;
 };
 
 export type GovernorateLookup = {
@@ -32,7 +33,10 @@ export type LookupData = {
   governorates: GovernorateLookup[];
   days: DayLookup[];
   alternateCategories: AlternateInvoiceCategory[];
+  /** الفيلات فقط: A وB وC وD. */
   villas: VillaNumberLookup[];
+  /** الغرف، مخزنة في نفس جدول القيم القديم ولكنها ليست فيلات. */
+  rooms: VillaNumberLookup[];
 };
 
 export type LookupKind =
@@ -40,4 +44,5 @@ export type LookupKind =
   | "governorate"
   | "day"
   | "alternate-category"
-  | "villa";
+  | "villa"
+  | "room";

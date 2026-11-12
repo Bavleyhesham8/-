@@ -27,9 +27,9 @@ body {
   margin: 0;
   background-color: #0c1a16;
   background-image: 
-    radial-gradient(circle at 85% 15%, rgba(245, 158, 11, 0.12) 0%, transparent 40%),
-    linear-gradient(to bottom, rgba(12, 26, 22, 0.72) 0%, rgba(12, 26, 22, 0.86) 100%),
-    url('/images/background.jpg');
+    radial-gradient(circle at 85% 15%, rgba(245, 158, 11, 0.08) 0%, transparent 45%),
+    linear-gradient(to bottom, rgba(12, 26, 22, 0.38) 0%, rgba(12, 26, 22, 0.52) 100%),
+    url('/images/background.webp');
   background-size: cover;
   background-position: center top;
   background-attachment: fixed;
@@ -101,16 +101,13 @@ select:focus-visible {
 }
 
 .brand-mark {
-  display: grid;
-  width: 43px;
-  height: 43px;
+  display: block;
+  width: 48px;
+  height: 48px;
   flex: 0 0 auto;
-  place-items: center;
-  border-radius: 14px;
-  background: var(--green);
-  color: #fff;
-  font-size: 23px;
-  font-weight: 700;
+  border-radius: 0;
+  background: transparent;
+  object-fit: contain;
 }
 
 .brand-name {
@@ -134,7 +131,25 @@ select:focus-visible {
 
 .nav-list {
   display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
   gap: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scroll-padding: 10px;
+  scrollbar-color: rgba(15, 118, 110, 0.55) transparent;
+  scrollbar-width: thin;
+}
+
+.nav-list::-webkit-scrollbar {
+  width: 6px;
+  height: 5px;
+}
+
+.nav-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.55);
 }
 
 .nav-item {
@@ -1057,6 +1072,22 @@ button:disabled {
   width: min(100%, 400px);
 }
 
+.sign-in-background {
+  background-color: #0c1a16;
+  background-image: url('/images/saint-mark-login.webp');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+@media (max-width: 760px) {
+  .sign-in-background {
+    background-image: url('/images/saint-mark-login-mobile.webp');
+    background-position: center;
+    background-attachment: scroll;
+  }
+}
+
 .sign-in-form {
   display: grid;
   gap: 14px;
@@ -1122,10 +1153,9 @@ button:disabled {
   }
 
   .brand-mark {
-    width: 36px;
-    height: 36px;
-    border-radius: 11px;
-    font-size: 19px;
+    width: 42px;
+    height: 42px;
+    border-radius: 0;
   }
 
   .nav-caption,
@@ -1136,8 +1166,9 @@ button:disabled {
   .nav-list {
     display: flex;
     overflow-x: auto;
+    overflow-y: hidden;
     gap: 5px;
-    padding-bottom: 2px;
+    padding-bottom: 6px;
   }
 
   .nav-item {
@@ -2066,6 +2097,45 @@ button:disabled {
     visibility: hidden !important;
   }
 
+  body.print-single-record .dashboard-print-area,
+  body.print-single-record .dashboard-print-area * {
+    visibility: hidden !important;
+  }
+
+  body.print-single-record .print-single-target,
+  body.print-single-record .print-single-target * {
+    visibility: visible !important;
+  }
+
+  body.print-single-record .print-single-target {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 9999 !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #111827 !important;
+  }
+
+  body.print-single-record .print-single-target .print-brand {
+    display: flex !important;
+  }
+
+  body.print-single-record tr.print-single-target {
+    display: block !important;
+  }
+
+  body.print-single-record tr.print-single-target > td:not(:last-child) {
+    display: none !important;
+  }
+
+  body.print-single-record tr.print-single-target > td:last-child {
+    display: block !important;
+    width: 100% !important;
+    border: 0 !important;
+  }
+
   .dashboard-print-area,
   .dashboard-print-area *,
   .printable-document-content,
@@ -2093,6 +2163,21 @@ button:disabled {
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
+  }
+
+  body.lookup-report-print .lookup-manager-panel > :not(.lookup-report-print-area) {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body.lookup-report-print .lookup-report-print-area > :not(.print-brand):not(.lookup-report-content) {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body.lookup-report-print .lookup-report-content .no-print,
+  body.lookup-report-print .lookup-report-content .panel-heading {
+    display: none !important;
   }
 
   .dashboard-print-area button {
@@ -2644,6 +2729,14 @@ button:disabled {
 
 .lookup-table {
   min-width: 0;
+  white-space: normal;
+}
+
+.lookup-table th,
+.lookup-table td {
+  padding: 13px 14px;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .lookup-row-actions {
@@ -2671,14 +2764,213 @@ button:disabled {
   font-size: 10px;
 }
 
+.lookup-report-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 18px;
+}
+
+.lookup-report-tabs button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--muted);
+  padding: 7px 13px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lookup-report-tabs button.active {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green-dark);
+}
+
+.lookup-report-content {
+  padding: 18px;
+}
+
+.lookup-report-section {
+  display: grid;
+  gap: 14px;
+}
+
+.lookup-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  align-items: end;
+  gap: 12px;
+  max-width: 920px;
+}
+
+.lookup-governorate-filter {
+  max-width: 420px;
+}
+
+.governorate-report-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.governorate-report-group {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.governorate-report-group > h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #f4f8f6;
+  color: var(--green-dark);
+  font-size: 14px;
+}
+
+.governorate-report-group > h4 span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lookup-settings-explanation {
+  margin: 0;
+  padding: 0 16px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.lookup-report-section > h3,
+.lookup-report-section > h4,
+.lookup-report-section > p {
+  margin: 0;
+}
+
+.lookup-report-section > h3 {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.lookup-report-section > p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.lookup-report-section > .form-field {
+  max-width: 640px;
+}
+
+.lookup-report-content .lookup-form {
+  margin: 0;
+}
+
+.lookup-period-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  border: 0;
+  padding: 0;
+}
+
+.lookup-period-mode legend {
+  font-weight: 700;
+}
+
+.lookup-period-mode label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.lookup-admin-management {
+  margin: 4px 18px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.lookup-admin-management > summary {
+  padding: 14px 16px;
+  color: var(--green-dark);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.lookup-admin-management[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.lookup-admin-management .lookup-tabs {
+  padding-top: 12px;
+}
+
 @media (max-width: 760px) {
   .lookup-form {
     grid-template-columns: 1fr;
+  }
+
+  .lookup-report-content {
+    padding: 14px;
+  }
+
+  .lookup-report-tabs {
+    padding-inline: 14px;
+  }
+
+  .lookup-report-tabs button {
+    flex: 1 1 calc(50% - 8px);
   }
 }
 
 .custody-panel {
   overflow: hidden;
+}
+
+.treatment-panel {
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.treatment-panel h2,
+.treatment-panel h3,
+.treatment-panel h4 {
+  font-weight: 800 !important;
+  color: #172b3d;
+}
+
+.treatment-panel p,
+.treatment-panel label,
+.treatment-panel th,
+.treatment-panel td {
+  font-weight: 600;
+}
+
+.treatment-panel .text-xs {
+  font-size: 0.82rem;
+}
+
+.treatment-panel table {
+  font-size: 13px;
+}
+
+.treatment-panel thead th {
+  color: #334155;
+  font-weight: 800;
+}
+
+.treatment-panel tbody td {
+  color: #27384a;
 }
 
 .custody-tabs {
@@ -3416,9 +3708,18 @@ label.form-field {
   color: #991b1b;
 }
 
+.tracking-status-needs_review {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .tracking-row-voided {
   opacity: 0.55;
   text-decoration: line-through;
+}
+
+.tracking-row-review {
+  background: #fffbeb;
 }
 
 .tracking-limit-note {

@@ -41,7 +41,7 @@ type TrackingEvent = {
   amountKind: AmountKind | null;
   outstanding: number | null;
   balanceAfter: number | null;
-  status: "active" | "voided";
+  status: "active" | "voided" | "needs_review";
   reference: string;
 };
 
@@ -255,8 +255,14 @@ export default function GlobalTrackingPanel({
         amount: quantity * (item?.price ?? 0),
         amountKind: "stock",
         outstanding: null,
-        balanceAfter: movement.remaining ?? movement.balance,
-        status: movement.deleted ? "voided" : "active",
+        balanceAfter: movement.needsReview
+          ? null
+          : movement.remaining ?? movement.balance,
+        status: movement.needsReview
+          ? "needs_review"
+          : movement.deleted
+            ? "voided"
+            : "active",
         reference: String(movement.id),
       });
     }
@@ -332,7 +338,7 @@ export default function GlobalTrackingPanel({
     }
 
     const meatBalances = runningBalance(
-      meatSales.movements,
+      meatSales.movements.filter((movement) => !movement.needsReview),
       (movement) => String(movement.itemNumber),
       (movement) => String(movement.id),
       (movement) =>
@@ -359,8 +365,14 @@ export default function GlobalTrackingPanel({
         amount: movement.total,
         amountKind: "stock",
         outstanding: null,
-        balanceAfter: meatBalances.get(String(movement.id)) ?? null,
-        status: movement.voided ? "voided" : "active",
+        balanceAfter: movement.needsReview
+          ? null
+          : meatBalances.get(String(movement.id)) ?? null,
+        status: movement.needsReview
+          ? "needs_review"
+          : movement.voided
+            ? "voided"
+            : "active",
         reference:
           movement.issuePermitNumber !== null
             ? `تصريح ${movement.issuePermitNumber}`
@@ -382,7 +394,8 @@ export default function GlobalTrackingPanel({
         unit: "",
         amount: invoice.total,
         amountKind: "revenue",
-        outstanding: invoice.total - invoice.paid,
+        outstanding:
+          invoice.total === null ? null : invoice.total - invoice.paid,
         balanceAfter: null,
         status: invoice.voided ? "voided" : "active",
         reference: String(invoice.invoiceNumber),
@@ -590,8 +603,13 @@ export default function GlobalTrackingPanel({
     let charges = 0;
     let refunds = 0;
     let voided = 0;
+    let needsReview = 0;
 
     for (const event of filteredEvents) {
+      if (event.status === "needs_review") {
+        needsReview += 1;
+        continue;
+      }
       if (event.status === "voided") {
         voided += 1;
         continue;
@@ -641,6 +659,7 @@ export default function GlobalTrackingPanel({
       charges,
       refunds,
       voided,
+      needsReview,
     };
   }, [filteredEvents]);
 
@@ -855,6 +874,14 @@ export default function GlobalTrackingPanel({
         </button>
       </form>
 
+      {custody.needsReviewCount + meatSales.needsReviewCount > 0 && (
+        <p className="review-warning" role="status">
+          حركات قيد المراجعة لا تدخل في حسابات الأرصدة. المخزن:{" "}
+          {numberFormatter.format(custody.needsReviewCount)}، الثلاجة:{" "}
+          {numberFormatter.format(meatSales.needsReviewCount)}.
+        </p>
+      )}
+
       <div className="tracking-summary report-summary">
         <article>
           <span>إجمالي الحركات</span>
@@ -904,6 +931,10 @@ export default function GlobalTrackingPanel({
           <span>مرتجعات</span>
           <strong>{formatMoney(summary.refunds)}</strong>
         </article>
+        <article>
+          <span>حركات قيد المراجعة</span>
+          <strong>{numberFormatter.format(summary.needsReview)}</strong>
+        </article>
       </div>
 
       <div className="table-wrap tracking-table-wrap report-detail">
@@ -927,7 +958,13 @@ export default function GlobalTrackingPanel({
             {visibleEvents.map((event) => (
               <tr
                 key={event.id}
-                className={event.status === "voided" ? "tracking-row-voided" : ""}
+                className={
+                  event.status === "voided"
+                    ? "tracking-row-voided"
+                    : event.status === "needs_review"
+                      ? "tracking-row-review"
+                      : ""
+                }
               >
                 <td>{displayDate(event.date)}</td>
                 <td>
@@ -975,7 +1012,11 @@ export default function GlobalTrackingPanel({
                   <span
                     className={`tracking-status tracking-status-${event.status}`}
                   >
-                    {event.status === "voided" ? "ملغاة" : "نشطة"}
+                    {event.status === "voided"
+                      ? "ملغاة"
+                      : event.status === "needs_review"
+                        ? "قيد المراجعة"
+                        : "نشطة"}
                   </span>
                 </td>
                 <td>{event.reference || "—"}</td>

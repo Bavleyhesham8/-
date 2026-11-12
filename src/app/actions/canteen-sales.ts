@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import {
@@ -21,6 +21,7 @@ import {
   residents,
 } from "@/db/schema";
 import { requireStaffPermission } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import type { CanteenMovement } from "@/lib/canteen-types";
 import type {
   CanteenSalesItem,
@@ -41,6 +42,7 @@ const dateSchema = z
   });
 
 const purchaseSchema = z.object({
+  id: z.number().int().positive().nullable().optional(),
   name: z.string().trim().min(1).max(160),
   price: z.number().finite().min(0).max(1_000_000_000),
   addToResidentAccount: z.boolean(),
@@ -48,6 +50,7 @@ const purchaseSchema = z.object({
 });
 
 const categorySchema = z.object({
+  id: z.number().int().positive().nullable().optional(),
   name: z.string().trim().min(1).max(120),
 });
 
@@ -108,27 +111,57 @@ export async function saveCanteenSalesItemAction(
       return { ok: false, error: "لم يتم العثور على صنف المخزون المحدد." };
     }
   }
-  const [created] = await database
-    .insert(residentPurchases)
-    .values({
-      itemName: name,
-      price: parsed.data.price,
-      addToResidentAccount: parsed.data.addToResidentAccount,
-      canteenItemNumber: parsed.data.canteenItemNumber,
-      createdBy: session.user.id,
-    })
-    .onConflictDoNothing()
-    .returning({
-      id: residentPurchases.id,
-      name: residentPurchases.itemName,
-      price: residentPurchases.price,
-      addToResidentAccount: residentPurchases.addToResidentAccount,
-      canteenItemNumber: residentPurchases.canteenItemNumber,
-    });
-  if (!created) {
+  const id = parsed.data.id ?? null;
+  const [duplicate] = await database
+    .select({ id: residentPurchases.id })
+    .from(residentPurchases)
+    .where(id === null
+      ? eq(residentPurchases.itemName, name)
+      : and(eq(residentPurchases.itemName, name), ne(residentPurchases.id, id)))
+    .limit(1);
+  if (duplicate) {
+    return { ok: false, error: "Duplicate item name." };
+  }
+  const values = {
+    itemName: name,
+    price: parsed.data.price,
+    addToResidentAccount: parsed.data.addToResidentAccount,
+    canteenItemNumber: parsed.data.canteenItemNumber,
+    needsReview: false,
+  };
+  const [saved] = id === null
+    ? await database.insert(residentPurchases)
+        .values({ ...values, createdBy: session.user.id })
+        .returning({
+          id: residentPurchases.id,
+          name: residentPurchases.itemName,
+          price: residentPurchases.price,
+          addToResidentAccount: residentPurchases.addToResidentAccount,
+          canteenItemNumber: residentPurchases.canteenItemNumber,
+          needsReview: residentPurchases.needsReview,
+        })
+    : await database.update(residentPurchases)
+        .set(values)
+        .where(eq(residentPurchases.id, id))
+        .returning({
+          id: residentPurchases.id,
+          name: residentPurchases.itemName,
+          price: residentPurchases.price,
+          addToResidentAccount: residentPurchases.addToResidentAccount,
+          canteenItemNumber: residentPurchases.canteenItemNumber,
+          needsReview: residentPurchases.needsReview,
+        });
+  if (!saved) {
     return { ok: false, error: "اسم الصنف مستخدم بالفعل." };
   }
-  return { ok: true, item: created };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: id === null ? "create" : "update",
+    entity: "residentPurchases",
+    entityId: saved.id,
+    metadata: { fields: "itemName,price,addToResidentAccount,canteenItemNumber" },
+  });
+  return { ok: true, item: saved };
 }
 
 export async function saveInvoiceCategoryAction(
@@ -137,21 +170,32 @@ export async function saveInvoiceCategoryAction(
   { ok: true; category: InvoiceCategory }
   | { ok: false; error: string }
 > {
-  await requireStaffPermission("canIssueInvoices");
+  const session = await requireStaffPermission("canIssueInvoices");
   const parsed = categorySchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "أدخل اسمًا صحيحًا للفئة." };
   }
   const name = parsed.data.name.normalize("NFC");
   const database = getDatabase();
-  const [created] = await database
+  const id = parsed.data.id ?? null;
+  const [created] = id === null ? await database
     .insert(invoiceCategories)
     .values({ name })
     .onConflictDoNothing()
-    .returning({ id: invoiceCategories.id, name: invoiceCategories.name });
+    .returning({ id: invoiceCategories.id, name: invoiceCategories.name })
+    : await database.update(invoiceCategories).set({ name })
+      .where(eq(invoiceCategories.id, id))
+      .returning({ id: invoiceCategories.id, name: invoiceCategories.name });
   if (!created) {
     return { ok: false, error: "اسم الفئة مستخدم بالفعل." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: id === null ? "create" : "update",
+    entity: "invoiceCategories",
+    entityId: created.id,
+    metadata: { fields: "name" },
+  });
   return { ok: true, category: created };
 }
 
@@ -180,10 +224,14 @@ export async function createResidentInvoiceAction(
       .select({
         id: residentPurchases.id,
         name: residentPurchases.itemName,
-        price: residentPurchases.price,
+        price: sql<number>`case when ${residentPurchases.price} > 0 then ${residentPurchases.price} else coalesce(${canteenProducts.price}, ${residentPurchases.price}) end`,
         canteenItemNumber: residentPurchases.canteenItemNumber,
       })
       .from(residentPurchases)
+      .leftJoin(
+        canteenProducts,
+        eq(canteenProducts.itemNumber, residentPurchases.canteenItemNumber),
+      )
       .where(
         inArray(
           residentPurchases.id,
@@ -501,6 +549,13 @@ export async function createResidentInvoiceAction(
     if (!("invoice" in result)) {
       return { ok: false, error: "تعذر إنشاء الفاتورة." };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "create",
+      entity: "residentInvoices",
+      entityId: result.invoice.invoiceNumber,
+      metadata: { fields: "saleType,invoiceDate,items,initialPayment" },
+    });
     return {
       ok: true,
       invoice: result.invoice,
@@ -600,6 +655,13 @@ export async function recordInvoicePaymentAction(
   if ("error" in result && typeof result.error === "string") {
     return { ok: false, error: result.error };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "residentInvoicePayments",
+    entityId: result.payment.id,
+    metadata: { fields: "invoiceNumber,amount,paymentDate" },
+  });
   return { ok: true, payment: result.payment, balance: result.balance };
   } catch (error) {
   if (error instanceof CanteenSalesActionError) {
@@ -744,6 +806,13 @@ export async function voidResidentInvoiceAction(
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "delete",
+      entity: "residentInvoices",
+      entityId: invoiceNumber.data,
+      metadata: { fields: "voided,reason" },
+    });
     return {
       ok: true,
       refund: result.refund,

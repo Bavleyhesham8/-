@@ -3,13 +3,14 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   createTreatmentHeaderAction,
+  editTreatmentEntryAction,
   recordTreatmentEntryAction,
   voidTreatmentEntryAction,
 } from "@/app/actions/treatment";
 import { formatDate, localDateValue } from "@/lib/date-format";
 import ResidentPicker from "@/components/resident-picker";
 import type { Resident } from "@/lib/demo-data";
-import type { TreatmentBundle } from "@/lib/treatment-types";
+import type { TreatmentBundle, TreatmentDetailEntry } from "@/lib/treatment-types";
 
 type Props = {
   bundle: TreatmentBundle;
@@ -47,6 +48,12 @@ export default function TreatmentPanel({
   const [search, setSearch] = useState("");
   const [voidTarget, setVoidTarget] = useState<VoidTarget | null>(null);
   const [voidReason, setVoidReason] = useState("");
+  const [editTarget, setEditTarget] = useState<TreatmentDetailEntry | null>(null);
+  const [editMedicationName, setEditMedicationName] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editQuantity, setEditQuantity] = useState("1");
+  const [editDiscount, setEditDiscount] = useState("0");
+  const [editDate, setEditDate] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -190,6 +197,42 @@ export default function TreatmentPanel({
     }
   }
 
+  async function submitEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editTarget) return;
+    const parsedAmount = Number(editAmount);
+    const parsedQuantity = Number(editQuantity);
+    const parsedDiscount = Number(editDiscount || 0);
+    if (!editMedicationName.trim() || parsedAmount <= 0 || parsedQuantity <= 0 || parsedDiscount < 0 || parsedDiscount > parsedAmount * parsedQuantity || !editDate) {
+      setError("راجع اسم الدواء والسعر والكمية والخصم والتاريخ.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await editTreatmentEntryAction({
+        id: editTarget.id,
+        medicationName: editMedicationName.trim(),
+        amount: parsedAmount,
+        quantity: parsedQuantity,
+        discount: parsedDiscount,
+        treatmentDate: editDate,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      onBundleChange(result.bundle);
+      setEditTarget(null);
+      setMessage("تم حفظ تعديل قيد العلاج.");
+    } catch {
+      setError("تعذر حفظ تعديل قيد العلاج.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function submitVoid(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!voidTarget) return;
@@ -223,7 +266,7 @@ export default function TreatmentPanel({
   }
 
   return (
-    <div className="space-y-6 text-right" dir="rtl">
+    <div className="treatment-panel space-y-6 text-right" dir="rtl">
       {/* رأس اللوحة */}
       <div className="rounded-2xl border border-teal-200/60 bg-gradient-to-r from-teal-50/70 via-emerald-50/40 to-teal-50/70 p-6 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -539,6 +582,20 @@ export default function TreatmentPanel({
                             </td>
                             <td className="py-2.5 text-left">
                               {canManage && !entry.voided && (
+                                <div className="flex flex-wrap justify-end gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditTarget(entry);
+                                    setEditMedicationName(entry.medicationName);
+                                    setEditAmount(String(entry.amount));
+                                    setEditQuantity(String(entry.quantity));
+                                    setEditDiscount(String(entry.discount));
+                                    setEditDate(entry.treatmentDate ?? "");
+                                    setError("");
+                                  }}
+                                  className="rounded border border-teal-200 bg-white px-2 py-1 text-[11px] font-medium text-teal-700 hover:bg-teal-50"
+                                >تعديل</button>
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -552,6 +609,7 @@ export default function TreatmentPanel({
                                 >
                                   إلغاء القيد
                                 </button>
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -567,6 +625,19 @@ export default function TreatmentPanel({
       </div>
 
       {/* نافذة تأكيد الإلغاء (Void Modal) */}
+      {canManage && editTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <form onSubmit={submitEdit} className="w-full max-w-lg space-y-3 rounded-2xl bg-white p-6 shadow-xl">
+            <h4 className="text-lg font-bold text-teal-800">تعديل قيد العلاج</h4>
+            <label className="form-field">اسم الدواء<input required maxLength={250} value={editMedicationName} onChange={(event) => setEditMedicationName(event.target.value)} /></label>
+            <label className="form-field">السعر<input required type="number" min="0.01" step="any" value={editAmount} onChange={(event) => setEditAmount(event.target.value)} /></label>
+            <label className="form-field">الكمية<input required type="number" min="0.01" step="any" value={editQuantity} onChange={(event) => setEditQuantity(event.target.value)} /></label>
+            <label className="form-field">الخصم<input required type="number" min="0" step="any" value={editDiscount} onChange={(event) => setEditDiscount(event.target.value)} /></label>
+            <label className="form-field">تاريخ الصرف<input required type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} /></label>
+            <div className="flex gap-2"><button className="primary-button" disabled={saving} type="submit">حفظ التعديل</button><button className="secondary-button" disabled={saving} onClick={() => setEditTarget(null)} type="button">إلغاء</button></div>
+          </form>
+        </div>
+      )}
       {canManage && voidTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">

@@ -11,6 +11,7 @@ import {
   residentStayReportToCsv,
 } from "@/lib/resident-stay-report-utils";
 import type { ResidentStayReportRow } from "@/lib/resident-stay-report-types";
+import { getAuthorizationErrorStatus } from "@/lib/auth-session";
 
 function csvResponse(
   csv: string,
@@ -56,15 +57,10 @@ export async function GET(request: NextRequest) {
       filters.endDate,
     );
   } catch (error) {
-    if (error instanceof Error && error.message === "Authentication required.") {
-      return new Response("Authentication required.", { status: 401 });
-    }
-    if (
-      error instanceof Error &&
-      error.message === "Resident editing permission is required."
-    ) {
-      return new Response("Resident editor permission is required.", {
-        status: 403,
+    const authorizationStatus = getAuthorizationErrorStatus(error);
+    if (authorizationStatus) {
+      return new Response(authorizationStatus === 401 ? "Authentication required." : "Report access is required.", {
+        status: authorizationStatus,
       });
     }
     if (

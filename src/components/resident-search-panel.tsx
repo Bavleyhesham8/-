@@ -58,7 +58,6 @@ function haystack(resident: Resident) {
     resident.confessor,
     resident.villa,
     resident.room,
-    resident.nationalId,
   ]
     .filter(Boolean)
     .join(" ")

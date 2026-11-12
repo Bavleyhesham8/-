@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   createResidentFinanceHeaderAction,
+  editResidentReceiptAction,
   recordResidentReceiptAction,
   voidResidentReceiptAction,
 } from "@/app/actions/resident-finance";
@@ -46,6 +47,10 @@ export default function ResidentFinancePanel({
   const [returnDate, setReturnDate] = useState("");
   const [voidTarget, setVoidTarget] = useState<VoidTarget | null>(null);
   const [voidReason, setVoidReason] = useState("");
+  const [editTarget, setEditTarget] = useState<ResidentFinanceEntry | null>(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editTransactionDate, setEditTransactionDate] = useState("");
+  const [editReturnDate, setEditReturnDate] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -110,6 +115,9 @@ export default function ResidentFinancePanel({
             {
               residentNumber: parsedNumber,
               residentName: residentName.trim().normalize("NFC"),
+              residentId: null,
+              matchScore: null,
+              matchAmbiguous: false,
               entries: [],
             },
           ].sort((left, right) => left.residentNumber - right.residentNumber),
@@ -239,15 +247,58 @@ export default function ResidentFinancePanel({
     }
   }
 
+  async function submitEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editTarget) return;
+    const parsedAmount = Number(editAmount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || !editTransactionDate) {
+      setError("أدخل مبلغًا موجبًا وتاريخ الإيصال.");
+      return;
+    }
+    if (editReturnDate && editReturnDate < editTransactionDate) {
+      setError("تاريخ التسوية لا يمكن أن يسبق تاريخ الإيصال.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      if (persistent) {
+        const result = await editResidentReceiptAction({
+          detailId: editTarget.id,
+          amount: parsedAmount,
+          transactionDate: editTransactionDate,
+          returnDate: editReturnDate,
+        });
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        onBundleChange(result.bundle);
+      } else {
+        const updateEntry = (entry: ResidentFinanceEntry) => entry.id === editTarget.id
+          ? { ...entry, amount: parsedAmount, transactionDate: editTransactionDate, returnDate: editReturnDate || null }
+          : entry;
+        onBundleChange({
+          records: bundle.records.map((record) => ({ ...record, entries: record.entries.map(updateEntry) })),
+          unassignedEntries: bundle.unassignedEntries.map(updateEntry),
+        });
+      }
+      setEditTarget(null);
+      setMessage("تم حفظ تعديل الإيصال.");
+    } catch {
+      setError("تعذر حفظ تعديل الإيصال.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="content-panel resident-finance-panel" dir="rtl">
       <div className="panel-heading">
         <div>
           <h3>السجلات المالية للنزلاء</h3>
-          <p>
-            سجل مستقل لجداول Access راس النزيل واطراف النزيل؛ لا يرتبط بسجل
-            النزيل UUID ولا يستورد بيانات Access.
-          </p>
+          <p>يعرض دفتر الرصيد الحركات المالية المسجلة لكل نزيل مباشرة.</p>
         </div>
         <strong className="resident-finance-total">
           إجمالي الإيصالات غير الملغاة: {numberFormatter.format(receivedTotal)}
@@ -384,6 +435,23 @@ export default function ResidentFinancePanel({
         </form>
       )}
 
+      {canManage && editTarget && (
+        <form className="resident-finance-void-form" onSubmit={submitEdit}>
+          <h4>تعديل إيصال — {editTarget.residentNumber ?? "غير مرتبط"}</h4>
+          <label className="form-field">المبلغ
+            <input type="number" min="0.01" step="any" required value={editAmount} onChange={(event) => setEditAmount(event.target.value)} />
+          </label>
+          <label className="form-field">تاريخ الإيصال
+            <input type="date" required value={editTransactionDate} onChange={(event) => setEditTransactionDate(event.target.value)} />
+          </label>
+          <label className="form-field">تاريخ التسوية المتوقع
+            <input type="date" value={editReturnDate} onChange={(event) => setEditReturnDate(event.target.value)} />
+          </label>
+          <button className="primary-button" disabled={saving} type="submit">حفظ التعديل</button>
+          <button className="secondary-button" disabled={saving} onClick={() => setEditTarget(null)} type="button">إلغاء</button>
+        </form>
+      )}
+
       <div className="table-wrap">
         <table className="resident-table">
           <thead>
@@ -451,6 +519,19 @@ export default function ResidentFinancePanel({
                 </td>
                 {canManage && <td>
                   {!entry.voided && (
+                    <>
+                    <button
+                      className="table-action"
+                      disabled={saving}
+                      onClick={() => {
+                        setEditTarget(entry);
+                        setEditAmount(String(entry.amount ?? ""));
+                        setEditTransactionDate(entry.transactionDate ?? "");
+                        setEditReturnDate(entry.returnDate ?? "");
+                        setError("");
+                      }}
+                      type="button"
+                    >تعديل</button>
                     <button
                       className="table-action danger"
                       disabled={saving}
@@ -466,6 +547,7 @@ export default function ResidentFinancePanel({
                     >
                       إلغاء الإيصال
                     </button>
+                    </>
                   )}
                 </td>}
               </tr>

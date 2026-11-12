@@ -4,6 +4,9 @@ export const demoTreatmentBundle: TreatmentBundle = {
   records: [
     {
       residentNumber: 1,
+      residentId: null,
+      matchScore: null,
+      matchAmbiguous: false,
       residentName: "يعقوب إبراهيم متي",
       totalBilled: 150,
       entries: [
@@ -24,6 +27,9 @@ export const demoTreatmentBundle: TreatmentBundle = {
     },
     {
       residentNumber: 2,
+      residentId: null,
+      matchScore: null,
+      matchAmbiguous: false,
       residentName: "سامح بخيت شجع",
       totalBilled: 100,
       entries: [

@@ -60,6 +60,10 @@ function eventLabel(event: CustodyEvent) {
   return "نقل";
 }
 
+function formatOptionalNumber(value: number | null) {
+  return value === null ? "—" : numberFormatter.format(value);
+}
+
 export default function CustodyPanel({
   bundle,
   persistent,
@@ -147,7 +151,7 @@ export default function CustodyPanel({
     const item = itemByNumber.get(Number(value));
     updateDraft(index, {
       itemNumber: value,
-      price: item ? String(item.price) : "",
+      price: item?.price === null || !item ? "" : String(item.price),
     });
   }
 
@@ -258,6 +262,7 @@ export default function CustodyPanel({
               deleted: false,
               kind: "custody_issue",
               custodyDetailId: detailId,
+              needsReview: false,
             });
             nextBalances.set(item.itemNumber, balance - line.quantity);
           }
@@ -343,6 +348,7 @@ export default function CustodyPanel({
             deleted: false,
             kind: "receipt",
             custodyDetailId: null,
+            needsReview: false,
           };
           return {
             ...current,
@@ -546,7 +552,7 @@ export default function CustodyPanel({
           };
           const movement: WarehouseMovement = {
             id: movementId,
-            itemNumber: detail.itemNumber,
+            itemNumber: detail.itemNumber ?? 0,
             balance: item.balance,
             incoming: quantity,
             incomingDate: actionDate,
@@ -556,6 +562,7 @@ export default function CustodyPanel({
             deleted: false,
             kind: "custody_return",
             custodyDetailId: detail.id,
+            needsReview: false,
           };
           return {
             ...current,
@@ -665,7 +672,7 @@ export default function CustodyPanel({
             current.items.map((item) => [item.itemNumber, item.balance]),
           );
           const details = record.details.map((detail) => {
-            if (detail.outstandingQuantity <= 1e-9) return detail;
+            if (!detail.itemNumber || detail.outstandingQuantity <= 1e-9) return detail;
             const item = current.items.find(
               (entry) => entry.itemNumber === detail.itemNumber,
             );
@@ -699,6 +706,7 @@ export default function CustodyPanel({
               deleted: false,
               kind: "custody_void",
               custodyDetailId: detail.id,
+              needsReview: false,
             });
             nextBalances.set(detail.itemNumber, balance + quantity);
             return {
@@ -797,6 +805,13 @@ export default function CustodyPanel({
           {canManage ? "إدارة المسؤول" : "عرض عهدتي فقط"}
         </span>
       </div>
+
+      {bundle.needsReviewCount > 0 && (
+        <p className="review-warning" role="status">
+          يوجد {numberFormatter.format(bundle.needsReviewCount)} حركة مخزن قيد
+          المراجعة؛ لا تدخل في حساب الرصيد.
+        </p>
+      )}
 
       <div className="custody-tabs" role="tablist" aria-label="أقسام العهدة">
         {sectionButtons}
@@ -1162,7 +1177,7 @@ export default function CustodyPanel({
                           {record.details.map((detail) => (
                             <tr key={detail.id}>
                               <td>{detail.itemName}</td>
-                              <td>{numberFormatter.format(detail.quantity)}</td>
+                              <td>{numberFormatter.format(detail.quantity ?? 0)}</td>
                               <td>{numberFormatter.format(detail.price)}</td>
                               <td>{numberFormatter.format(detail.total)}</td>
                               <td>
@@ -1341,7 +1356,7 @@ export default function CustodyPanel({
                 {bundle.items.map((item) => (
                   <tr key={item.itemNumber}>
                     <td>{item.itemName}</td>
-                    <td>{numberFormatter.format(item.price)}</td>
+                    <td>{formatOptionalNumber(item.price)}</td>
                     <td>{numberFormatter.format(item.balance)}</td>
                     <td>{item.responsible}</td>
                   </tr>
@@ -1371,13 +1386,18 @@ export default function CustodyPanel({
               </thead>
               <tbody>
                 {bundle.warehouseMovements.slice(0, 100).map((movement) => (
-                  <tr key={movement.id}>
+                  <tr
+                    key={movement.id}
+                    className={movement.needsReview ? "tracking-row-review" : ""}
+                  >
                     <td>
                       {itemByNumber.get(movement.itemNumber)?.itemName ??
                         movement.itemNumber}
                     </td>
                     <td>
-                      {movement.kind === "receipt"
+                      {movement.needsReview
+                        ? "قيد المراجعة"
+                        : movement.kind === "receipt"
                         ? "وارد"
                         : movement.kind === "custody_issue"
                           ? "صرف عهدة"
@@ -1385,10 +1405,18 @@ export default function CustodyPanel({
                             ? "مرتجع عهدة"
                             : "استرداد إلغاء"}
                     </td>
-                    <td>{numberFormatter.format(movement.incoming)}</td>
-                    <td>{numberFormatter.format(movement.outgoing)}</td>
-                    <td>{numberFormatter.format(movement.balance)}</td>
-                    <td>{numberFormatter.format(movement.remaining)}</td>
+                    <td>{formatOptionalNumber(movement.incoming)}</td>
+                    <td>{formatOptionalNumber(movement.outgoing)}</td>
+                    <td>
+                      {formatOptionalNumber(
+                        movement.needsReview ? null : movement.balance,
+                      )}
+                    </td>
+                    <td>
+                      {formatOptionalNumber(
+                        movement.needsReview ? null : movement.remaining,
+                      )}
+                    </td>
                     <td>
                       {formatDate(
                         movement.incomingDate ?? movement.outgoingDate ?? "",
@@ -1461,7 +1489,7 @@ export default function CustodyPanel({
                 {bundle.items.map((item) => (
                   <tr key={item.itemNumber}>
                     <td>{item.itemName}</td>
-                    <td>{numberFormatter.format(item.price)}</td>
+                    <td>{formatOptionalNumber(item.price)}</td>
                     <td>{numberFormatter.format(item.balance)}</td>
                     <td>
                       <div className="custody-price-editor">
@@ -1471,7 +1499,8 @@ export default function CustodyPanel({
                           min="0"
                           step="any"
                           value={
-                            priceDrafts[item.itemNumber] ?? String(item.price)
+                            priceDrafts[item.itemNumber] ??
+                            (item.price === null ? "" : String(item.price))
                           }
                           onChange={(event) =>
                             setPriceDrafts((current) => ({

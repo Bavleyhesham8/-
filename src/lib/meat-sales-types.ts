@@ -20,13 +20,14 @@ export type RefrigeratorMovement = {
   itemCategory: string;
   direction: "in" | "out";
   quantity: number | null;
-  price: number;
-  total: number;
+  price: number | null;
+  total: number | null;
   outgoing: number | null;
   receivedDate: string | null;
   outgoingDate: string | null;
   issuePermitNumber: number | null;
   recipient: string | null;
+  needsReview: boolean;
   voided: boolean;
   voidReason: string;
 };
@@ -36,7 +37,7 @@ export type MeatSaleLine = {
   itemCategory: string;
   price: number;
   quantity: number;
-  total: number;
+  total: number | null;
   refrigeratorItemNumber: number;
   movementId: number | null;
 };
@@ -54,7 +55,7 @@ export type MeatSaleInvoice = {
   issuePermitNumber: number | null;
   beneficiary: string;
   lines: MeatSaleLine[];
-  total: number;
+  total: number | null;
   paid: number;
   voided: boolean;
   voidReason: string;
@@ -66,4 +67,5 @@ export type MeatSalesBundle = {
   products: RefrigeratorProduct[];
   movements: RefrigeratorMovement[];
   invoices: MeatSaleInvoice[];
+  needsReviewCount: number;
 };

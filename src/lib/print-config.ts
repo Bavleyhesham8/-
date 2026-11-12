@@ -23,7 +23,7 @@ export const printConfig = {
   ),
   logoPath: publicValue(
     process.env.NEXT_PUBLIC_CENTER_LOGO_PATH,
-    "/logo.svg",
+    "/david-lyre-logo-v2.svg",
   ),
   address: publicValue(
     process.env.NEXT_PUBLIC_CENTER_ADDRESS,

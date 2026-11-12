@@ -8,24 +8,34 @@ import {
   governorateLookup,
   villaNumbers,
 } from "@/db/schema";
+import { canViewResidentChurchData } from "@/lib/access-control";
 import { requireCurrentSession } from "@/lib/auth-session";
+import { isVillaLocation } from "@/lib/stay-location";
 import type { LookupData } from "@/lib/lookup-types";
 
 export async function listLookupDataForCurrentUser(): Promise<LookupData> {
-  await requireCurrentSession();
+  const session = await requireCurrentSession();
   const database = getDatabase();
+  const canViewChurchFields = canViewResidentChurchData(
+    session.user.role === "admin" || session.user.role === "viewer"
+      ? session.user.role
+      : "staff",
+    session.user.allowedScreens,
+    session.user.canEditResidents === true,
+  );
   const [churches, governorates, days, alternateCategories, villas] =
     await Promise.all([
-      database
-        .select({
-          id: churchLookup.id,
-          number: churchLookup.number,
-          name: churchLookup.name,
-          acheshe: churchLookup.acheshe,
-          father: churchLookup.father,
-        })
-        .from(churchLookup)
-        .orderBy(churchLookup.name, churchLookup.id),
+      canViewChurchFields
+        ? database
+            .select({
+              id: churchLookup.id,
+              number: churchLookup.number,
+              name: churchLookup.name,
+              acheshe: churchLookup.acheshe,
+            })
+            .from(churchLookup)
+            .orderBy(churchLookup.name, churchLookup.id)
+        : Promise.resolve([]),
       database
         .select({
           id: governorateLookup.id,
@@ -54,5 +64,12 @@ export async function listLookupDataForCurrentUser(): Promise<LookupData> {
         .orderBy(villaNumbers.villaNumber, villaNumbers.id),
     ]);
 
-  return { churches, governorates, days, alternateCategories, villas };
+  return {
+    churches,
+    governorates,
+    days,
+    alternateCategories,
+    villas: villas.filter((item) => isVillaLocation(item.villaNumber)),
+    rooms: villas.filter((item) => !isVillaLocation(item.villaNumber)),
+  };
 }

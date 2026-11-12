@@ -15,6 +15,7 @@ import {
   refrigeratorStockVoids,
 } from "@/db/schema";
 import { requireStaffPermission } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import type {
   MeatSaleInvoice,
   MeatSaleLine,
@@ -76,7 +77,7 @@ export async function saveRefrigeratorProductAction(
     }
   | { ok: false; error: string }
 > {
-  await requireStaffPermission("canManageMeatSales");
+  const session = await requireStaffPermission("canManageMeatSales");
   const parsed = productSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "أدخل اسم الصنف والسعر والكمية بصورة صحيحة." };
@@ -125,6 +126,13 @@ export async function saveRefrigeratorProductAction(
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "create",
+      entity: "refrigeratorItemCatalog",
+      entityId: result.catalogItem.id,
+      metadata: { fields: "itemCategory,price,quantity" },
+    });
     return {
       ok: true,
       catalogItem: result.catalogItem,
@@ -197,6 +205,7 @@ export async function recordRefrigeratorReceiptAction(
           outgoingDate: null,
           issuePermitNumber: null,
           recipient: "",
+          needsReview: false,
           voided: false,
           voidReason: "",
         },
@@ -205,6 +214,13 @@ export async function recordRefrigeratorReceiptAction(
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "create",
+      entity: "refrigeratorStockLedger",
+      entityId: result.movement.id,
+      metadata: { fields: "itemNumber,direction,quantity,price,receivedDate" },
+    });
     return { ok: true, movement: result.movement };
   } catch (error) {
     if (error instanceof MeatSalesActionError) {
@@ -281,6 +297,7 @@ export async function createMeatSaleAction(
           and(
             inArray(refrigeratorStockLedger.itemNumber, itemNumbers),
             isNull(refrigeratorStockVoids.movementId),
+            eq(refrigeratorStockLedger.needsReview, false),
           ),
         );
       const balances = new Map<number, number>();
@@ -381,6 +398,7 @@ export async function createMeatSaleAction(
           outgoingDate: parsed.data.saleDate,
           issuePermitNumber: parsed.data.issuePermitNumber,
           recipient: parsed.data.beneficiary,
+          needsReview: false,
           voided: false,
           voidReason: "",
         });
@@ -429,6 +447,13 @@ export async function createMeatSaleAction(
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "create",
+      entity: "meatSalesInvoices",
+      entityId: result.invoice.invoiceNumber,
+      metadata: { fields: "saleDate,items" },
+    });
     return {
       ok: true,
       invoice: result.invoice,
@@ -578,6 +603,13 @@ export async function voidMeatSaleAction(
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "delete",
+      entity: "meatSalesInvoices",
+      entityId: invoiceNumber.data,
+      metadata: { fields: "voided,reason" },
+    });
     return {
       ok: true,
       refund: result.refund,

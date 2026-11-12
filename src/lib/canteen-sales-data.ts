@@ -1,8 +1,9 @@
 import "server-only";
 
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
+  canteenProducts,
   invoiceCategories,
   residentInvoiceLines,
   residentInvoicePayments,
@@ -11,6 +12,8 @@ import {
   residentPurchases,
   residents,
   invoiceStockMovementLinks,
+  legacyResidents,
+  residentLegacyLinks,
 } from "@/db/schema";
 import { requireAnyScreenAccess } from "@/lib/auth-session";
 import type {
@@ -27,11 +30,16 @@ export async function listCanteenSalesForAdministrator(): Promise<CanteenSalesBu
       .select({
         id: residentPurchases.id,
         name: residentPurchases.itemName,
-        price: residentPurchases.price,
+        price: sql<number>`case when ${residentPurchases.price} > 0 then ${residentPurchases.price} else coalesce(${canteenProducts.price}, ${residentPurchases.price}) end`,
         addToResidentAccount: residentPurchases.addToResidentAccount,
         canteenItemNumber: residentPurchases.canteenItemNumber,
+        needsReview: residentPurchases.needsReview,
       })
       .from(residentPurchases)
+      .leftJoin(
+        canteenProducts,
+        eq(canteenProducts.itemNumber, residentPurchases.canteenItemNumber),
+      )
       .orderBy(residentPurchases.itemName),
     database
       .select({ id: invoiceCategories.id, name: invoiceCategories.name })
@@ -42,19 +50,23 @@ export async function listCanteenSalesForAdministrator(): Promise<CanteenSalesBu
         invoiceNumber: residentInvoices.invoiceNumber,
         invoiceDate: residentInvoices.invoiceDate,
         saleType: residentInvoices.saleType,
-        residentId: residentInvoices.residentId,
-        residentName: residents.name,
+        residentId: sql<string | null>`coalesce(${residentInvoices.residentId}, ${residentLegacyLinks.residentId})`,
+        residentName: sql<string>`coalesce(${residents.name}, ${legacyResidents.name}, '')`,
         voided: residentInvoiceVoids.invoiceNumber,
         voidReason: residentInvoiceVoids.reason,
       })
       .from(residentInvoices)
       .leftJoin(residents, eq(residents.id, residentInvoices.residentId))
       .leftJoin(
+        residentLegacyLinks,
+        eq(residentLegacyLinks.legacyResidentId, residentInvoices.residentNumber),
+      )
+      .leftJoin(legacyResidents, eq(legacyResidents.id, residentInvoices.residentNumber))
+      .leftJoin(
         residentInvoiceVoids,
         eq(residentInvoiceVoids.invoiceNumber, residentInvoices.invoiceNumber),
       )
-      .orderBy(desc(residentInvoices.invoiceNumber))
-      .limit(100),
+      .orderBy(desc(residentInvoices.invoiceNumber)),
   ]);
 
   if (!invoiceRows.length) return { items, categories, invoices: [] };

@@ -18,6 +18,7 @@ import {
   requireResidentEditor,
 } from "@/lib/auth-session";
 import { getAuth } from "@/lib/auth";
+import { recordAuditEvent } from "@/lib/audit-log";
 import { getResidentRecord } from "@/lib/resident-data";
 import type { DemoUser, Resident } from "@/lib/demo-data";
 import { DASHBOARD_SCREENS } from "@/lib/access-control";
@@ -42,6 +43,8 @@ const residentBaseDraftSchema = z
     villa: z.string().trim().max(64),
     room: z.string().trim().max(64),
     status: z.enum(["current", "departed"]),
+    church: z.string().trim().max(255).default(""),
+    confessor: z.string().trim().max(255).default(""),
   })
   .strict();
 const residentAdminDraftSchema = residentBaseDraftSchema.extend({
@@ -52,7 +55,6 @@ const residentAdminDraftSchema = residentBaseDraftSchema.extend({
   emergencyContact: z.string().trim().max(200),
   emergencyPhone: z.string().trim().max(64),
   relationship: z.string().trim().max(100),
-  nationalId: z.string().trim().max(64).default(""),
   maritalStatus: z.string().trim().max(64).default(""),
   qualification: z.string().trim().max(200).default(""),
   previousExperience: z.string().trim().max(500).default(""),
@@ -61,14 +63,6 @@ const residentAdminDraftSchema = residentBaseDraftSchema.extend({
   relationshipDegree: z.string().trim().max(100).default(""),
   entryTime: z.string().trim().max(64).default(""),
   exitMethod: z.string().trim().max(200).default(""),
-  treatingDoctorNumber: z.string().trim().max(64).default(""),
-  treatingDoctorAddress: z.string().trim().max(500).default(""),
-  rehabilitationTeam: z.string().trim().max(200).default(""),
-  rehabilitationStage: z.string().trim().max(200).default(""),
-  trainer: z.string().trim().max(200).default(""),
-  supervisor: z.string().trim().max(200).default(""),
-  lecturer: z.string().trim().max(200).default(""),
-  imagePath: z.string().trim().default(""),
   governorate: z.string().trim().max(100).default(""),
   residentNumber: z.string().trim().max(64).default(""),
   incompleteStay: z.boolean().default(false),
@@ -150,23 +144,16 @@ export async function saveResidentAction(
       emergencyContact: "",
       emergencyPhone: "",
       relationship: "",
-      nationalId: "",
       maritalStatus: "",
       qualification: "",
       previousExperience: "",
       previousWorkplaces: "",
+      church: "",
+      confessor: "",
       residentEntry: "",
       relationshipDegree: "",
       entryTime: "",
       exitMethod: "",
-      treatingDoctorNumber: "",
-      treatingDoctorAddress: "",
-      rehabilitationTeam: "",
-      rehabilitationStage: "",
-      trainer: "",
-      supervisor: "",
-      lecturer: "",
-      imagePath: "",
       governorate: "",
       residentNumber: "",
       incompleteStay: false,
@@ -267,23 +254,16 @@ export async function saveResidentAction(
           emergencyContact: draft.emergencyContact,
           emergencyPhone: draft.emergencyPhone,
           relationship: draft.relationship,
-          nationalId: draft.nationalId || "",
           maritalStatus: draft.maritalStatus || "",
           qualification: draft.qualification || "",
           previousExperience: draft.previousExperience || "",
           previousWorkplaces: draft.previousWorkplaces || "",
+          church: draft.church || "",
+          confessor: draft.confessor || "",
           residentEntry: draft.residentEntry || "",
           relationshipDegree: draft.relationshipDegree || "",
           entryTime: draft.entryTime || "",
           exitMethod: draft.exitMethod || "",
-          treatingDoctorNumber: draft.treatingDoctorNumber || "",
-          treatingDoctorAddress: draft.treatingDoctorAddress || "",
-          rehabilitationTeam: draft.rehabilitationTeam || "",
-          rehabilitationStage: draft.rehabilitationStage || "",
-          trainer: draft.trainer || "",
-          supervisor: draft.supervisor || "",
-          lecturer: draft.lecturer || "",
-          imagePath: draft.imagePath || "",
           governorate: draft.governorate || "",
           residentNumber: draft.residentNumber || "",
           incompleteStay: draft.incompleteStay || false,
@@ -309,23 +289,16 @@ export async function saveResidentAction(
             emergencyContact: profileValues?.emergencyContact ?? "",
             emergencyPhone: profileValues?.emergencyPhone ?? "",
             relationship: profileValues?.relationship ?? "",
-            nationalId: profileValues?.nationalId ?? "",
             maritalStatus: profileValues?.maritalStatus ?? "",
             qualification: profileValues?.qualification ?? "",
             previousExperience: profileValues?.previousExperience ?? "",
             previousWorkplaces: profileValues?.previousWorkplaces ?? "",
+            church: profileValues?.church ?? "",
+            confessor: profileValues?.confessor ?? "",
             residentEntry: profileValues?.residentEntry ?? "",
             relationshipDegree: profileValues?.relationshipDegree ?? "",
             entryTime: profileValues?.entryTime ?? "",
             exitMethod: profileValues?.exitMethod ?? "",
-            treatingDoctorNumber: profileValues?.treatingDoctorNumber ?? "",
-            treatingDoctorAddress: profileValues?.treatingDoctorAddress ?? "",
-            rehabilitationTeam: profileValues?.rehabilitationTeam ?? "",
-            rehabilitationStage: profileValues?.rehabilitationStage ?? "",
-            trainer: profileValues?.trainer ?? "",
-            supervisor: profileValues?.supervisor ?? "",
-            lecturer: profileValues?.lecturer ?? "",
-            imagePath: profileValues?.imagePath ?? "",
             governorate: profileValues?.governorate ?? "",
             residentNumber: profileValues?.residentNumber ?? "",
             incompleteStay: profileValues?.incompleteStay ?? false,
@@ -371,6 +344,13 @@ export async function saveResidentAction(
   }
 
   if (!result.residentId) throw new Error("Saved resident ID is missing.");
+  await recordAuditEvent({
+    actorUserId: currentSession.user.id,
+    action: id?.success ? "update" : "create",
+    entity: "residents",
+    entityId: result.residentId,
+    metadata: { fields: "residentProfile,stay" },
+  });
   const resident = await getResidentRecord(result.residentId);
   if (!resident) throw new Error("Saved resident could not be reloaded.");
   return { ok: true, resident };
@@ -380,7 +360,7 @@ export async function updateResidentArchiveAction(
   idInput: string,
   archived: boolean,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await requireResidentEditor();
+  const session = await requireResidentEditor();
   const id = idSchema.safeParse(idInput);
   if (!id.success) return { ok: false, error: "معرّف السجل غير صالح." };
 
@@ -390,16 +370,22 @@ export async function updateResidentArchiveAction(
     .where(eq(residents.id, id.data))
     .returning({ id: residents.id });
 
-  return updated.length
-    ? { ok: true }
-    : { ok: false, error: "لم يتم العثور على سجل النزيل." };
+  if (!updated.length) return { ok: false, error: "لم يتم العثور على سجل النزيل." };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "residents",
+    entityId: updated[0].id,
+    metadata: { fields: "archived" },
+  });
+  return { ok: true };
 }
 
 export async function checkOutResidentAction(
   idInput: string,
   exitDateInput: string,
 ): Promise<{ ok: true; resident: Resident } | { ok: false; error: string }> {
-  await requireResidentEditor();
+  const session = await requireResidentEditor();
   const id = idSchema.safeParse(idInput);
   const exitDate = dateValue.safeParse(exitDateInput);
   if (!id.success || !exitDate.success) {
@@ -432,7 +418,7 @@ export async function checkOutResidentAction(
       .update(residentStays)
       .set({ exitDate: exitDate.data })
       .where(eq(residentStays.id, stay.id));
-    return true;
+    return stay.id;
   });
 
   if (!result) {
@@ -442,6 +428,13 @@ export async function checkOutResidentAction(
     };
   }
 
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "residentStays",
+    entityId: result,
+    metadata: { fields: "exitDate" },
+  });
   const resident = await getResidentRecord(id.data);
   if (!resident) throw new Error("Checked-out resident could not be reloaded.");
   return { ok: true, resident };
@@ -453,36 +446,58 @@ export async function updateStaffPermissionAction(
 ): Promise<
   { ok: true; user: DemoUser } | { ok: false; error: string }
 > {
-  await requireAdministrator();
+  const session = await requireAdministrator();
   const id = z.string().min(1).max(200).safeParse(userIdInput);
   const canEdit = z.boolean().safeParse(canEditInput);
   if (!id.success || !canEdit.success) {
     return { ok: false, error: "بيانات الصلاحية غير صالحة." };
   }
 
-  const [updatedUser] = await getDatabase()
-    .update(user)
-    .set({ canEditResidents: canEdit.data, updatedAt: new Date() })
-    .where(and(eq(user.id, id.data), ne(user.role, "admin")))
-    .returning({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      canEdit: user.canEditResidents,
-      canAccessClinic: user.canAccessClinic,
-      canManageCanteen: user.canManageCanteen,
-      canIssueInvoices: user.canIssueInvoices,
-      canManageWarehouse: user.canManageWarehouse,
-      canManageCustody: user.canManageCustody,
-      canManageMeatSales: user.canManageMeatSales,
-      allowedScreens: user.allowedScreens,
-    });
+  const updatedUser = await getDatabase().transaction(async (transaction) => {
+    const [targetUser] = await transaction
+      .select({ role: user.role })
+      .from(user)
+      .where(eq(user.id, id.data))
+      .limit(1)
+      .for("update");
+    if (!targetUser || targetUser.role === "admin") return null;
+
+    const [updated] = await transaction
+      .update(user)
+      .set({
+        canEditResidents:
+          targetUser.role === "staff" && canEdit.data,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(user.id, id.data), ne(user.role, "admin")))
+      .returning({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        canEdit: user.canEditResidents,
+        canAccessClinic: user.canAccessClinic,
+        canManageCanteen: user.canManageCanteen,
+        canIssueInvoices: user.canIssueInvoices,
+        canManageWarehouse: user.canManageWarehouse,
+        canManageCustody: user.canManageCustody,
+        canManageMeatSales: user.canManageMeatSales,
+        allowedScreens: user.allowedScreens,
+      });
+    return updated ?? null;
+  });
 
   if (!updatedUser) {
     return { ok: false, error: "لم يتم العثور على حساب الموظف." };
   }
 
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "permission-change",
+    entity: "user",
+    entityId: updatedUser.id,
+    metadata: { fields: "canEditResidents" },
+  });
   return {
     ok: true,
     user: {
@@ -529,6 +544,20 @@ export async function updateUserRoleAndPermissionsAction(
     inventoryCategoryIds,
     ...perms
   } = parsed.data;
+  const safePermissions =
+    role === "viewer"
+      ? {
+          canEditResidents: false,
+          canAccessClinic: false,
+          canManageCanteen: false,
+          canIssueInvoices: false,
+          canManageWarehouse: false,
+          canManageCustody: false,
+          canManageMeatSales: false,
+        }
+      : perms;
+  const safeInventoryCategoryIds =
+    role === "viewer" ? [] : inventoryCategoryIds;
   const database = getDatabase();
   const updated = await database.transaction(async (transaction) => {
     const [targetUser] = await transaction
@@ -560,17 +589,17 @@ export async function updateUserRoleAndPermissionsAction(
       }
     }
 
-    if (inventoryCategoryIds.length) {
+    if (safeInventoryCategoryIds.length) {
       const validCategories = await transaction
         .select({ id: inventoryCategories.id })
         .from(inventoryCategories)
         .where(
           and(
-            inArray(inventoryCategories.id, inventoryCategoryIds),
+            inArray(inventoryCategories.id, safeInventoryCategoryIds),
             eq(inventoryCategories.active, true),
           ),
         );
-      if (validCategories.length !== inventoryCategoryIds.length) {
+      if (validCategories.length !== safeInventoryCategoryIds.length) {
         return {
           ok: false as const,
           error: "تحتوي صلاحيات المخزون على فئة غير متاحة.",
@@ -582,13 +611,7 @@ export async function updateUserRoleAndPermissionsAction(
       .update(user)
       .set({
         role,
-        canEditResidents: perms.canEditResidents,
-        canAccessClinic: perms.canAccessClinic,
-        canManageCanteen: perms.canManageCanteen,
-        canIssueInvoices: perms.canIssueInvoices,
-        canManageWarehouse: perms.canManageWarehouse,
-        canManageCustody: perms.canManageCustody,
-        canManageMeatSales: perms.canManageMeatSales,
+        ...safePermissions,
         allowedScreens: allowedScreens.join(","),
         updatedAt: new Date(),
       })
@@ -614,9 +637,9 @@ export async function updateUserRoleAndPermissionsAction(
     await transaction
       .delete(userInventoryCategories)
       .where(eq(userInventoryCategories.userId, userId));
-    if (inventoryCategoryIds.length) {
+    if (safeInventoryCategoryIds.length) {
       await transaction.insert(userInventoryCategories).values(
-        inventoryCategoryIds.map((categoryId) => ({
+        safeInventoryCategoryIds.map((categoryId) => ({
           userId,
           categoryId,
           grantedBy: currentSession.user.id,
@@ -624,7 +647,7 @@ export async function updateUserRoleAndPermissionsAction(
       );
     }
 
-    if (role !== "admin" && perms.canManageCanteen) {
+    if (role === "staff" && safePermissions.canManageCanteen) {
       await transaction
         .insert(userCanteenAccess)
         .values({ userId, grantedBy: currentSession.user.id })
@@ -641,13 +664,23 @@ export async function updateUserRoleAndPermissionsAction(
   if (!updated.ok) return updated;
   const savedUser = updated.user;
 
+  await recordAuditEvent({
+    actorUserId: currentSession.user.id,
+    action: "permission-change",
+    entity: "user",
+    entityId: savedUser.id,
+    metadata: {
+      fields:
+        "role,canEditResidents,canAccessClinic,canManageCanteen,canIssueInvoices,canManageWarehouse,canManageCustody,canManageMeatSales,allowedScreens,inventoryCategoryIds",
+    },
+  });
   return {
     ok: true,
     user: {
       ...savedUser,
       role: (savedUser.role === "admin" || savedUser.role === "viewer" ? savedUser.role : "staff") as "admin" | "staff" | "viewer",
       allowedScreens: savedUser.allowedScreens ? savedUser.allowedScreens.split(",").filter(Boolean) : [],
-      inventoryCategoryIds,
+      inventoryCategoryIds: safeInventoryCategoryIds,
     },
   };
 }
@@ -664,7 +697,7 @@ export async function createStaffAccountAction(
   | { ok: true; user: DemoUser }
   | { ok: false; error: string }
 > {
-  await requireAdministrator();
+  const session = await requireAdministrator();
   const parsed = newStaffSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -681,6 +714,13 @@ export async function createStaffAccountAction(
     },
   });
 
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "user",
+    entityId: created.user.id,
+    metadata: { fields: "name,email,role" },
+  });
   return {
     ok: true,
     user: {

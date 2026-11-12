@@ -33,6 +33,7 @@ export default function CanteenPanel({
 }: CanteenPanelProps) {
   const [productName, setProductName] = useState("");
   const [productPrice, setProductPrice] = useState("");
+  const [editingProductNumber, setEditingProductNumber] = useState<number | null>(null);
   const [showProductForm, setShowProductForm] = useState(false);
   const [showMovementForm, setShowMovementForm] = useState(false);
   const [movementItemNumber, setMovementItemNumber] = useState("");
@@ -117,27 +118,36 @@ export default function CanteenPanel({
     setSaving(true);
     try {
       if (persistent) {
-        const result = await saveCanteenProductAction({ name, price });
+        const result = await saveCanteenProductAction({ itemNumber: editingProductNumber, name, price });
         if (!result.ok) {
           setError(result.error);
           return;
         }
         onCanteenChange((current) => ({
           ...current,
-          products: [...current.products, result.product],
+          products: editingProductNumber === null
+            ? [...current.products, result.product]
+            : current.products.map((item) => item.itemNumber === editingProductNumber ? result.product : item),
         }));
       } else {
         const itemNumber =
           Math.max(1000, ...canteen.products.map((item) => item.itemNumber)) +
           1;
+        const newProduct = {
+          id: editingProductNumber ?? itemNumber,
+          itemNumber: editingProductNumber ?? itemNumber,
+          name,
+          price,
+          needsReview: false,
+        };
         onCanteenChange((current) => ({
           ...current,
-          products: [
-            ...current.products,
-            { id: itemNumber, itemNumber, name, price },
-          ],
+          products: editingProductNumber === null
+            ? [...current.products, newProduct]
+            : current.products.map((item) => item.itemNumber === editingProductNumber ? newProduct : item),
         }));
       }
+      setEditingProductNumber(null);
       setProductName("");
       setProductPrice("");
       setShowProductForm(false);
@@ -505,6 +515,8 @@ export default function CanteenPanel({
               <th scope="col">السعر</th>
               <th scope="col">الرصيد الحالي</th>
               <th scope="col">قيمة الرصيد</th>
+              <th scope="col">المراجعة</th>
+              <th scope="col">الإجراءات</th>
             </tr>
           </thead>
           <tbody>
@@ -517,12 +529,27 @@ export default function CanteenPanel({
                   <td>{numberFormatter.format(product.price)} ج.م</td>
                   <td>{numberFormatter.format(balance)}</td>
                   <td>{numberFormatter.format(balance * product.price)} ج.م</td>
+                  <td>{product.needsReview ? "يحتاج مراجعة" : "سليم"}</td>
+                  <td>
+                    <button
+                      className="table-action"
+                      disabled={!canManage || saving}
+                      onClick={() => {
+                        setEditingProductNumber(product.itemNumber);
+                        setProductName(product.name);
+                        setProductPrice(String(product.price));
+                        setShowProductForm(true);
+                        setError("");
+                      }}
+                      type="button"
+                    >تعديل</button>
+                  </td>
                 </tr>
               );
             })}
             {!canteen.products.length && (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={7}>
                   <div className="empty-state">أضف أول صنف للبدء.</div>
                 </td>
               </tr>

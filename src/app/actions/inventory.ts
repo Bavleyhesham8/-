@@ -12,8 +12,9 @@ import {
 } from "@/db/schema";
 import {
   requireAdministrator,
-  requireAnyStaffPermission,
+  requireStaffPermission,
 } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import type {
   InventoryCategory,
   InventoryItem,
@@ -55,7 +56,7 @@ export async function saveInventoryCategoryAction(
   | { ok: true; category: InventoryCategory }
   | { ok: false; error: string }
 > {
-  await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const parsed = categorySchema.safeParse(input);
   const id = idInput ? idSchema.safeParse(idInput) : null;
   if (!parsed.success || (idInput && !id?.success)) {
@@ -98,6 +99,13 @@ export async function saveInventoryCategoryAction(
         });
 
   if (!category) return { ok: false, error: "لم يتم العثور على الفئة." };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: id?.success ? "update" : "create",
+    entity: "inventoryCategories",
+    entityId: category.id,
+    metadata: { fields: "name" },
+  });
   return { ok: true, category };
 }
 
@@ -108,7 +116,7 @@ export async function setInventoryCategoryActiveAction(
   | { ok: true; category: InventoryCategory }
   | { ok: false; error: string }
 > {
-  await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const id = idSchema.safeParse(idInput);
   const active = z.boolean().safeParse(activeInput);
   if (!id.success || !active.success) {
@@ -143,9 +151,24 @@ export async function setInventoryCategoryActiveAction(
     return updated ?? null;
   });
 
-  return category
-    ? { ok: true, category }
-    : { ok: false, error: "لم يتم العثور على الفئة." };
+  if (!category) return { ok: false, error: "لم يتم العثور على الفئة." };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "inventoryCategories",
+    entityId: category.id,
+    metadata: { fields: "active" },
+  });
+  if (!active.data) {
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "permission-change",
+      entity: "userInventoryCategories",
+      entityId: category.id,
+      metadata: { fields: "categoryId" },
+    });
+  }
+  return { ok: true, category };
 }
 
 export async function saveInventoryItemAction(
@@ -154,7 +177,7 @@ export async function saveInventoryItemAction(
 ): Promise<
   { ok: true; item: InventoryItem } | { ok: false; error: string }
 > {
-  await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const parsed = itemSchema.safeParse(input);
   const id = idInput ? idSchema.safeParse(idInput) : null;
   if (!parsed.success || (idInput && !id?.success)) {
@@ -265,6 +288,13 @@ export async function saveInventoryItemAction(
   if (!("item" in result) || !result.item) {
     return { ok: false, error: "تعذر حفظ الصنف." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: id?.success ? "update" : "create",
+    entity: "inventoryItems",
+    entityId: result.item.id,
+    metadata: { fields: "categoryId,name,unit,unitPrice" },
+  });
   return { ok: true, item: result.item };
 }
 
@@ -274,7 +304,7 @@ export async function setInventoryItemActiveAction(
 ): Promise<
   { ok: true; item: InventoryItem } | { ok: false; error: string }
 > {
-  await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const id = idSchema.safeParse(idInput);
   const active = z.boolean().safeParse(activeInput);
   if (!id.success || !active.success) {
@@ -294,9 +324,15 @@ export async function setInventoryItemActiveAction(
       active: inventoryItems.active,
     });
 
-  return item
-    ? { ok: true, item }
-    : { ok: false, error: "لم يتم العثور على الصنف." };
+  if (!item) return { ok: false, error: "لم يتم العثور على الصنف." };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "inventoryItems",
+    entityId: item.id,
+    metadata: { fields: "active" },
+  });
+  return { ok: true, item };
 }
 
 export async function recordInventoryMovementAction(
@@ -305,7 +341,7 @@ export async function recordInventoryMovementAction(
   { ok: true; movement: InventoryMovement }
   | { ok: false; error: string }
 > {
-  const session = await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const parsed = movementSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "راجع نوع الحركة والكمية والتاريخ." };
@@ -387,13 +423,20 @@ export async function recordInventoryMovementAction(
   if (!("movement" in result) || !result.movement) {
     return { ok: false, error: "تعذر تسجيل حركة المخزون." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "inventoryMovements",
+    entityId: result.movement.id,
+    metadata: { fields: "itemId,direction,quantity,movementDate" },
+  });
   return { ok: true, movement: result.movement };
 }
 
 export async function voidInventoryMovementAction(
   idInput: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const session = await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const id = idSchema.safeParse(idInput);
   if (!id.success) {
     return { ok: false, error: "معرّف حركة المخزون غير صالح." };
@@ -414,9 +457,17 @@ export async function voidInventoryMovementAction(
     )
     .returning({ id: inventoryMovements.id });
 
-  return movement
-    ? { ok: true }
-    : { ok: false, error: "الحركة غير موجودة أو ملغاة بالفعل." };
+  if (!movement) {
+    return { ok: false, error: "الحركة غير موجودة أو ملغاة بالفعل." };
+  }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "delete",
+    entity: "inventoryMovements",
+    entityId: movement.id,
+    metadata: { fields: "voided,voidedAt,voidedBy" },
+  });
+  return { ok: true };
 }
 
 export async function updateStaffInventoryAccessAction(
@@ -473,7 +524,15 @@ export async function updateStaffInventoryAccessAction(
     return true;
   });
 
-  return result
-    ? { ok: true, categoryIds: uniqueCategoryIds }
-    : { ok: false, error: "لم يتم العثور على الموظف أو إحدى فئات المخزون." };
+  if (!result) {
+    return { ok: false, error: "لم يتم العثور على الموظف أو إحدى فئات المخزون." };
+  }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "permission-change",
+    entity: "userInventoryCategories",
+    entityId: userId.data,
+    metadata: { fields: "categoryIds" },
+  });
+  return { ok: true, categoryIds: uniqueCategoryIds };
 }

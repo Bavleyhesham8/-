@@ -15,6 +15,9 @@ export type TreatmentDetailEntry = {
 export type TreatmentRecord = {
   residentNumber: number;
   residentName: string | null;
+  residentId: string | null;
+  matchScore: number | null;
+  matchAmbiguous: boolean;
   entries: TreatmentDetailEntry[];
   totalBilled: number;
 };

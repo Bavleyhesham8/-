@@ -4,6 +4,7 @@ export type CanteenSalesItem = {
   price: number;
   addToResidentAccount: boolean;
   canteenItemNumber: number | null;
+  needsReview?: boolean;
 };
 
 export type InvoiceCategory = {

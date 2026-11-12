@@ -344,7 +344,7 @@ export default function InvoiceReportPanel({
                 <tr>
                   <th>رقم الفاتورة</th>
                   <th>تاريخ الفاتورة</th>
-                  <th>معرف النزيل (Access)</th>
+                  <th>رقم ملف النزيل</th>
                   <th>اسم النزيل (ويب)</th>
                   <th>نوع البيع (ويب)</th>
                   <th>الرصيد</th>

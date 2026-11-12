@@ -1,10 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { DemoUser } from "@/lib/demo-data";
 import type { InventoryBundle } from "@/lib/inventory-types";
 import { updateUserRoleAndPermissionsAction } from "@/app/actions/residents";
 import { DASHBOARD_SCREENS } from "@/lib/access-control";
+import AuditLogPanel from "@/components/audit-log-panel";
+import type { AuditLogEntry } from "@/lib/audit-log-types";
 
 type Props = {
   users: DemoUser[];
@@ -13,6 +16,7 @@ type Props = {
   onUsersChange: (users: DemoUser[]) => void;
   onAddingStaffToggle: () => void;
   addingStaff: boolean;
+  auditLogs: AuditLogEntry[];
 };
 
 const AVAILABLE_SCREENS = [
@@ -33,6 +37,7 @@ const AVAILABLE_SCREENS = [
   { id: "invoice-reports", label: "مشتريات النزلاء" },
   { id: "tracking", label: "دفتر اليومية والحركات" },
   { id: "staff", label: "الموظفون" },
+  { id: "staff-attendance", label: "الحضور والانصراف" },
   { id: "lookups", label: "البيانات المرجعية" },
 ];
 
@@ -43,7 +48,9 @@ export default function AccessManagerPanel({
   onUsersChange,
   onAddingStaffToggle,
   addingStaff,
+  auditLogs,
 }: Props) {
+  const router = useRouter();
   const [savingId, setSavingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
@@ -86,6 +93,7 @@ export default function AccessManagerPanel({
         );
 
         setFeedback({ type: "success", msg: `تم تحديث صلاحيات ${updated.name} بنجاح.` });
+        router.refresh();
       } catch {
         onUsersChange(previousUsers);
         setFeedback({ type: "error", msg: "تعذر حفظ الصلاحيات. حاول مرة أخرى." });
@@ -113,7 +121,7 @@ export default function AccessManagerPanel({
         <div>
           <p className="text-xs font-bold text-slate-700">الشاشات المسموح بها:</p>
           <p className="mt-1 text-[11px] text-slate-600">
-            لا تمنح الشاشة صلاحية تعديل البيانات؛ تظل صلاحيات التشغيل وفئات المخزون منفصلة.
+            اختيار الشاشة يمنح عرض بياناتها وطباعة تقاريرها فقط. التعديل يظل محصورًا في صلاحيات التشغيل المخصصة للموظف.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
@@ -258,7 +266,7 @@ export default function AccessManagerPanel({
                         onChange={(e) => handleUpdateUser(user, { canAccessClinic: e.target.checked })}
                         className="h-4 w-4 rounded-sm text-teal-600 focus:ring-teal-500"
                       />
-                      <span>العيادة وصرف الأدوية</span>
+                      <span>إدارة العيادة وصرف الأدوية (تعديل)</span>
                     </label>
 
                     <label className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 text-xs font-semibold text-slate-800 hover:bg-slate-100/70 cursor-pointer">
@@ -353,7 +361,7 @@ export default function AccessManagerPanel({
                 /* صلاحيات زائر ومستعرض البيانات (قراءة وتصدير فقط) */
                 <div className="space-y-4">
                   <div className="rounded-xl bg-amber-50/70 p-3 text-xs font-semibold text-amber-900 border border-amber-200/50">
-                    👁️ حساب مستعرض بيانات (Read-Only & Export): يمكنه فقط قراءة وتصدير وطباعة الشاشات المحددة له أدناه دون أي قدرة على التعديل أو الحذف.
+                    👁️ الزائر يرى كل بيانات الشاشات التي يحددها المسؤول أدناه، ويمكنه الطباعة والتصدير فقط. لا يستطيع الإضافة أو التعديل أو الحذف؛ لا يحتاج صلاحيات التشغيل لمشاهدة الشاشة.
                   </div>
                 </div>
               )}
@@ -361,6 +369,13 @@ export default function AccessManagerPanel({
             </div>
           </div>
         ))}
+
+        {persistent && (
+          <AuditLogPanel
+            entries={auditLogs}
+            onRefresh={() => router.refresh()}
+          />
+        )}
       </div>
     </div>
   );

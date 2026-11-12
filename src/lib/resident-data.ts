@@ -11,6 +11,11 @@ import {
   userCanteenAccess,
 } from "@/db/schema";
 import {
+  canViewFullResidentProfile,
+  canViewResidentChurchData,
+} from "@/lib/access-control";
+import { canonicalRoom, canonicalVilla, formatRoom } from "@/lib/stay-location";
+import {
   requireAdministrator,
   requireAnyScreenAccess,
   requireCurrentSession,
@@ -24,7 +29,16 @@ function toResident(
   row: ResidentBase,
   stay: ResidentStay | undefined,
   staffBasicOnly: boolean,
+  canViewChurchFields: boolean,
 ): Resident {
+  const storedVilla = stay?.villa ?? "";
+  const villa = canonicalVilla(storedVilla);
+  const storedRoom = stay?.room ?? "";
+  const room = canonicalRoom(storedRoom)
+    ? formatRoom(storedRoom)
+    : villa
+      ? ""
+      : formatRoom(storedVilla);
   const resident: Resident = {
     id: row.id,
     fileNumber: row.fileNumber,
@@ -41,15 +55,15 @@ function toResident(
     emergencyContact: staffBasicOnly ? "" : row.emergencyContact,
     emergencyPhone: staffBasicOnly ? "" : row.emergencyPhone,
     relationship: staffBasicOnly ? "" : row.relationship,
-    church: row.church ?? "",
-    confessor: row.confessor ?? "",
+    church: canViewChurchFields ? row.church ?? "" : "",
+    confessor: canViewChurchFields ? row.confessor ?? "" : "",
     admissionDate: stay?.admissionDate ?? "",
     exitDate: stay?.exitDate ?? "",
-    villa: stay?.villa ?? "",
-    room: stay?.room ?? "",
+    villa,
+    room,
     status: stay?.exitDate ? "departed" : "current",
     archived: row.archived,
-    nationalId: staffBasicOnly ? "" : row.nationalId ?? "",
+    nationalId: "",
     maritalStatus: staffBasicOnly ? "" : row.maritalStatus ?? "",
     qualification: staffBasicOnly ? "" : row.qualification ?? "",
     previousExperience: staffBasicOnly ? "" : row.previousExperience ?? "",
@@ -58,14 +72,14 @@ function toResident(
     relationshipDegree: staffBasicOnly ? "" : row.relationshipDegree ?? "",
     entryTime: staffBasicOnly ? "" : row.entryTime ?? "",
     exitMethod: staffBasicOnly ? "" : row.exitMethod ?? "",
-    treatingDoctorNumber: staffBasicOnly ? "" : row.treatingDoctorNumber ?? "",
-    treatingDoctorAddress: staffBasicOnly ? "" : row.treatingDoctorAddress ?? "",
-    rehabilitationTeam: staffBasicOnly ? "" : row.rehabilitationTeam ?? "",
-    rehabilitationStage: staffBasicOnly ? "" : row.rehabilitationStage ?? "",
-    trainer: staffBasicOnly ? "" : row.trainer ?? "",
-    supervisor: staffBasicOnly ? "" : row.supervisor ?? "",
-    lecturer: staffBasicOnly ? "" : row.lecturer ?? "",
-    imagePath: staffBasicOnly ? "" : row.imagePath ?? "",
+    treatingDoctorNumber: "",
+    treatingDoctorAddress: "",
+    rehabilitationTeam: "",
+    rehabilitationStage: "",
+    trainer: "",
+    supervisor: "",
+    lecturer: "",
+    imagePath: "",
   };
   return resident;
 }
@@ -84,9 +98,20 @@ export async function listResidentsForCurrentUser() {
     "invoice-reports",
     "canteen-reports",
     "treatment",
-    "lookups",
   );
-  const staffBasicOnly = session.user.role !== "admin" && session.user.role !== "viewer";
+  const staffBasicOnly = !canViewFullResidentProfile(
+    session.user.role === "admin" || session.user.role === "viewer"
+      ? session.user.role
+      : "staff",
+    session.user.allowedScreens,
+  );
+  const canViewChurchFields = canViewResidentChurchData(
+    session.user.role === "admin" || session.user.role === "viewer"
+      ? session.user.role
+      : "staff",
+    session.user.allowedScreens,
+    session.user.canEditResidents === true,
+  );
   const database = getDatabase();
   const [residentRows, latestStays] = await Promise.all([
     database
@@ -107,7 +132,12 @@ export async function listResidentsForCurrentUser() {
   );
 
   return residentRows.map((resident) =>
-    toResident(resident, staysByResident.get(resident.id), staffBasicOnly),
+    toResident(
+      resident,
+      staysByResident.get(resident.id),
+      staffBasicOnly,
+      canViewChurchFields,
+    ),
   );
 }
 
@@ -176,7 +206,19 @@ export async function listStaffForAdministrator(): Promise<DemoUser[]> {
 
 export async function getResidentRecord(id: string) {
   const session = await requireCurrentSession();
-  const staffBasicOnly = session.user.role !== "admin" && session.user.role !== "viewer";
+  const staffBasicOnly = !canViewFullResidentProfile(
+    session.user.role === "admin" || session.user.role === "viewer"
+      ? session.user.role
+      : "staff",
+    session.user.allowedScreens,
+  );
+  const canViewChurchFields = canViewResidentChurchData(
+    session.user.role === "admin" || session.user.role === "viewer"
+      ? session.user.role
+      : "staff",
+    session.user.allowedScreens,
+    session.user.canEditResidents === true,
+  );
   const database = getDatabase();
   const [resident] = await database
     .select()
@@ -192,5 +234,5 @@ export async function getResidentRecord(id: string) {
     .orderBy(desc(residentStays.admissionDate), desc(residentStays.createdAt))
     .limit(1);
 
-  return toResident(resident, stay, staffBasicOnly);
+  return toResident(resident, stay, staffBasicOnly, canViewChurchFields);
 }

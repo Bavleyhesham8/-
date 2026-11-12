@@ -19,12 +19,18 @@ type ViewType =
   | "resident-stay-reports"
   | "meat-sales"
   | "staff"
+  | "staff-attendance"
   | "lookups"
   | "tracking"
   | "access";
 
 type Props = {
   onNavigate: (view: ViewType, tab?: string) => void;
+  visibleViews: readonly string[];
+  canIssueInvoices: boolean;
+  canManageMeatSales: boolean;
+  canViewResidentReferences: boolean;
+  isAdministrator: boolean;
 };
 
 interface MenuColumn {
@@ -35,210 +41,182 @@ interface MenuColumn {
     targetView: ViewType;
     targetTab?: string;
     itemColor?: "green" | "gold" | "blue" | "lightBlue";
+    requiredCapability?:
+      | "issue-invoices"
+      | "manage-meat-sales"
+      | "resident-references"
+      | "administrator";
   }[];
 }
 
 const classicColumns: MenuColumn[] = [
   {
-    title: "النزلاء",
+    title: "النزلاء والإقامة",
     headerColor: "green",
     items: [
-      { label: "اسم النزيل", targetView: "residents", targetTab: "names", itemColor: "lightBlue" },
-      { label: "عنوان النزيل", targetView: "residents", targetTab: "addresses", itemColor: "lightBlue" },
-      { label: "بيانات النزلاء", targetView: "residents", targetTab: "data", itemColor: "lightBlue" },
-      { label: "رقم الفيلا", targetView: "rooms", itemColor: "lightBlue" },
-      { label: "المحافظة", targetView: "resident-reports", targetTab: "governorate", itemColor: "lightBlue" },
+      { label: "بحث عن نزيل", targetView: "resident-search", itemColor: "lightBlue" },
+      { label: "قائمة النزلاء", targetView: "residents", itemColor: "lightBlue" },
+      { label: "السكن والغرف", targetView: "rooms", itemColor: "lightBlue" },
+      { label: "تقرير الدخول خلال فترة", targetView: "resident-stay-reports", itemColor: "blue" },
+      { label: "تقرير أسماء النزلاء", targetView: "resident-reports", targetTab: "names", itemColor: "gold" },
+      { label: "توزيع المحافظات", targetView: "resident-reports", targetTab: "governorate", itemColor: "gold" },
     ],
   },
   {
-    title: "تقرير النزلاء",
+    title: "بحث مرجعي",
     headerColor: "green",
     items: [
-      { label: "تقرير الاسماء", targetView: "resident-reports", targetTab: "names", itemColor: "gold" },
-      { label: "تقرير التشخيص", targetView: "resident-reports", targetTab: "diagnosis", itemColor: "gold" },
-      { label: "تقرير المحافظة", targetView: "resident-reports", targetTab: "governorate", itemColor: "gold" },
-      { label: "تقرير السكن", targetView: "resident-reports", targetTab: "housing", itemColor: "gold" },
+      {
+        label: "بحث بالكنيسة",
+        targetView: "lookups",
+        targetTab: "church",
+        itemColor: "lightBlue",
+        requiredCapability: "resident-references",
+      },
     ],
   },
   {
-    title: "الفترة الزمنية",
+    title: "الكانتين والثلاجة",
     headerColor: "green",
     items: [
-      { label: "سن النزيل", targetView: "resident-stay-reports", targetTab: "age", itemColor: "blue" },
-      { label: "فترة النزيل", targetView: "resident-stay-reports", targetTab: "stay", itemColor: "blue" },
+      {
+        label: "إضافة فاتورة كانتين",
+        targetView: "sales",
+        targetTab: "sale",
+        itemColor: "green",
+        requiredCapability: "issue-invoices",
+      },
+      { label: "سجل فواتير الكانتين", targetView: "sales", targetTab: "history", itemColor: "green" },
+      { label: "مخزون الكانتين", targetView: "canteen", itemColor: "green" },
+      {
+        label: "مبيعات الثلاجة",
+        targetView: "meat-sales",
+        targetTab: "sale",
+        itemColor: "green",
+        requiredCapability: "manage-meat-sales",
+      },
+      { label: "سجل فواتير الثلاجة", targetView: "meat-sales", targetTab: "history", itemColor: "green" },
+      { label: "أرصدة الثلاجة", targetView: "meat-sales", targetTab: "balances", itemColor: "green" },
     ],
   },
   {
-    title: "بحث النزلاء",
+    title: "المخزن والحركات",
     headerColor: "green",
     items: [
-      { label: "بحث", targetView: "resident-search", itemColor: "green" },
+      { label: "مخزن الأغذية", targetView: "inventory", itemColor: "green" },
+      { label: "مخزن العهدة", targetView: "custody", itemColor: "green" },
+      { label: "مشتريات النزلاء", targetView: "invoice-reports", itemColor: "green" },
+      { label: "أرصدة الكانتين", targetView: "canteen-reports", itemColor: "green" },
+      { label: "التتبع العام", targetView: "tracking", itemColor: "green" },
     ],
   },
   {
-    title: "دفتر اليومية",
+    title: "الموظفون والإدارة",
     headerColor: "green",
     items: [
-      { label: "المشتريات", targetView: "invoice-reports", targetTab: "purchases", itemColor: "green" },
-      { label: "الحركات", targetView: "tracking", targetTab: "ledger", itemColor: "green" },
-    ],
-  },
-  {
-    title: "الثلاجة",
-    headerColor: "green",
-    items: [
-      { label: "مبيعات الثلاجة", targetView: "meat-sales", targetTab: "sale", itemColor: "green" },
-      { label: "فواتير البيع", targetView: "meat-sales", targetTab: "history", itemColor: "green" },
-      { label: "تقرير الثلاجة", targetView: "meat-sales", targetTab: "report", itemColor: "green" },
-      { label: "الأرصدة", targetView: "meat-sales", targetTab: "balances", itemColor: "green" },
-      { label: "المنصرف والمتبقي", targetView: "meat-sales", targetTab: "balances", itemColor: "green" },
-    ],
-  },
-  {
-    title: "مخزن الأغذية",
-    headerColor: "green",
-    items: [
-      { label: "أرصدة المخزن", targetView: "inventory", targetTab: "balances", itemColor: "green" },
-      { label: "البحث عن تاريخ", targetView: "inventory", targetTab: "date-search", itemColor: "green" },
-      { label: "الرصيد والمتبقي", targetView: "inventory", targetTab: "balances", itemColor: "green" },
-      { label: "الأرصدة والمنصرف", targetView: "inventory", targetTab: "movements", itemColor: "green" },
-    ],
-  },
-  {
-    title: "الكانتين",
-    headerColor: "green",
-    items: [
-      { label: "أرصدة الكانتين", targetView: "canteen", targetTab: "stock", itemColor: "green" },
-      { label: "فواتير الكانتين", targetView: "sales", itemColor: "green" },
-      { label: "مشتريات النزلاء", targetView: "invoice-reports", targetTab: "purchases", itemColor: "green" },
-      { label: "الأرصدة والمنصرف", targetView: "canteen-reports", targetTab: "report", itemColor: "green" },
-      { label: "إضافة أصناف للكانتين", targetView: "canteen", targetTab: "catalog", itemColor: "green" },
-    ],
-  },
-  {
-    title: "الإدارة",
-    headerColor: "blue",
-    items: [
-      { label: "إدارة الوصول", targetView: "access", itemColor: "blue" },
-      { label: "البيانات المرجعية", targetView: "lookups", itemColor: "blue" },
+      { label: "الموظفون", targetView: "staff", itemColor: "blue" },
+      { label: "الحضور والانصراف", targetView: "staff-attendance", itemColor: "blue" },
+      {
+        label: "إدارة القوائم المرجعية",
+        targetView: "lookups",
+        targetTab: "manage",
+        itemColor: "blue",
+        requiredCapability: "administrator",
+      },
+      {
+        label: "إدارة الوصول والتدقيق",
+        targetView: "access",
+        itemColor: "blue",
+        requiredCapability: "administrator",
+      },
     ],
   },
 ];
 
-function getButtonGradient(color?: string) {
-  switch (color) {
-    case "gold":
-      return "linear-gradient(180deg, #fef08a 0%, #ca8a04 100%)";
-    case "blue":
-      return "linear-gradient(180deg, #93c5fd 0%, #1d4ed8 100%)";
-    case "lightBlue":
-      return "linear-gradient(180deg, #67e8f9 0%, #0284c7 100%)";
-    case "green":
-    default:
-      return "linear-gradient(180deg, #4ade80 0%, #15803d 100%)";
-  }
-}
+export default function ClassicAccessNavigator({
+  onNavigate,
+  visibleViews,
+  canIssueInvoices,
+  canManageMeatSales,
+  canViewResidentReferences,
+  isAdministrator,
+}: Props) {
+  const [isOpen, setIsOpen] = useState(false);
+  const visibleColumns = classicColumns
+    .map((column) => ({
+      ...column,
+      items: column.items.filter((item) => {
+        if (!visibleViews.includes(item.targetView)) return false;
+        switch (item.requiredCapability) {
+          case "issue-invoices":
+            return canIssueInvoices;
+          case "manage-meat-sales":
+            return canManageMeatSales;
+          case "resident-references":
+            return canViewResidentReferences;
+          case "administrator":
+            return isAdministrator;
+          default:
+            return true;
+        }
+      }),
+    }))
+    .filter((column) => column.items.length > 0);
+  const shortcutCount = visibleColumns.reduce(
+    (count, column) => count + column.items.length,
+    0,
+  );
 
-function getButtonTextColor(color?: string) {
-  switch (color) {
-    case "gold":
-      return "#451a03";
-    case "blue":
-    case "lightBlue":
-      return "#ffffff";
-    case "green":
-    default:
-      return "#ffffff";
-  }
-}
-
-export default function ClassicAccessNavigator({ onNavigate }: Props) {
-  const [isOpen, setIsOpen] = useState(true);
+  if (shortcutCount === 0) return null;
 
   return (
-    <div
-      className="rounded-3xl border border-white/50 bg-slate-900/80 p-5 shadow-2xl backdrop-blur-xl text-white"
+    <section
+      className="mb-6 rounded-2xl border border-white/70 bg-white/90 p-3 shadow-lg backdrop-blur-xl sm:p-4"
       dir="rtl"
     >
-      {/* الترويسة الأصلية الكلاسيكية */}
-      <div className="flex flex-col md:flex-row items-center justify-between border-b border-white/10 pb-4 mb-4 gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 text-lg font-bold">
-            ⚡
-          </div>
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-800 text-lg text-white shadow-sm" aria-hidden="true">✦</span>
           <div>
-            <h2 className="text-sm md:text-base font-black text-amber-300 tracking-wide">
-              قائمة الوصول السريع الشاملة (مطابقة لبرنامج الآكسيس الأصلي)
-            </h2>
-            <p className="text-[11px] text-slate-300">
-              ***** برنامج قاعدة بيانات مركز قيثارة داود - كنيسة مارمرقس - مصر الجديدة *****
-            </p>
+            <h2 className="text-sm font-black text-slate-900">الوصول السريع</h2>
+            <p className="text-xs text-slate-600">تنقل مباشر بين الشاشات المسموحة لحسابك</p>
           </div>
         </div>
-
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className="px-3 py-1.5 rounded-lg border border-white/20 bg-white/10 text-xs font-semibold text-white hover:bg-white/20 transition flex items-center gap-1.5"
+          aria-expanded={isOpen}
+          onClick={() => setIsOpen((open) => !open)}
+          className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-teal-200 bg-white px-3 py-2 text-sm font-bold text-teal-900 transition hover:border-teal-500 hover:bg-teal-50"
         >
-          <span>{isOpen ? "طي القائمة الكلاسيكية" : "إظهار القوائم الـ 8"}</span>
-          <span>{isOpen ? "▲" : "▼"}</span>
+          <span>{isOpen ? "إخفاء" : "فتح القائمة"}</span>
+          <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs">{shortcutCount}</span>
+          <span aria-hidden="true">{isOpen ? "⌃" : "⌄"}</span>
         </button>
       </div>
-
       {isOpen && (
-        <div className="pb-2">
+        <div className="mt-4 border-t border-slate-200 pt-4">
           <div className="classic-access-grid">
-            {classicColumns.map((col, idx) => (
-              <div
-                key={idx}
-                className="flex flex-col gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-950/40 p-2 shadow-inner"
-              >
-                {/* رأس العمود */}
-                <div
-                  style={{
-                    background: "linear-gradient(180deg, #15803d 0%, #064e3b 100%)",
-                    border: "1px solid #34d399",
-                    color: "#ffffff",
-                    textShadow: "0 1px 2px rgba(0,0,0,0.8)",
-                  }}
-                  className="rounded-lg py-1.5 px-1 text-center font-black text-xs shadow-md tracking-wide"
-                >
-                  {col.title}
-                </div>
-
-                {/* أزرار العمود التفاعلية */}
-                <div className="flex flex-col gap-1.5 mt-1">
-                  {col.items.map((item, itemIdx) => {
-                    const bg = getButtonGradient(item.itemColor);
-                    const textColor = getButtonTextColor(item.itemColor);
-                    return (
-                      <button
-                        key={itemIdx}
-                        type="button"
-                        onClick={() =>
-                          onNavigate(item.targetView, item.targetTab)
-                        }
-                        style={{
-                          background: bg,
-                          color: textColor,
-                          textShadow: textColor === "#ffffff" ? "0 1px 2px rgba(0,0,0,0.6)" : "none",
-                          border: "1px solid rgba(255,255,255,0.4)",
-                          boxShadow: "0 2px 4px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.3)",
-                        }}
-                        className="classic-access-button rounded-lg py-1.5 px-1.5 text-center text-[11px] font-bold transition hover:scale-[1.03] hover:brightness-110 active:scale-[0.98] cursor-pointer leading-tight"
-                        title={`الانتقال إلى: ${item.label}`}
-                      >
-                        {item.label}
-                      </button>
-                    );
-                  })}
+            {visibleColumns.map((col) => (
+              <div key={col.title} className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/90 p-3">
+                <h3 className="rounded-lg bg-teal-900 px-3 py-2 text-center text-xs font-black text-white">{col.title}</h3>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {col.items.map((item) => (
+                    <button
+                      key={`${item.targetView}-${item.targetTab ?? ""}-${item.label}`}
+                      type="button"
+                      onClick={() => onNavigate(item.targetView, item.targetTab)}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-start text-xs font-bold text-slate-800 shadow-sm transition hover:border-teal-400 hover:bg-teal-50 hover:text-teal-900"
+                      title={`الانتقال إلى: ${item.label}`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             ))}
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

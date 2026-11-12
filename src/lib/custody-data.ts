@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   custodyDetails,
@@ -28,6 +28,7 @@ const emptyBundle: CustodyBundle = {
   employees: [],
   records: [],
   linkedEmployeeNumber: null,
+  needsReviewCount: 0,
 };
 
 function dateValue(value: Date | null): string | null {
@@ -38,7 +39,8 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
   const session = await requireCurrentSession();
   await requireAnyScreenAccess("custody", "tracking");
   const database = getDatabase();
-  const isAdministrator = session.user.role === "admin";
+  const isAdministrator =
+    session.user.role === "admin" || session.user.role === "viewer";
   let linkedEmployeeNumber: number | null = null;
 
   if (!isAdministrator) {
@@ -141,7 +143,13 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
         .orderBy(desc(custodyHeaders.custodyNumber));
   const numbers = headerRows.map((header) => header.custodyNumber);
 
-  const [detailRows, itemRows, warehouseMovementRows, balanceRows] =
+  const [
+    detailRows,
+    itemRows,
+    warehouseMovementRows,
+    balanceRows,
+    reviewCountRows,
+  ] =
     await Promise.all([
       numbers.length
         ? database
@@ -177,12 +185,21 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
         ? database
             .select({
               itemNumber: warehouseDetails.number,
-              balance: sql<number>`COALESCE(SUM(${warehouseDetails.incoming} - ${warehouseDetails.outgoing}), 0)`,
+              balance: sql<number>`COALESCE(SUM(COALESCE(${warehouseDetails.incoming}, 0) - COALESCE(${warehouseDetails.outgoing}, 0)), 0)`,
             })
             .from(warehouseDetails)
-            .where(eq(warehouseDetails.deleted, false))
+            .where(
+              and(
+                eq(warehouseDetails.deleted, false),
+                eq(warehouseDetails.needsReview, false),
+              ),
+            )
             .groupBy(warehouseDetails.number)
         : Promise.resolve([]),
+      database
+        .select({ count: sql<number>`count(*)::int` })
+        .from(warehouseDetails)
+        .where(eq(warehouseDetails.needsReview, true)),
     ]);
   const detailIds = detailRows.map((detail) => detail.webId);
   const eventRows = detailIds.length
@@ -244,7 +261,7 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
           ? null
           : (employeeNames.get(currentEmployeeNumber) ?? null),
       returnedQuantity,
-      outstandingQuantity: Math.max(0, detail.quantity - returnedQuantity),
+      outstandingQuantity: Math.max(0, (detail.quantity ?? 0) - returnedQuantity),
       events,
     });
     detailsByHeader.set(detail.custodyNumber, items);
@@ -277,6 +294,7 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
         deleted: movement.deleted,
         kind: movement.movementKind,
         custodyDetailId: movement.custodyDetailId,
+        needsReview: movement.needsReview,
       };
     });
 
@@ -291,5 +309,6 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
     employees: isAdministrator ? employeeRows : [],
     records,
     linkedEmployeeNumber,
+    needsReviewCount: reviewCountRows[0]?.count ?? 0,
   };
 }

@@ -15,7 +15,7 @@ export type WarehouseItem = {
   catalogId: number;
   itemNumber: number;
   itemName: string;
-  price: number;
+  price: number | null;
   responsible: string;
   balance: number;
 };
@@ -23,15 +23,16 @@ export type WarehouseItem = {
 export type WarehouseMovement = {
   id: number;
   itemNumber: number;
-  balance: number;
-  incoming: number;
+  balance: number | null;
+  incoming: number | null;
   incomingDate: string | null;
-  outgoing: number;
+  outgoing: number | null;
   outgoingDate: string | null;
-  remaining: number;
+  remaining: number | null;
   deleted: boolean;
   kind: WarehouseMovementKind;
   custodyDetailId: string | null;
+  needsReview: boolean;
 };
 
 export type CustodyEvent = {
@@ -49,9 +50,9 @@ export type CustodyEvent = {
 export type CustodyDetail = {
   id: string;
   sourceId: number | null;
-  itemNumber: number;
+  itemNumber: number | null;
   itemName: string;
-  quantity: number;
+  quantity: number | null;
   price: number;
   total: number;
   issueDate: string;
@@ -66,7 +67,7 @@ export type CustodyRecord = {
   custodyNumber: number;
   sourceId: number | null;
   custodyDate: string;
-  recipientEmployeeNumber: number;
+  recipientEmployeeNumber: number | null;
   recipientName: string;
   voided: boolean;
   voidReason: string;
@@ -79,4 +80,5 @@ export type CustodyBundle = {
   employees: CustodyEmployee[];
   records: CustodyRecord[];
   linkedEmployeeNumber: number | null;
+  needsReviewCount: number;
 };

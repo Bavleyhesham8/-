@@ -17,12 +17,14 @@ import {
   requireAdministrator,
   requireScreenAccess,
 } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import type {
   CanteenMovement,
   CanteenProduct,
 } from "@/lib/canteen-types";
 
 const itemSchema = z.object({
+  itemNumber: z.number().int().positive().nullable().optional(),
   name: z.string().trim().min(1).max(160),
   price: z.number().finite().min(0).max(1_000_000_000).default(0),
 });
@@ -94,6 +96,15 @@ export async function grantStaffCanteenAccessAction(
     return true;
   });
 
+  if (result) {
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "permission-change",
+      entity: "userCanteenAccess",
+      entityId: userId.data,
+      metadata: { fields: "canteenAccess" },
+    });
+  }
   return result
     ? { ok: true, granted: granted.data }
     : { ok: false, error: "لم يتم العثور على حساب الموظف." };
@@ -104,7 +115,7 @@ export async function saveCanteenProductAction(
 ): Promise<
   { ok: true; product: CanteenProduct } | { ok: false; error: string }
 > {
-  await requireCanteenAccess();
+  const session = await requireCanteenAccess();
   const parsed = itemSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "أدخل اسمًا صحيحًا للصنف." };
@@ -114,22 +125,33 @@ export async function saveCanteenProductAction(
   const [duplicate] = await database
     .select({ itemNumber: canteenProducts.itemNumber })
     .from(canteenProducts)
-    .where(eq(canteenProducts.name, name))
+    .where(parsed.data.itemNumber == null
+      ? eq(canteenProducts.name, name)
+      : and(eq(canteenProducts.name, name), ne(canteenProducts.itemNumber, parsed.data.itemNumber)))
     .limit(1);
   if (duplicate) return { ok: false, error: "اسم الصنف مستخدم بالفعل." };
 
-  const [product] = await database
-    .insert(canteenProducts)
-    .values({ name, price: parsed.data.price })
-    .returning({
-      id: canteenProducts.id,
-      name: canteenProducts.name,
-      price: canteenProducts.price,
-      itemNumber: canteenProducts.itemNumber,
-    });
+  const values = { name, price: parsed.data.price, needsReview: false };
+  const [product] = parsed.data.itemNumber == null
+    ? await database.insert(canteenProducts).values(values).returning({
+        id: canteenProducts.id, name: canteenProducts.name, price: canteenProducts.price,
+        itemNumber: canteenProducts.itemNumber, needsReview: canteenProducts.needsReview,
+      })
+    : await database.update(canteenProducts).set(values)
+        .where(eq(canteenProducts.itemNumber, parsed.data.itemNumber)).returning({
+          id: canteenProducts.id, name: canteenProducts.name, price: canteenProducts.price,
+          itemNumber: canteenProducts.itemNumber, needsReview: canteenProducts.needsReview,
+        });
   if (!product) {
     return { ok: false, error: "تعذر حفظ صنف الكانتين." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: parsed.data.itemNumber == null ? "create" : "update",
+    entity: "canteenProducts",
+    entityId: product.itemNumber,
+    metadata: { fields: "name,price" },
+  });
   return { ok: true, product };
 }
 
@@ -273,6 +295,13 @@ export async function recordCanteenMovementAction(
   if (!("movement" in result) || !result.movement) {
     return { ok: false, error: "تعذر تسجيل حركة مخزون الكانتين." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "canteenStockLedger",
+    entityId: result.movement.id,
+    metadata: { fields: "itemNumber,direction,quantity,movementDate" },
+  });
   return { ok: true, movement: result.movement };
 }
 
@@ -356,5 +385,12 @@ export async function voidCanteenMovementAction(
   if ("error" in result && typeof result.error === "string") {
     return { ok: false, error: result.error };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "delete",
+    entity: "canteenStockLedger",
+    entityId: movementId.data,
+    metadata: { fields: "voided,reason" },
+  });
   return { ok: true };
 }

@@ -7,7 +7,6 @@ export const demoLookupData: LookupData = {
       number: "DEMO-CH-1",
       name: "كنيسة تجريبية",
       acheshe: "",
-      father: "",
     },
   ],
   governorates: [
@@ -20,8 +19,13 @@ export const demoLookupData: LookupData = {
   days: [{ id: 1, day: "يوم تجريبي" }],
   alternateCategories: [{ id: 1, name: "فئة تجريبية" }],
   villas: [
-    { id: 1, villaNumber: "١" },
-    { id: 2, villaNumber: "٢" },
-    { id: 3, villaNumber: "٣" },
+    { id: 1, villaNumber: "A" },
+    { id: 2, villaNumber: "B" },
+    { id: 3, villaNumber: "C" },
+    { id: 4, villaNumber: "D" },
+  ],
+  rooms: [
+    { id: 5, villaNumber: "غرفة1" },
+    { id: 6, villaNumber: "غرفة 2" },
   ],
 };
