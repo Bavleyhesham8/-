@@ -169,6 +169,13 @@
       "when": 1794321308254,
       "tag": "0023_phase_b_canteen_ledger_review",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794499200000,
+      "tag": "0024_normalize_villa_values",
+      "breakpoints": true
     }
   ]
 }

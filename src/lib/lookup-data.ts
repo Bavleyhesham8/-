@@ -10,7 +10,7 @@ import {
 } from "@/db/schema";
 import { canViewResidentChurchData } from "@/lib/access-control";
 import { requireCurrentSession } from "@/lib/auth-session";
-import { isVillaLocation } from "@/lib/stay-location";
+import { canonicalVilla, isVillaLocation } from "@/lib/stay-location";
 import type { LookupData } from "@/lib/lookup-types";
 
 export async function listLookupDataForCurrentUser(): Promise<LookupData> {
@@ -64,12 +64,20 @@ export async function listLookupDataForCurrentUser(): Promise<LookupData> {
         .orderBy(villaNumbers.villaNumber, villaNumbers.id),
     ]);
 
+  const uniqueVillas = new Map<string, (typeof villas)[number]>();
+  for (const item of villas) {
+    const number = canonicalVilla(item.villaNumber);
+    if (number && !uniqueVillas.has(number)) {
+      uniqueVillas.set(number, { ...item, villaNumber: number });
+    }
+  }
+
   return {
     churches,
     governorates,
     days,
     alternateCategories,
-    villas: villas.filter((item) => isVillaLocation(item.villaNumber)),
+    villas: [...uniqueVillas.values()],
     rooms: villas.filter((item) => !isVillaLocation(item.villaNumber)),
   };
 }

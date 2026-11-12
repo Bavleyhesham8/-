@@ -60,8 +60,26 @@ select:focus-visible {
 
 .classic-access-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+}
+
+.classic-access-column {
+  min-width: 0;
+}
+
+.classic-access-column-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 96px), 1fr));
+  gap: 8px;
+}
+
+.classic-access-column-items button {
+  min-width: 0;
+  min-height: 48px;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  white-space: normal;
 }
 
 .classic-access-button {

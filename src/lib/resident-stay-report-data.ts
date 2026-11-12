@@ -11,6 +11,7 @@ import type {
   ResidentStayReportFilters,
 } from "@/lib/resident-stay-report-types";
 import { normalizeResidentStayNumber } from "@/lib/resident-stay-report-utils";
+import { normalizeVillaFilter } from "@/lib/stay-location";
 
 const dateSchema = z
   .string()
@@ -43,7 +44,7 @@ export function parseResidentStayReportFilters(
   }
   return {
     ...parsed.data,
-    villa: normalizeResidentStayNumber(parsed.data.villa),
+    villa: normalizeVillaFilter(parsed.data.villa),
     room: normalizeResidentStayNumber(parsed.data.room),
   };
 }
@@ -69,7 +70,7 @@ export async function getResidentStayReport(
   if (filters.villa) {
     conditions.push(
       eq(
-        sql`translate(${residentStays.villa}, '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789')`,
+        sql`upper(regexp_replace(btrim(${residentStays.villa}), '^فيلا[[:space:]]*', '', 'i'))`,
         filters.villa,
       ),
     );

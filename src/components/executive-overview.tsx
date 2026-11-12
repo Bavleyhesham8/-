@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Resident } from "@/lib/demo-data";
+import { canonicalVilla } from "@/lib/stay-location";
 import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
 import type { MeatSalesBundle } from "@/lib/meat-sales-types";
 import type { TreatmentBundle } from "@/lib/treatment-types";
@@ -100,11 +101,13 @@ export default function ExecutiveOverview({
   const villaStats = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const v of lookups.villas) {
-      if (v.villaNumber) counts[v.villaNumber] = 0;
+      const key = canonicalVilla(v.villaNumber);
+      if (key) counts[key] = 0;
     }
     for (const r of currentResidents) {
       if (r.villa) {
-        counts[r.villa] = (counts[r.villa] || 0) + 1;
+        const key = canonicalVilla(r.villa);
+        if (key) counts[key] = (counts[key] || 0) + 1;
       }
     }
     return Object.entries(counts).map(([name, count]) => ({

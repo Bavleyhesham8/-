@@ -197,9 +197,9 @@ export default function ClassicAccessNavigator({
         <div className="mt-4 border-t border-slate-200 pt-4">
           <div className="classic-access-grid">
             {visibleColumns.map((col) => (
-              <div key={col.title} className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/90 p-3">
+              <div key={col.title} className="classic-access-column flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/90 p-3">
                 <h3 className="rounded-lg bg-teal-900 px-3 py-2 text-center text-xs font-black text-white">{col.title}</h3>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="classic-access-column-items">
                   {col.items.map((item) => (
                     <button
                       key={`${item.targetView}-${item.targetTab ?? ""}-${item.label}`}

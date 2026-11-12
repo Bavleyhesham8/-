@@ -25,6 +25,12 @@ export function canonicalVilla(value: string | null | undefined) {
   return villaLetter(value);
 }
 
+/** يقبل البحث عن الفيلا بصيغتي «A» و«فيلا A» ويعيد المفتاح نفسه. */
+export function normalizeVillaFilter(value: string | null | undefined) {
+  const normalized = normalizeLocationText(value);
+  return canonicalVilla(normalized) || normalized.toLocaleUpperCase("en-US");
+}
+
 /** أي قيمة غير تابعة لفيلا A-D تُعد غرفة. */
 export function canonicalRoom(value: string | null | undefined) {
   const normalized = normalizeLocationText(value);
