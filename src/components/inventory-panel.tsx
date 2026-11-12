@@ -905,7 +905,19 @@ export default function InventoryPanel({
                   <tr>
                     <td colSpan={canManage ? 5 : 4}>
                       <div className="empty-state">
-                        لا توجد أصناف في هذه الفئة حتى الآن.
+                        <p>
+                          لا توجد أصناف مسجلة في قاعدة المخزون لهذه الفئة؛ وجود
+                          الفئة وحده لا ينشئ الأصناف أو أرصدتها.
+                        </p>
+                        {canManage && (
+                          <button
+                            className="secondary-button no-print"
+                            type="button"
+                            onClick={startNewItem}
+                          >
+                            إضافة أول صنف
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

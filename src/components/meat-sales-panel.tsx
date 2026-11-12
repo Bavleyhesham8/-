@@ -57,6 +57,17 @@ function monthStartValue() {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
+function firstRecordedDate(sales: MeatSalesBundle) {
+  const dates = [
+    ...sales.movements.flatMap((movement) => [
+      movement.receivedDate,
+      movement.outgoingDate,
+    ]),
+    ...sales.invoices.map((invoice) => invoice.saleDate),
+  ].filter((date): date is string => Boolean(date && /^\d{4}-\d{2}-\d{2}$/.test(date)));
+  return dates.sort()[0] ?? monthStartValue();
+}
+
 const numberFormatter = new Intl.NumberFormat("ar-EG", {
   maximumFractionDigits: 2,
 });
@@ -75,10 +86,12 @@ export default function MeatSalesPanel({
   const [section, setSection] = useState<PanelSection>(() =>
     canManage ? normalizeSection(initialSection) : "history",
   );
-  const [reportStartDate, setReportStartDate] = useState(monthStartValue);
+  const [reportStartDate, setReportStartDate] = useState(() =>
+    firstRecordedDate(sales),
+  );
   const [reportEndDate, setReportEndDate] = useState(localDateValue);
   const [appliedReportStartDate, setAppliedReportStartDate] =
-    useState(monthStartValue);
+    useState(() => firstRecordedDate(sales));
   const [appliedReportEndDate, setAppliedReportEndDate] =
     useState(localDateValue);
   const [reportError, setReportError] = useState("");
@@ -146,7 +159,7 @@ export default function MeatSalesPanel({
     let outgoingValue = 0;
     let outgoingValueComplete = true;
     for (const movement of reportMovements) {
-      if (movement.voided || movement.needsReview) continue;
+      if (movement.voided) continue;
       if (movement.quantity !== null) {
         incomingQuantity += movement.quantity;
         if (movement.price === null) incomingValueComplete = false;
@@ -188,6 +201,20 @@ export default function MeatSalesPanel({
         : null,
     };
   }, [reportMovements, reportInvoices]);
+
+  const reportBalances = useMemo(() => {
+    const result = new Map<number, number>();
+    for (const movement of sales.movements) {
+      if (movement.voided) continue;
+      result.set(
+        movement.itemNumber,
+        (result.get(movement.itemNumber) ?? 0) +
+          (movement.quantity ?? 0) -
+          (movement.outgoing ?? 0),
+      );
+    }
+    return result;
+  }, [sales.movements]);
 
   const balanceRows = useMemo(
     () =>
@@ -739,13 +766,6 @@ export default function MeatSalesPanel({
           {error}
         </p>
       )}
-      {sales.needsReviewCount > 0 && (
-        <p className="review-warning" role="status">
-          يوجد {numberFormatter.format(sales.needsReviewCount)} حركة ثلاجة قيد
-          المراجعة؛ لا تدخل في حساب الرصيد.
-        </p>
-      )}
-
       {canManage && section === "catalog" && (
         <>
           <form className="inventory-form sales-form" onSubmit={submitProduct}>
@@ -1117,6 +1137,22 @@ export default function MeatSalesPanel({
         <div className="sales-invoice-list">
           {sales.invoices.map((invoice) => (
             <article className="sales-invoice-card" key={invoice.invoiceNumber}>
+              <PrintBrand
+                title={`فاتورة بيع اللحوم رقم ${invoice.invoiceNumber}`}
+                subtitle={invoice.beneficiary}
+                meta={[
+                  { label: "التاريخ", value: formatDate(invoice.saleDate) },
+                  { label: "الإجمالي", value: formatOptionalNumber(invoice.total) },
+                  { label: "المسدد", value: numberFormatter.format(invoice.paid) },
+                  {
+                    label: "المتبقي",
+                    value: invoice.total === null
+                      ? "—"
+                      : numberFormatter.format(Math.max(0, invoice.total - invoice.paid)),
+                  },
+                  { label: "الحالة", value: invoice.voided ? "ملغاة" : "سارية" },
+                ]}
+              />
               <div className="sales-invoice-heading">
                 <div>
                   <h4>فاتورة بيع اللحوم رقم {invoice.invoiceNumber}</h4>
@@ -1132,6 +1168,16 @@ export default function MeatSalesPanel({
                   <span>المسدد: {numberFormatter.format(invoice.paid)}</span>
                   <strong>{invoice.voided ? "ملغاة" : "مسددة"}</strong>
                   {invoice.voided && <span>{invoice.voidReason}</span>}
+                  <button
+                    className="secondary-button no-print"
+                    type="button"
+                    onClick={(event) => {
+                      const card = event.currentTarget.closest(".sales-invoice-card");
+                      if (card instanceof HTMLElement) printSingleRecord(card);
+                    }}
+                  >
+                    طباعة الفاتورة
+                  </button>
                 </div>
               </div>
               <div className="table-wrap">
@@ -1280,9 +1326,9 @@ export default function MeatSalesPanel({
               className="secondary-button"
               type="button"
               onClick={() => {
-                setReportStartDate(monthStartValue());
+                setReportStartDate(firstRecordedDate(sales));
                 setReportEndDate(localDateValue());
-                setAppliedReportStartDate(monthStartValue());
+                setAppliedReportStartDate(firstRecordedDate(sales));
                 setAppliedReportEndDate(localDateValue());
                 setReportError("");
               }}
@@ -1403,7 +1449,7 @@ export default function MeatSalesPanel({
                     </td>
                     <td>
                       {numberFormatter.format(
-                        balances.get(movement.itemNumber) ?? 0,
+                        reportBalances.get(movement.itemNumber) ?? 0,
                       )}
                     </td>
                     <td>
