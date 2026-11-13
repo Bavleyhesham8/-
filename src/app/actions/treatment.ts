@@ -101,6 +101,7 @@ export async function recordTreatmentEntryAction(
   const parsed = z
     .object({
       residentNumber: residentNumberSchema,
+      residentName: z.string().trim().max(200).default(""),
       medicationName: z.string().trim().min(1).max(250),
       amount: z.number().finite().positive().max(1_000_000),
       quantity: z.number().finite().positive().max(10_000).default(1),
@@ -122,11 +123,20 @@ export async function recordTreatmentEntryAction(
   );
 
   if (isDevelopmentDemoMode()) {
-    const record = demoTreatmentBundle.records.find(
+    let record = demoTreatmentBundle.records.find(
       (r) => r.residentNumber === parsed.data.residentNumber,
     );
     if (!record) {
-      return { ok: false, error: "سجل النزيل غير موجود." };
+      record = {
+        residentNumber: parsed.data.residentNumber,
+        residentName: parsed.data.residentName,
+        residentId: null,
+        matchScore: null,
+        matchAmbiguous: false,
+        entries: [],
+        totalBilled: 0,
+      };
+      demoTreatmentBundle.records.push(record);
     }
     const newEntry = {
       id: Date.now(),
@@ -159,7 +169,11 @@ export async function recordTreatmentEntryAction(
       .for("update");
 
     if (!header) {
-      return { ok: false as const, error: "سجل النزيل غير موجود." };
+      await transaction.insert(legacyTreatmentHeaders).values({
+        residentNumber: parsed.data.residentNumber,
+        residentName: parsed.data.residentName.normalize("NFC"),
+        createdBy: session.user.id,
+      }).onConflictDoNothing();
     }
 
     const [entry] = await transaction.insert(legacyTreatmentDetails).values({
@@ -176,9 +190,7 @@ export async function recordTreatmentEntryAction(
     return { ok: true as const, id: entry?.id };
   });
 
-  if (!result.ok) {
-    return result;
-  }
+  if (!result.ok) return { ok: false, error: "تعذر تسجيل صرف الدواء." };
   if (result.id === undefined) throw new Error("Treatment entry ID is missing.");
   await recordAuditEvent({
     actorUserId: session.user.id,

@@ -131,16 +131,36 @@ export default function CanteenReportPanel({
   const balances = report?.balances ?? [];
   const movements = report?.movements ?? [];
   const remainingBalance = report?.totals.remaining ?? 0;
+  const selectedProductName =
+    appliedFilters.itemNumber === null
+      ? "كل الأصناف"
+      : (report?.products.find(
+          (product) => product.itemNumber === appliedFilters.itemNumber,
+        )?.name ?? `صنف ${appliedFilters.itemNumber}`);
 
   return (
     <section className="content-panel canteen-report-panel" dir="rtl">
       <PrintBrand
-        title="تقرير مخزون الكانتين"
-        subtitle="الرصيد الفعال وحركات الوارد والمنصرف"
+        title="تقرير مخزون الكانتين وحركات البيع"
+        subtitle="الرصيد الفعال وحركات الوارد والمنصرف ونتائج البحث"
         meta={[
           {
             label: "الفترة",
             value: `${displayDate(appliedFilters.startDate)} — ${displayDate(appliedFilters.endDate)}`,
+          },
+          { label: "الصنف", value: selectedProductName },
+          {
+            label: "نوع الحركة",
+            value:
+              appliedFilters.direction === "in"
+                ? "الوارد فقط"
+                : appliedFilters.direction === "out"
+                  ? "المنصرف فقط"
+                  : "الوارد والمنصرف",
+          },
+          {
+            label: "النزيل / المستلم",
+            value: appliedFilters.recipient.trim() || "الكل",
           },
         ]}
       />
@@ -238,11 +258,12 @@ export default function CanteenReportPanel({
           </select>
         </label>
         <label>
-          المستلم
+          النزيل / المستلم
           <input
             type="search"
             value={filters.recipient}
             maxLength={160}
+            placeholder="اسم النزيل أو المستلم..."
             onChange={(event) =>
               setFilters((current) => ({
                 ...current,

@@ -152,10 +152,7 @@ export async function saveStaffProfileAction(
         .where(eq(churchLookup.name, profile.church))
         .for("update");
       if (!matchingChurches.length) {
-        return {
-          ok: false,
-          error: "اختر كنيسة مسجلة في قائمة البيانات المرجعية.",
-        };
+        await transaction.insert(churchLookup).values({ name: profile.church });
       }
     }
 
@@ -182,10 +179,10 @@ export async function saveStaffProfileAction(
         )
         .for("update");
       if (!matchingLocations.length) {
-        return {
-          ok: false,
-          error: "اختر محافظة ومركزًا مسجلين في قائمة البيانات المرجعية.",
-        };
+        await transaction.insert(governorateLookup).values({
+          governorate: profile.governorate,
+          district: profile.district,
+        });
       }
     }
 

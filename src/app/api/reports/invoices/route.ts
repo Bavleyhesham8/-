@@ -38,7 +38,10 @@ export async function GET(request: NextRequest) {
           row.invoiceDate >= filters.startDate &&
           row.invoiceDate <= filters.endDate &&
           (filters.categoryId === null ||
-            selectedCategory?.name === row.categoryName),
+            selectedCategory?.name === row.categoryName) &&
+          (!filters.itemName || row.itemName.toLocaleLowerCase().includes(filters.itemName.toLocaleLowerCase())) &&
+          (!filters.residentName || row.residentName.toLocaleLowerCase().includes(filters.residentName.toLocaleLowerCase())) &&
+          (filters.saleType === "all" || row.saleType === filters.saleType),
       );
       return csvResponse(
         invoiceReportToCsv(rows),

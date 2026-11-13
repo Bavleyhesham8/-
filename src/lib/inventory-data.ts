@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   inventoryCategories,
@@ -10,6 +10,13 @@ import {
 } from "@/db/schema";
 import { requireAnyScreenAccess, requireCurrentSession } from "@/lib/auth-session";
 import type { InventoryBundle } from "@/lib/inventory-types";
+
+const excludedInventoryCategoryNames = [
+  "الكانتين",
+  "كانتين",
+  "الثلاجة",
+  "ثلاجة",
+];
 
 export async function listInventoryForCurrentUser(): Promise<InventoryBundle> {
   const session = await requireCurrentSession();
@@ -28,6 +35,9 @@ export async function listInventoryForCurrentUser(): Promise<InventoryBundle> {
             active: inventoryCategories.active,
           })
           .from(inventoryCategories)
+          .where(
+            notInArray(inventoryCategories.name, excludedInventoryCategoryNames),
+          )
           .orderBy(inventoryCategories.name)
       : await database
           .select({
@@ -44,6 +54,7 @@ export async function listInventoryForCurrentUser(): Promise<InventoryBundle> {
             and(
               eq(userInventoryCategories.userId, session.user.id),
               eq(inventoryCategories.active, true),
+              notInArray(inventoryCategories.name, excludedInventoryCategoryNames),
             ),
           )
           .orderBy(inventoryCategories.name);
@@ -82,6 +93,8 @@ export async function listInventoryForCurrentUser(): Promise<InventoryBundle> {
         quantity: inventoryMovements.quantity,
         unitPrice: inventoryMovements.unitPrice,
         movementDate: inventoryMovements.movementDate,
+        destination: inventoryMovements.destination,
+        recipient: inventoryMovements.recipient,
         note: inventoryMovements.note,
         voided: inventoryMovements.voided,
       })

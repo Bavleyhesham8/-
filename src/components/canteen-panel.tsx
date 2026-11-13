@@ -11,12 +11,15 @@ import type {
   CanteenBundle,
   CanteenMovement,
 } from "@/lib/canteen-types";
+import CanteenReportPanel from "@/components/canteen-report-panel";
 
 type CanteenPanelProps = {
   canteen: CanteenBundle;
   persistent: boolean;
   canManage: boolean;
   canVoid: boolean;
+  canViewReport: boolean;
+  initialReport?: boolean;
   onCanteenChange: (update: (current: CanteenBundle) => CanteenBundle) => void;
 };
 
@@ -29,8 +32,11 @@ export default function CanteenPanel({
   persistent,
   canManage,
   canVoid,
+  canViewReport,
+  initialReport = false,
   onCanteenChange,
 }: CanteenPanelProps) {
+  const [showReport, setShowReport] = useState(initialReport);
   const [productName, setProductName] = useState("");
   const [productPrice, setProductPrice] = useState("");
   const [editingProductNumber, setEditingProductNumber] = useState<number | null>(null);
@@ -89,6 +95,13 @@ export default function CanteenPanel({
   const selectedBalance = selectedProduct
     ? (balances.get(selectedProduct.itemNumber) ?? 0)
     : 0;
+
+  if (showReport) {
+    return <>
+      <section className="content-panel no-print"><div className="panel-heading"><div><h3>تقارير حركات الكانتين</h3></div><button type="button" className="secondary-button" onClick={() => setShowReport(false)}>العودة لمخزون الكانتين</button></div></section>
+      <CanteenReportPanel persistent={persistent} />
+    </>;
+  }
 
   function startMovement() {
     setShowMovementForm(true);
@@ -322,6 +335,7 @@ export default function CanteenPanel({
             </button>
           </div>
         )}
+        {canViewReport && <button type="button" className="secondary-button" onClick={() => setShowReport(true)}>تقرير الحركات</button>}
       </div>
 
       {canManage && showProductForm && (

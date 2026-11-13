@@ -1762,6 +1762,40 @@ button:disabled {
   justify-content: flex-start;
 }
 
+.sales-history-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sales-history-heading h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.sales-history-heading .access-note {
+  margin: 4px 0 0;
+}
+
+.sales-history-filters {
+  padding: 0;
+}
+
+.sales-history-filter-note {
+  margin: 0;
+  border-radius: 8px;
+  background: #f7f8f7;
+  color: var(--muted);
+  padding: 9px 12px;
+  font-size: 11px;
+}
+
+.sales-history-summary {
+  padding: 0;
+}
+
 .staff-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -2048,6 +2082,29 @@ button:disabled {
   padding: 0 18px 17px;
 }
 
+.invoice-report-residents {
+  padding: 0 18px 16px;
+}
+
+.invoice-report-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.invoice-report-section-heading h4 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.invoice-report-section-heading span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .invoice-report-periods h4 {
   margin: 0 0 8px;
   font-size: 12px;
@@ -2167,6 +2224,9 @@ button:disabled {
 }
 
 @media print {
+  body.print-single-custody .custody-record:not([data-custody-print-target="true"]) {
+    display: none !important;
+  }
   @page {
     margin: 8mm;
     size: A4 portrait;
@@ -3375,6 +3435,98 @@ button:disabled {
   font-size: 12px;
 }
 
+.resident-account-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 18px 16px;
+}
+
+.resident-account-summary article {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fbfcfb;
+  padding: 12px;
+}
+
+.resident-account-summary span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.resident-account-summary strong {
+  font-size: 16px;
+}
+
+.resident-account-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 18px 14px;
+}
+
+.resident-account-toolbar .form-field {
+  flex: 1 1 280px;
+}
+
+.resident-account-toolbar > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.resident-account-negative {
+  color: var(--red);
+}
+
+.resident-account-positive {
+  color: var(--green-dark);
+}
+
+.resident-account-debt,
+.resident-account-flag {
+  display: inline-block;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+}
+
+.resident-account-debt {
+  margin-inline-start: 6px;
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.resident-account-flag {
+  margin-inline-start: 6px;
+  background: #fff4dc;
+  color: #8a5a00;
+}
+
+.resident-account-unmatched {
+  margin: 0 18px 16px;
+  border: 1px solid #f0d7d4;
+  border-radius: 11px;
+  background: #fffafa;
+  padding: 14px;
+}
+
+.resident-account-unmatched h4 {
+  margin: 0 0 4px;
+  color: var(--red);
+  font-size: 13px;
+}
+
+.resident-account-unmatched p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .resident-finance-forms {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3431,6 +3583,10 @@ button:disabled {
 @media (max-width: 760px) {
   .resident-finance-forms {
     grid-template-columns: 1fr;
+  }
+
+  .resident-account-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

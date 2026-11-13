@@ -18,9 +18,9 @@ const actionLabels: Record<string, string> = {
 
 const entityLabels: Record<string, string> = {
   residentPurchases: "مشتريات النزلاء",
-  invoiceCategories: "فئات الفواتير",
-  residentInvoices: "فواتير الكانتين",
-  residentInvoicePayments: "مدفوعات فواتير الكانتين",
+  invoiceCategories: "فئات حركات البيع",
+  residentInvoices: "حركات بيع الكانتين",
+  residentInvoicePayments: "مدفوعات حركات بيع الكانتين",
   userCanteenAccess: "صلاحيات الكانتين",
   canteenProducts: "أصناف الكانتين",
   canteenStockLedger: "حركات مخزون الكانتين",
@@ -32,8 +32,8 @@ const entityLabels: Record<string, string> = {
   userInventoryCategories: "صلاحيات مخزن الأغذية",
   inventoryItems: "أصناف مخزن الأغذية",
   inventoryMovements: "حركات مخزن الأغذية",
-  legacyResidentHeaders: "سجلات أمانات النزلاء",
-  legacyResidentDetails: "حركات أمانات النزلاء",
+  legacyResidentHeaders: "سجلات حسابات النزلاء القديمة",
+  legacyResidentDetails: "حركات حسابات النزلاء القديمة",
   refrigeratorItemCatalog: "دليل أصناف الثلاجة",
   refrigeratorStockLedger: "حركات الثلاجة",
   meatSalesInvoices: "فواتير بيع اللحوم",

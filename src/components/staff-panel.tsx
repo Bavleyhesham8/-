@@ -128,29 +128,28 @@ function StaffProfileFields({
           ) : field.key === "governorate" ||
             field.key === "district" ||
             field.key === "church" ? (
-            <select
-              value={value[field.key]}
-              disabled={disabled}
-              onChange={(event) => {
-                const nextValue = event.target.value;
-                onChange?.(field.key, nextValue);
-                if (
-                  field.key === "governorate" &&
-                  !lookups.governorates.some(
-                    (entry) =>
-                      entry.governorate === nextValue &&
-                      entry.district === value.district,
-                  )
-                ) {
-                  onChange?.("district", "");
-                }
-              }}
-            >
-              <option value="">
-                {field.key === "district" && !value.governorate
-                  ? "اختر المحافظة أولًا"
-                  : "اختر"}
-              </option>
+            <>
+              <input
+                list={`staff-${field.key}-options`}
+                autoComplete="off"
+                value={value[field.key]}
+                disabled={disabled}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  onChange?.(field.key, nextValue);
+                  if (
+                    field.key === "governorate" &&
+                    !lookups.governorates.some(
+                      (entry) =>
+                        entry.governorate === nextValue &&
+                        entry.district === value.district,
+                    )
+                  ) {
+                    onChange?.("district", "");
+                  }
+                }}
+              />
+              <datalist id={`staff-${field.key}-options`}>
               {(() => {
                 const choices =
                   field.key === "governorate"
@@ -180,21 +179,10 @@ function StaffProfileFields({
                               .filter((entry): entry is string => !!entry),
                           ),
                         ];
-                const currentValue = value[field.key];
-                const options =
-                  currentValue && !choices.includes(currentValue)
-                    ? [currentValue, ...choices]
-                    : choices;
-                return options.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                    {option === currentValue && !choices.includes(option)
-                      ? " — قيمة محفوظة"
-                      : ""}
-                  </option>
-                ));
+                return choices.map((option) => <option key={option} value={option} />);
               })()}
-            </select>
+              </datalist>
+            </>
           ) : (
             <input
               type={field.type ?? "text"}

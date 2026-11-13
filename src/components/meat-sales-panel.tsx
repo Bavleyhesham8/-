@@ -94,6 +94,8 @@ export default function MeatSalesPanel({
     useState(() => firstRecordedDate(sales));
   const [appliedReportEndDate, setAppliedReportEndDate] =
     useState(localDateValue);
+  const [reportItemNumber, setReportItemNumber] = useState("all");
+  const [appliedReportItemNumber, setAppliedReportItemNumber] = useState("all");
   const [reportError, setReportError] = useState("");
   const [saleDate, setSaleDate] = useState(localDateValue());
   const [permitNumber, setPermitNumber] = useState("");
@@ -127,6 +129,11 @@ export default function MeatSalesPanel({
     }
     return result;
   }, [sales.movements]);
+  function fridgeItemName(movement: RefrigeratorMovement) {
+    const product = sales.products.find((entry) => entry.itemNumber === movement.itemNumber);
+    const catalogItem = product ? sales.catalog.find((entry) => entry.id === product.catalogId) : null;
+    return movement.itemCategory.trim() || product?.itemCategory || catalogItem?.itemCategory || "صنف غير معروف";
+  }
 
   const reportMovements = useMemo(
     () =>
@@ -134,10 +141,11 @@ export default function MeatSalesPanel({
         const date = movement.receivedDate ?? movement.outgoingDate ?? "";
         return (
           (!appliedReportStartDate || date >= appliedReportStartDate) &&
-          (!appliedReportEndDate || date <= appliedReportEndDate)
+          (!appliedReportEndDate || date <= appliedReportEndDate) &&
+          (appliedReportItemNumber === "all" || String(movement.itemNumber) === appliedReportItemNumber)
         );
       }),
-    [sales.movements, appliedReportStartDate, appliedReportEndDate],
+    [sales.movements, appliedReportStartDate, appliedReportEndDate, appliedReportItemNumber],
   );
 
   const reportInvoices = useMemo(
@@ -146,9 +154,10 @@ export default function MeatSalesPanel({
         (invoice) =>
           (!appliedReportStartDate ||
             invoice.saleDate >= appliedReportStartDate) &&
-          (!appliedReportEndDate || invoice.saleDate <= appliedReportEndDate),
+          (!appliedReportEndDate || invoice.saleDate <= appliedReportEndDate) &&
+          (appliedReportItemNumber === "all" || invoice.lines.some((line) => String(line.refrigeratorItemNumber) === appliedReportItemNumber)),
       ),
-    [sales.invoices, appliedReportStartDate, appliedReportEndDate],
+    [sales.invoices, appliedReportStartDate, appliedReportEndDate, appliedReportItemNumber],
   );
 
   const reportSummary = useMemo(() => {
@@ -186,21 +195,30 @@ export default function MeatSalesPanel({
           : null,
       invoiceCount: activeInvoices.length,
       invoiceTotal: activeInvoices.every((invoice) => invoice.total !== null)
-        ? activeInvoices.reduce((sum, invoice) => sum + (invoice.total ?? 0), 0)
+        ? activeInvoices.reduce((sum, invoice) => sum + (appliedReportItemNumber === "all" ? (invoice.total ?? 0) : invoice.lines.filter((line) => String(line.refrigeratorItemNumber) === appliedReportItemNumber).reduce((lineTotal, line) => lineTotal + (line.total ?? line.price * line.quantity), 0)), 0)
         : null,
-      invoicePaid: activeInvoices.reduce(
-        (sum, invoice) => sum + invoice.paid,
-        0,
-      ),
+      invoicePaid: activeInvoices.reduce((sum, invoice) => {
+        if (appliedReportItemNumber === "all") return sum + invoice.paid;
+        const selectedTotal = invoice.lines
+          .filter((line) => String(line.refrigeratorItemNumber) === appliedReportItemNumber)
+          .reduce((lineTotal, line) => lineTotal + (line.total ?? line.price * line.quantity), 0);
+        return sum + (invoice.total ? invoice.paid * selectedTotal / invoice.total : 0);
+      }, 0),
       invoiceOutstanding: activeInvoices.every((invoice) => invoice.total !== null)
         ? activeInvoices.reduce(
-            (sum, invoice) =>
-              sum + Math.max(0, (invoice.total ?? 0) - invoice.paid),
+            (sum, invoice) => {
+              if (appliedReportItemNumber === "all") return sum + Math.max(0, (invoice.total ?? 0) - invoice.paid);
+              const selectedTotal = invoice.lines
+                .filter((line) => String(line.refrigeratorItemNumber) === appliedReportItemNumber)
+                .reduce((lineTotal, line) => lineTotal + (line.total ?? line.price * line.quantity), 0);
+              const allocatedPaid = invoice.total ? invoice.paid * selectedTotal / invoice.total : 0;
+              return sum + Math.max(0, selectedTotal - allocatedPaid);
+            },
             0,
           )
         : null,
     };
-  }, [reportMovements, reportInvoices]);
+  }, [reportMovements, reportInvoices, appliedReportItemNumber]);
 
   const reportBalances = useMemo(() => {
     const result = new Map<number, number>();
@@ -263,6 +281,7 @@ export default function MeatSalesPanel({
     setReportError("");
     setAppliedReportStartDate(reportStartDate);
     setAppliedReportEndDate(reportEndDate);
+    setAppliedReportItemNumber(reportItemNumber);
   }
 
   const preparedLines = draftLines.map((line) => {
@@ -953,7 +972,7 @@ export default function MeatSalesPanel({
                       )}
                     </td>
                     <td>{movement.itemNumber}</td>
-                    <td>{movement.itemCategory}</td>
+                    <td>{fridgeItemName(movement)}</td>
                     <td>
                       {movement.quantity === null
                         ? "—"
@@ -1304,6 +1323,13 @@ export default function MeatSalesPanel({
 
           <form className="resident-report-filters" onSubmit={applyReportDates}>
             <label>
+              الصنف
+              <select value={reportItemNumber} onChange={(event) => setReportItemNumber(event.target.value)}>
+                <option value="all">كل الأصناف</option>
+                {sales.products.map((product) => <option key={product.itemNumber} value={product.itemNumber}>{product.itemCategory}</option>)}
+              </select>
+            </label>
+            <label>
               من تاريخ
               <input
                 type="date"
@@ -1330,6 +1356,8 @@ export default function MeatSalesPanel({
                 setReportEndDate(localDateValue());
                 setAppliedReportStartDate(firstRecordedDate(sales));
                 setAppliedReportEndDate(localDateValue());
+                setReportItemNumber("all");
+                setAppliedReportItemNumber("all");
                 setReportError("");
               }}
             >
@@ -1421,7 +1449,7 @@ export default function MeatSalesPanel({
                       )}
                     </td>
                     <td>{movement.itemNumber}</td>
-                    <td>{movement.itemCategory}</td>
+                    <td>{fridgeItemName(movement)}</td>
                     <td>
                       {movement.quantity === null
                         ? "—"

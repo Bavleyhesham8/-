@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne, notInArray } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   residents,
@@ -173,7 +173,17 @@ export async function listStaffForAdministrator(): Promise<DemoUser[]> {
         inventoryCategories,
         eq(userInventoryCategories.categoryId, inventoryCategories.id),
       )
-      .where(eq(inventoryCategories.active, true)),
+      .where(
+        and(
+          eq(inventoryCategories.active, true),
+          notInArray(inventoryCategories.name, [
+            "الكانتين",
+            "كانتين",
+            "الثلاجة",
+            "ثلاجة",
+          ]),
+        ),
+      ),
     database
       .select({ userId: userCanteenAccess.userId })
       .from(userCanteenAccess),

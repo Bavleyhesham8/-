@@ -2,7 +2,6 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import {
-  createTreatmentHeaderAction,
   editTreatmentEntryAction,
   recordTreatmentEntryAction,
   voidTreatmentEntryAction,
@@ -35,9 +34,8 @@ export default function TreatmentPanel({
   canManage,
   onBundleChange,
 }: Props) {
-  const [residentNumber, setResidentNumber] = useState("");
-  const [residentName, setResidentName] = useState("");
   const [selectedResidentNumber, setSelectedResidentNumber] = useState("");
+  const [selectedResidentName, setSelectedResidentName] = useState("");
 
   const [medicationName, setMedicationName] = useState("");
   const [amount, setAmount] = useState("");
@@ -68,7 +66,7 @@ export default function TreatmentPanel({
       ),
       ...bundle.unassignedEntries.map((entry) => ({
         ...entry,
-        residentLabel: "غير مرتبط بتذكرة نزيل",
+        residentLabel: "غير مرتبط بنزيل",
       })),
     ],
     [bundle],
@@ -93,6 +91,10 @@ export default function TreatmentPanel({
         r.entries.some((e) => e.medicationName.toLowerCase().includes(term)),
     );
   }, [bundle.records, search]);
+  const filteredMedicationTotal = filteredRecords.reduce(
+    (total, record) => total + record.entries.reduce((sum, entry) => sum + (!entry.voided ? entry.total : 0), 0),
+    0,
+  );
 
   const liveCalculatedTotal = useMemo(() => {
     const amt = parseFloat(amount) || 0;
@@ -100,46 +102,6 @@ export default function TreatmentPanel({
     const disc = parseFloat(discount) || 0;
     return Math.max(0, amt * qty - disc);
   }, [amount, quantity, discount]);
-
-  async function submitHeader(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    setMessage("");
-
-    const parsedNumber = Number(residentNumber);
-    if (!Number.isInteger(parsedNumber) || parsedNumber <= 0 || !residentName.trim()) {
-      setError("يرجى إدخال رقم نزيل صحيح واسمه.");
-      return;
-    }
-
-    if (bundle.records.some((r) => r.residentNumber === parsedNumber)) {
-      setError("النزيل مسجل بالفعل في سجلات العيادة.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const result = await createTreatmentHeaderAction({
-        residentNumber: parsedNumber,
-        residentName,
-      });
-
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-
-      onBundleChange(result.bundle);
-      setSelectedResidentNumber(String(parsedNumber));
-      setResidentNumber("");
-      setResidentName("");
-      setMessage("تم فتح تذكرة علاج جديدة للنزيل بنجاح.");
-    } catch {
-      setError("حدث خطأ أثناء فتح تذكرة العلاج.");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function submitEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -172,6 +134,7 @@ export default function TreatmentPanel({
     try {
       const result = await recordTreatmentEntryAction({
         residentNumber: parsedNumber,
+        residentName: selectedResidentName,
         medicationName: medicationName.trim(),
         amount: parsedAmount,
         quantity: parsedQuantity,
@@ -191,7 +154,7 @@ export default function TreatmentPanel({
       setDiscount("0");
       setMessage("تم تسجيل صرف الدواء بنجاح.");
     } catch {
-      setError("تعذر تسجيل إذن صرف الدواء.");
+      setError("تعذر تسجيل صرف الدواء.");
     } finally {
       setSaving(false);
     }
@@ -312,57 +275,29 @@ export default function TreatmentPanel({
         </div>
       )}
 
-      {/* نماذج الإدخال: إضافة تذكرة علاج + صرف دواء */}
+      {/* اختيار النزيل وتسجيل صرف الدواء مباشرة */}
       {canManage && <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* إضافة تذكرة علاج جديدة للنزيل (راس العلاج) */}
+        {/* اختيار النزيل */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs lg:col-span-5">
-          <h3 className="mb-3 text-base font-bold text-slate-800">
-            فتح تذكرة علاج جديدة للنزيل (راس العلاج)
-          </h3>
-          <form onSubmit={submitHeader} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-700">
-                رقم النزيل في العلاج:
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={residentNumber}
-                onChange={(e) => setResidentNumber(e.target.value)}
-                placeholder="مثال: 1"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
-                disabled={saving}
-                required
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-700">
-                اسم النزيل:
-              </label>
-              <ResidentPicker
-                residents={residents}
-                value={residentName}
-                onChange={(value) => setResidentName(value)}
-                placeholder="ابحث باسم النزيل أو رقم الملف..."
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
-                disabled={saving}
-                required
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={saving}
-              className="w-full rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-teal-700 disabled:opacity-50"
-            >
-              {saving ? "جاري الحفظ..." : "فتح تذكرة علاج"}
-            </button>
-          </form>
+          <h3 className="mb-3 text-base font-bold text-slate-800">اختيار النزيل</h3>
+          <ResidentPicker
+            residents={residents}
+            value={selectedResidentName}
+            onChange={(value, resident) => {
+              setSelectedResidentName(value);
+              setSelectedResidentNumber(resident?.residentNumber ?? "");
+            }}
+            placeholder="ابحث باسم النزيل أو رقم الملف..."
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
+            disabled={saving}
+          />
+          {selectedResidentName && !selectedResidentNumber && <p className="form-error">ملف هذا النزيل غير مرتبط برقم سجل علاجي.</p>}
         </div>
 
         {/* صرف دواء (اطراف العلاج) */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs lg:col-span-7">
           <h3 className="mb-3 text-base font-bold text-slate-800">
-            تسجيل صرف دواء للنزيل (اطراف العلاج)
+            تسجيل صرف دواء للنزيل
           </h3>
           <form onSubmit={submitEntry} className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -370,20 +305,7 @@ export default function TreatmentPanel({
                 <label className="mb-1 block text-xs font-semibold text-slate-700">
                   النزيل:
                 </label>
-                <select
-                  value={selectedResidentNumber}
-                  onChange={(e) => setSelectedResidentNumber(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
-                  disabled={saving}
-                  required
-                >
-                  <option value="">-- اختر النزيل --</option>
-                  {bundle.records.map((r) => (
-                    <option key={r.residentNumber} value={r.residentNumber}>
-                      {r.residentName || "نزيل بدون اسم"} (#{r.residentNumber})
-                    </option>
-                  ))}
-                </select>
+                <span className="block rounded-lg border border-slate-200 px-3 py-2 text-sm">{selectedResidentName || "اختر النزيل من الحقل المجاور"}</span>
               </div>
 
               <div>
@@ -499,6 +421,10 @@ export default function TreatmentPanel({
               placeholder="بحث بالنزيل أو اسم الدواء..."
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
             />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm">إجمالي نتائج البحث: <strong>{numberFormatter.format(filteredMedicationTotal)} ج.م</strong></span>
+            <button type="button" className="secondary-button no-print" onClick={() => window.print()}>طباعة التقرير</button>
           </div>
         </div>
 

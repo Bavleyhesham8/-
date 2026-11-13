@@ -176,6 +176,27 @@
       "when": 1794499200000,
       "tag": "0024_normalize_villa_values",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794570000000,
+      "tag": "0025_food_inventory_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794573600000,
+      "tag": "0026_employee_custody_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794577200000,
+      "tag": "0027_center_custody_fund",
+      "breakpoints": true
     }
   ]
 }

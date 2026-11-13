@@ -14,7 +14,6 @@ import { createDemoId } from "@/lib/inventory-demo-data";
 import { formatDate, localDateValue } from "@/lib/date-format";
 import type {
   CustodyBundle,
-  CustodyDetail,
   CustodyEvent,
   CustodyRecord,
   WarehouseMovement,
@@ -32,9 +31,10 @@ type Props = {
 };
 
 type DraftLine = {
-  itemNumber: string;
+  itemName: string;
+  unit: string;
   quantity: string;
-  price: string;
+  notes: string;
 };
 
 type ActionTarget =
@@ -77,7 +77,7 @@ export default function CustodyPanel({
   const [issueDate, setIssueDate] = useState(localDateValue());
   const [employeeNumber, setEmployeeNumber] = useState("");
   const [draftLines, setDraftLines] = useState<DraftLine[]>([
-    { itemNumber: "", quantity: "1", price: "" },
+    { itemName: "", unit: "", quantity: "1", notes: "" },
   ]);
   const [receiptItemNumber, setReceiptItemNumber] = useState("");
   const [receiptQuantity, setReceiptQuantity] = useState("");
@@ -94,6 +94,10 @@ export default function CustodyPanel({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [printingCustodyNumber, setPrintingCustodyNumber] = useState<number | null>(null);
+  const [recordSearch, setRecordSearch] = useState("");
+  const [recordStartDate, setRecordStartDate] = useState("");
+  const [recordEndDate, setRecordEndDate] = useState("");
 
   const itemByNumber = useMemo(
     () => new Map(bundle.items.map((item) => [item.itemNumber, item])),
@@ -103,36 +107,16 @@ export default function CustodyPanel({
     () => new Map(bundle.records.flatMap((record) => record.details.map((detail) => [detail.id, detail.price] as const))),
     [bundle.records],
   );
-  const preparedLines = draftLines.map((line) => {
-    const item = itemByNumber.get(Number(line.itemNumber));
-    const quantity = Number(line.quantity);
-    const price = Number(line.price);
-    const total = quantity * price;
-    return {
-      ...line,
-      item,
-      quantity,
-      price,
-      total,
-      valid:
-        !!item &&
-        Number.isFinite(quantity) &&
-        quantity > 0 &&
-        Number.isFinite(price) &&
-        price >= 0 &&
-        Number.isFinite(total),
-    };
-  });
-  const issueTotal = preparedLines.reduce(
-    (total, line) => total + (line.valid ? line.total : 0),
-    0,
-  );
-  const canSaveIssue =
-    !!bundle.items.length &&
-    !!bundle.employees.length &&
-    !!employeeNumber &&
-    preparedLines.every((line) => line.valid) &&
-    Number.isFinite(issueTotal);
+  const preparedLines = draftLines.map((line) => ({
+    ...line,
+    quantityValue: Number(line.quantity),
+    valid: !!line.itemName.trim() && Number.isFinite(Number(line.quantity)) && Number(line.quantity) > 0,
+  }));
+  const canSaveIssue = !!bundle.employees.length && !!employeeNumber && preparedLines.every((line) => line.valid);
+  const visibleRecords = useMemo(() => bundle.records.filter((record) =>
+    (!recordSearch || record.recipientName.toLocaleLowerCase().includes(recordSearch.toLocaleLowerCase())) &&
+    (!recordStartDate || record.custodyDate >= recordStartDate) &&
+    (!recordEndDate || record.custodyDate <= recordEndDate)), [bundle.records, recordSearch, recordStartDate, recordEndDate]);
   const availableQuantity = actionTarget
     ? actionTarget.kind === "void"
       ? 0
@@ -144,20 +128,24 @@ export default function CustodyPanel({
     setMessage(text);
   }
 
+  function printCustodyReceipt(custodyNumber?: number) {
+    setPrintingCustodyNumber(custodyNumber ?? null);
+    requestAnimationFrame(() => {
+      if (custodyNumber !== undefined) document.body.classList.add("print-single-custody");
+      window.print();
+      window.setTimeout(() => {
+        document.body.classList.remove("print-single-custody");
+        setPrintingCustodyNumber(null);
+      }, 500);
+    });
+  }
+
   function updateDraft(index: number, patch: Partial<DraftLine>) {
     setDraftLines((current) =>
       current.map((line, lineIndex) =>
         lineIndex === index ? { ...line, ...patch } : line,
       ),
     );
-  }
-
-  function selectDraftItem(index: number, value: string) {
-    const item = itemByNumber.get(Number(value));
-    updateDraft(index, {
-      itemNumber: value,
-      price: item?.price === null || !item ? "" : String(item.price),
-    });
   }
 
   function openAction(target: ActionTarget) {
@@ -180,44 +168,21 @@ export default function CustodyPanel({
       setError("أدخل الموظف والتاريخ وبندًا صالحًا على الأقل.");
       return;
     }
-
-    const employee = bundle.employees.find(
-      (candidate) => candidate.employeeNumber === Number(employeeNumber),
-    );
+    const employee = bundle.employees.find((candidate) => candidate.employeeNumber === Number(employeeNumber));
     if (!employee) {
       setError("اختر موظفًا مسجلًا في دليل الموظفين.");
       return;
     }
     const lines = preparedLines.map((line) => ({
-      itemNumber: Number(line.itemNumber),
-      quantity: line.quantity,
-      price: line.price,
+      itemName: line.itemName.trim(),
+      unit: line.unit.trim(),
+      quantity: line.quantityValue,
+      notes: line.notes.trim(),
     }));
-    const requested = new Map<number, number>();
-    for (const line of lines) {
-      requested.set(
-        line.itemNumber,
-        (requested.get(line.itemNumber) ?? 0) + line.quantity,
-      );
-    }
-    for (const [itemNumber, quantity] of requested) {
-      const item = itemByNumber.get(itemNumber);
-      if (!item || quantity > item.balance + 1e-9) {
-        setError(
-          `الرصيد المتاح غير كافٍ للصنف ${item?.itemName ?? itemNumber}.`,
-        );
-        return;
-      }
-    }
-
     setSaving(true);
     try {
       if (persistent) {
-        const result = await createCustodyIssueAction({
-          custodyDate: issueDate,
-          employeeNumber: employee.employeeNumber,
-          items: lines,
-        });
+        const result = await createCustodyIssueAction({ custodyDate: issueDate, employeeNumber: employee.employeeNumber, items: lines });
         if (!result.ok) {
           setError(result.error);
           return;
@@ -225,81 +190,29 @@ export default function CustodyPanel({
         onBundleChange(() => result.bundle);
       } else {
         onBundleChange((current) => {
-          const nextBalances = new Map(
-            current.items.map((item) => [item.itemNumber, item.balance]),
-          );
-          const movementRows = [...current.warehouseMovements];
-          const details: CustodyDetail[] = [];
-          let movementId = nextMovementId(movementRows);
-
-          for (const line of lines) {
-            const item = current.items.find(
-              (candidate) => candidate.itemNumber === line.itemNumber,
-            );
-            if (!item) continue;
-            const balance = nextBalances.get(item.itemNumber) ?? 0;
-            const detailId = createDemoId();
-            const total = line.quantity * line.price;
-            details.push({
-              id: detailId,
-              sourceId: null,
-              itemNumber: item.itemNumber,
-              itemName: item.itemName,
-              quantity: line.quantity,
-              price: line.price,
-              total,
-              issueDate: issueDate,
-              currentEmployeeNumber: employee.employeeNumber,
-              currentEmployeeName: employee.employeeName,
-              returnedQuantity: 0,
-              outstandingQuantity: line.quantity,
-              events: [],
-            });
-            movementRows.unshift({
-              id: movementId++,
-              itemNumber: item.itemNumber,
-              balance,
-              incoming: 0,
-              incomingDate: null,
-              outgoing: line.quantity,
-              outgoingDate: issueDate,
-              remaining: balance - line.quantity,
-              deleted: false,
-              kind: "custody_issue",
-              custodyDetailId: detailId,
-              needsReview: false,
-            });
-            nextBalances.set(item.itemNumber, balance - line.quantity);
-          }
-
           const record: CustodyRecord = {
-            custodyNumber:
-              Math.max(
-                0,
-                ...current.records.map((entry) => entry.custodyNumber),
-              ) + 1,
+            custodyNumber: Math.max(0, ...current.records.map((entry) => entry.custodyNumber)) + 1,
             sourceId: null,
             custodyDate: issueDate,
             recipientEmployeeNumber: employee.employeeNumber,
             recipientName: employee.employeeName,
             voided: false,
             voidReason: "",
-            details,
-          };
-          return {
-            ...current,
-            records: [record, ...current.records],
-            items: current.items.map((item) => ({
-              ...item,
-              balance: nextBalances.get(item.itemNumber) ?? item.balance,
+            details: lines.map((line) => ({
+              id: createDemoId(), sourceId: null, itemNumber: null,
+              itemName: line.itemName, unit: line.unit, notes: line.notes,
+              quantity: line.quantity, price: 0, total: 0, issueDate,
+              currentEmployeeNumber: employee.employeeNumber,
+              currentEmployeeName: employee.employeeName,
+              returnedQuantity: 0, outstandingQuantity: line.quantity, events: [],
             })),
-            warehouseMovements: movementRows,
           };
+          return { ...current, records: [record, ...current.records] };
         });
       }
-      setDraftLines([{ itemNumber: "", quantity: "1", price: "" }]);
+      setDraftLines([{ itemName: "", unit: "", quantity: "1", notes: "" }]);
       setEmployeeNumber("");
-      setSuccess("تم تسجيل العهدة وخصم الكميات من المخزن.");
+      setSuccess("تم تسجيل إيصال عهدة الموظف دون خصم أي صنف من المخزون.");
     } finally {
       setSaving(false);
     }
@@ -773,15 +686,15 @@ export default function CustodyPanel({
             {section === "custody"
               ? "عهد الموظفين"
               : section === "receipts"
-                ? "مخزن العهدة"
-                : "أصناف مخزن العهدة وأسعارها"}
+                ? "مخزن الأغذية"
+                : "أصناف مخزن الأغذية وأسعارها"}
           </h3>
           <p>
             {section === "custody"
-              ? "تسليم الأصناف للموظفين ومتابعة الإرجاع أو النقل والإلغاء. كل بند يظهر معه الصنف والسعر والكمية والمسؤول الحالي."
+              ? "تسجيل إيصالات العهدة الإدارية للموظفين. كل إيصال مستقل عن مخزون الأغذية ويتضمن البيان والوحدة والكمية والملاحظات."
               : section === "receipts"
                 ? "هذا المخزن يمد سجلات عهد الموظفين بالأصناف؛ الوارد يزيد الرصيد، والتسليم كعهدة يخصمه. مخزن الأغذية العام والكانتین والثلاجة منفصلة."
-                : "تعريف أصناف مخزن العهدة وأسعارها الافتراضية. السعر المسجل يظهر مع كل حركة ويمكن تعديله في سجل العهدة."}
+                : "تعريف أصناف مخزن الأغذية وأسعارها الافتراضية."}
           </p>
         </div>
         <span className="panel-role">
@@ -821,7 +734,7 @@ export default function CustodyPanel({
               <div className="custody-section-heading">
                 <div>
                   <h4>تسجيل عهدة جديدة</h4>
-                  <p>مخزن العهدة يحتوي الأصناف التي يمكن تسليمها للموظفين كسجلات عهدة. مخزن الأغذية العام والكانتين والثلاجة وحدات مستقلة.</p>
+                  <p>هذا الإيصال إداري مستقل ولا يخصم من مخزون الأغذية أو الكانتين أو الثلاجة.</p>
                 </div>
               </div>
               <div className="custody-issue-fields">
@@ -855,83 +768,15 @@ export default function CustodyPanel({
               </div>
 
               <div className="custody-line-list">
-                {draftLines.map((line, index) => {
-                  const prepared = preparedLines[index];
-                  return (
-                    <div className="custody-draft-line" key={index}>
-                      <label>
-                        <span>الصنف</span>
-                        <select
-                          value={line.itemNumber}
-                          onChange={(event) =>
-                            selectDraftItem(index, event.target.value)
-                          }
-                          required
-                        >
-                          <option value="">اختر صنف المخزن</option>
-                          {bundle.items.map((item) => (
-                            <option
-                              key={item.itemNumber}
-                              value={item.itemNumber}
-                            >
-                              {item.itemName} — المتاح{" "}
-                              {numberFormatter.format(item.balance)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span>الكمية</span>
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="any"
-                          value={line.quantity}
-                          onChange={(event) =>
-                            updateDraft(index, { quantity: event.target.value })
-                          }
-                          required
-                        />
-                      </label>
-                      <label>
-                        <span>السعر</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={line.price}
-                          onChange={(event) =>
-                            updateDraft(index, { price: event.target.value })
-                          }
-                          required
-                        />
-                      </label>
-                      <div className="custody-line-total">
-                        <span>الإجمالى</span>
-                        <strong>
-                          {prepared.valid
-                            ? numberFormatter.format(prepared.total)
-                            : "—"}
-                        </strong>
-                      </div>
-                      <button
-                        type="button"
-                        className="icon-button danger"
-                        aria-label="حذف بند"
-                        disabled={draftLines.length === 1}
-                        onClick={() =>
-                          setDraftLines((current) =>
-                            current.filter(
-                              (_, lineIndex) => lineIndex !== index,
-                            ),
-                          )
-                        }
-                      >
-                        حذف
-                      </button>
-                    </div>
-                  );
-                })}
+                {draftLines.map((line, index) => (
+                  <div className="custody-draft-line" key={index}>
+                    <label><span>البيان</span><input maxLength={255} value={line.itemName} onChange={(event) => updateDraft(index, { itemName: event.target.value })} required /></label>
+                    <label><span>الوحدة</span><input maxLength={80} value={line.unit} onChange={(event) => updateDraft(index, { unit: event.target.value })} /></label>
+                    <label><span>الكمية</span><input type="number" min="0.01" step="any" value={line.quantity} onChange={(event) => updateDraft(index, { quantity: event.target.value })} required /></label>
+                    <label><span>ملاحظات</span><input maxLength={1000} value={line.notes} onChange={(event) => updateDraft(index, { notes: event.target.value })} /></label>
+                    <button type="button" className="icon-button danger" aria-label="حذف بند" disabled={draftLines.length === 1} onClick={() => setDraftLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>حذف</button>
+                  </div>
+                ))}
               </div>
               <div className="custody-form-footer">
                 <button
@@ -940,29 +785,21 @@ export default function CustodyPanel({
                   onClick={() =>
                     setDraftLines((current) => [
                       ...current,
-                      { itemNumber: "", quantity: "1", price: "" },
+                      { itemName: "", unit: "", quantity: "1", notes: "" },
                     ])
                   }
                   disabled={saving}
                 >
                   إضافة بند
                 </button>
-                <span>
-                  إجمالي العهدة: <strong>{numberFormatter.format(issueTotal)}</strong>
-                </span>
                 <button
                   type="submit"
                   className="primary-button"
                   disabled={!canSaveIssue || saving}
                 >
-                  {saving ? "جارٍ الحفظ..." : "تسجيل العهدة وخصم المخزون"}
+                  {saving ? "جارٍ الحفظ..." : "تسجيل إيصال العهدة"}
                 </button>
               </div>
-              {!bundle.items.length && (
-                <p className="empty-state">
-                  أضف صنفًا للمخزن وسجل واردًا قبل إنشاء العهدة.
-                </p>
-              )}
             </form>
           ) : (
             <p className="custody-readonly-note">
@@ -1084,9 +921,18 @@ export default function CustodyPanel({
             </form>
           )}
 
+          <div className="custody-section-heading">
+            <div><h4>سجل إيصالات العهدة</h4></div>
+            <button type="button" className="secondary-button no-print" onClick={() => printCustodyReceipt()}>طباعة كل الإيصالات</button>
+          </div>
+          <div className="filter-list no-print">
+            <label className="form-field">الموظف<input value={recordSearch} onChange={(event) => setRecordSearch(event.target.value)} placeholder="ابحث باسم الموظف" /></label>
+            <label className="form-field">من تاريخ<input type="date" value={recordStartDate} onChange={(event) => setRecordStartDate(event.target.value)} /></label>
+            <label className="form-field">إلى تاريخ<input type="date" value={recordEndDate} onChange={(event) => setRecordEndDate(event.target.value)} /></label>
+          </div>
           <div className="custody-record-list">
-            {!canManage && currentEmployeeNumber === null ? null : bundle.records.length ? (
-              bundle.records.map((record) => {
+            {!canManage && currentEmployeeNumber === null ? null : visibleRecords.length ? (
+              visibleRecords.map((record) => {
                 const outstanding = record.details.reduce(
                   (total, detail) => total + detail.outstandingQuantity,
                   0,
@@ -1100,6 +946,7 @@ export default function CustodyPanel({
                   <article
                     className="custody-record"
                     key={record.custodyNumber}
+                    data-custody-print-target={printingCustodyNumber === record.custodyNumber}
                   >
                     <div className="custody-record-heading">
                       <div>
@@ -1110,6 +957,7 @@ export default function CustodyPanel({
                         </p>
                       </div>
                       <div className="custody-record-actions">
+                        <button type="button" className="secondary-button no-print" onClick={() => printCustodyReceipt(record.custodyNumber)}>طباعة الإيصال</button>
                         <span
                           className={`custody-status ${record.voided ? "voided" : ""}`}
                         >
@@ -1142,10 +990,10 @@ export default function CustodyPanel({
                       <table>
                         <thead>
                           <tr>
-                            <th>الصنف</th>
+                            <th>البيان</th>
+                            <th>الوحدة</th>
                             <th>الكمية</th>
-                            <th>السعر</th>
-                            <th>الإجمالى</th>
+                            <th>ملاحظات</th>
                             <th>المرتجع</th>
                             <th>المتبقي</th>
                             <th>الموظف الحالي</th>
@@ -1156,9 +1004,9 @@ export default function CustodyPanel({
                           {record.details.map((detail) => (
                             <tr key={detail.id}>
                               <td>{detail.itemName}</td>
+                              <td>{detail.unit || "—"}</td>
                               <td>{numberFormatter.format(detail.quantity ?? 0)}</td>
-                              <td>{numberFormatter.format(detail.price)}</td>
-                              <td>{numberFormatter.format(detail.total)}</td>
+                              <td>{detail.notes || "—"}</td>
                               <td>
                                 {numberFormatter.format(detail.returnedQuantity)}
                               </td>
@@ -1170,7 +1018,7 @@ export default function CustodyPanel({
                               <td>{detail.currentEmployeeName ?? "—"}</td>
                               {canManage && (
                                 <td>
-                                  {detail.outstandingQuantity > 1e-9 &&
+                                  {detail.itemNumber !== null && detail.outstandingQuantity > 1e-9 &&
                                     !record.voided && (
                                       <div className="custody-row-actions">
                                         <button

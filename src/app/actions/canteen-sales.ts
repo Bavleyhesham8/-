@@ -208,13 +208,13 @@ export async function createResidentInvoiceAction(
   const session = await requireStaffPermission("canIssueInvoices");
   const parsed = invoiceSchema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, error: "راجع نوع الفاتورة والتاريخ والأصناف." };
+    return { ok: false, error: "راجع نوع الحركة والتاريخ والأصناف." };
   }
   if (
     (parsed.data.saleType === "resident" && !parsed.data.residentId) ||
     (parsed.data.saleType === "cash" && parsed.data.residentId)
   ) {
-    return { ok: false, error: "اختيار النزيل لا يطابق نوع الفاتورة." };
+    return { ok: false, error: "اختيار النزيل لا يطابق نوع الحركة." };
   }
 
   const database = getDatabase();
@@ -242,7 +242,7 @@ export async function createResidentInvoiceAction(
       .for("update");
     const catalogById = new Map(catalogRows.map((item) => [item.id, item]));
     if (catalogById.size !== new Set(parsed.data.items.map((item) => item.catalogId)).size) {
-      return { error: "لم يتم العثور على أحد أصناف الفاتورة." } as const;
+      return { error: "لم يتم العثور على أحد أصناف الحركة." } as const;
     }
 
     const items = parsed.data.items.map((inputItem) => {
@@ -270,13 +270,13 @@ export async function createResidentInvoiceAction(
     }
     const total = items.reduce((sum, item) => sum + item.total, 0);
     if (parsed.data.initialPayment > total) {
-      return { error: "الدفعة الأولى أكبر من إجمالي الفاتورة." } as const;
+      return { error: "الدفعة الأولى أكبر من إجمالي الحركة." } as const;
     }
     if (
       parsed.data.saleType === "cash" &&
       parsed.data.initialPayment !== total
     ) {
-      return { error: "يجب تسجيل قيمة الفاتورة النقدية كاملة عند البيع." } as const;
+      return { error: "يجب تسجيل قيمة الحركة النقدية كاملة عند البيع." } as const;
     }
 
     let residentName = "";
@@ -301,7 +301,7 @@ export async function createResidentInvoiceAction(
         .from(invoiceCategories)
         .where(inArray(invoiceCategories.id, categoryIds));
       if (foundCategories.length !== categoryIds.length) {
-        return { error: "تعذر العثور على فئة أحد بنود الفاتورة." } as const;
+        return { error: "تعذر العثور على فئة أحد بنود الحركة." } as const;
       }
     }
 
@@ -405,7 +405,7 @@ export async function createResidentInvoiceAction(
         createdBy: session.user.id,
       })
       .returning({ invoiceNumber: residentInvoices.invoiceNumber });
-    if (!header) throw new CanteenSalesActionError("تعذر إنشاء الفاتورة.");
+    if (!header) throw new CanteenSalesActionError("تعذر إنشاء الحركة.");
 
     const dateLabels = dayAndMonth(parsed.data.invoiceDate);
     const outstanding = total - parsed.data.initialPayment;
@@ -429,7 +429,7 @@ export async function createResidentInvoiceAction(
           purchaseId: item.catalogId,
         })
         .returning({ id: residentInvoiceLines.id });
-      if (!line) throw new CanteenSalesActionError("تعذر حفظ أحد بنود الفاتورة.");
+      if (!line) throw new CanteenSalesActionError("تعذر حفظ أحد بنود الحركة.");
       let stockMovementId: number | null = null;
       if (item.canteenItemNumber !== null) {
         const balanceAfter =
@@ -547,7 +547,7 @@ export async function createResidentInvoiceAction(
       return { ok: false, error: result.error };
     }
     if (!("invoice" in result)) {
-      return { ok: false, error: "تعذر إنشاء الفاتورة." };
+      return { ok: false, error: "تعذر إنشاء الحركة." };
     }
     await recordAuditEvent({
       actorUserId: session.user.id,
@@ -582,7 +582,7 @@ export async function recordInvoicePaymentAction(
   const amount = z.number().int().positive().safeParse(amountInput);
   const paymentDate = dateSchema.safeParse(paymentDateInput);
   if (!invoiceNumber.success || !amount.success || !paymentDate.success) {
-    return { ok: false, error: "أدخل رقم فاتورة ومبلغًا وتاريخًا صحيحًا." };
+    return { ok: false, error: "أدخل رقم حركة ومبلغًا وتاريخًا صحيحًا." };
   }
 
   const database = getDatabase();
@@ -594,14 +594,14 @@ export async function recordInvoicePaymentAction(
       .where(eq(residentInvoices.invoiceNumber, invoiceNumber.data))
       .limit(1)
       .for("update");
-    if (!invoice) return { error: "لم يتم العثور على الفاتورة." } as const;
+    if (!invoice) return { error: "لم يتم العثور على الحركة." } as const;
 
     const [voided] = await transaction
       .select({ invoiceNumber: residentInvoiceVoids.invoiceNumber })
       .from(residentInvoiceVoids)
       .where(eq(residentInvoiceVoids.invoiceNumber, invoice.invoiceNumber))
       .limit(1);
-    if (voided) return { error: "لا يمكن السداد على فاتورة ملغاة." } as const;
+    if (voided) return { error: "لا يمكن السداد على حركة ملغاة." } as const;
 
     const lines = await transaction
       .select({ total: residentInvoiceLines.total })
@@ -609,7 +609,7 @@ export async function recordInvoicePaymentAction(
       .where(eq(residentInvoiceLines.invoiceNumber, invoice.invoiceNumber));
     const invoiceTotal = lines.reduce((sum, line) => sum + line.total, 0);
     if (!lines.length || invoiceTotal <= 0) {
-      return { error: "الفاتورة لا تحتوي على بنود قابلة للسداد." } as const;
+      return { error: "الحركة لا تحتوي على بنود قابلة للسداد." } as const;
     }
     const payments = await transaction
       .select({
@@ -696,14 +696,14 @@ export async function voidResidentInvoiceAction(
       .where(eq(residentInvoices.invoiceNumber, invoiceNumber.data))
       .limit(1)
       .for("update");
-    if (!invoice) return { error: "لم يتم العثور على الفاتورة." } as const;
+    if (!invoice) return { error: "لم يتم العثور على الحركة." } as const;
 
     const [existingVoid] = await transaction
       .select({ invoiceNumber: residentInvoiceVoids.invoiceNumber })
       .from(residentInvoiceVoids)
       .where(eq(residentInvoiceVoids.invoiceNumber, invoice.invoiceNumber))
       .limit(1);
-    if (existingVoid) return { error: "تم إلغاء هذه الفاتورة بالفعل." } as const;
+    if (existingVoid) return { error: "تم إلغاء هذه الحركة بالفعل." } as const;
 
     const payments = await transaction
       .select({
@@ -719,7 +719,7 @@ export async function voidResidentInvoiceAction(
     );
     if (netPaid > 0 && !confirmRefund.data) {
       return {
-        error: "أكد رد المبالغ المسددة قبل إلغاء الفاتورة.",
+        error: "أكد رد المبالغ المسددة قبل إلغاء الحركة.",
       } as const;
     }
 
@@ -749,7 +749,7 @@ export async function voidResidentInvoiceAction(
         .orderBy(canteenProducts.itemNumber)
         .for("update");
       if (lockedProducts.length !== itemNumbers.length) {
-        return { error: "تعذر قفل أصناف المخزون المرتبطة بالفاتورة." } as const;
+        return { error: "تعذر قفل أصناف المخزون المرتبطة بالحركة." } as const;
       }
     }
 

@@ -65,8 +65,8 @@ function safeCsvCell(value: string | number): string {
 
 export function invoiceReportToCsv(rows: InvoiceReportRow[]): string {
   const header = [
-    "رقم الفاتورة",
-    "تاريخ الفاتورة",
+    "رقم الحركة",
+    "تاريخ الحركة",
     "اسم النزيل (معرف Access)",
     "اسم النزيل (ويب)",
     "نوع البيع (ويب)",

@@ -8,7 +8,7 @@ import type { ResidentFinanceBundle } from "@/lib/resident-finance-types";
 import { formatDate } from "@/lib/date-format";
 import PrintBrand from "@/components/print-brand";
 import { printDocument } from "@/lib/print";
-import { findRecordForResident } from "@/lib/resident-matching";
+import { buildResidentAccount } from "@/lib/resident-account";
 
 type Props = {
   resident: Resident;
@@ -16,17 +16,6 @@ type Props = {
   treatment?: TreatmentBundle;
   residentFinance?: ResidentFinanceBundle;
   onClose: () => void;
-};
-
-type LedgerItem = {
-  id: string;
-  date: string;
-  type: "deposit" | "canteen" | "medication";
-  typeLabel: string;
-  description: string;
-  debit: number; // مدين (عليه)
-  credit: number; // دائن (له / مقبوضات)
-  status: string;
 };
 
 const currencyFormatter = new Intl.NumberFormat("ar-EG", {
@@ -40,101 +29,22 @@ export default function ResidentStatementModal({
   residentFinance,
   onClose,
 }: Props) {
-  // 1. تجميع المقبوضات والأمانات (له - Credit)
-  const deposits = useMemo(() => {
-    if (!residentFinance) return [];
-    const record = findRecordForResident(resident, residentFinance.records);
-    if (!record) return [];
-    return record.entries
-      .filter((e) => !e.voided && e.amount)
-      .map(
-        (e): LedgerItem => ({
-          id: `dep-${e.id}`,
-          date: e.transactionDate || "",
-          type: "deposit",
-          typeLabel: "سند قبض / أمانات",
-          description: `إيداع نقدي لحساب النزيل ${e.returnDate ? `(تاريخ الاستحقاق: ${formatDate(e.returnDate)})` : ""}`,
-          debit: 0,
-          credit: e.amount || 0,
-          status: "مقبوض",
-        }),
-      );
-  }, [residentFinance, resident]);
+  const account = useMemo(
+    () =>
+      buildResidentAccount(resident, {
+        residentFinance,
+        sales,
+        treatment,
+      }),
+    [resident, residentFinance, sales, treatment],
+  );
 
-  // 2. تجميع فواتير الكانتين (عليه - Debit)
-  const canteenPurchases = useMemo(() => {
-    if (!sales) return [];
-    const matchedInvoices = sales.invoices.filter(
-      (inv) => !inv.voided && inv.residentId === resident.id,
-    );
-
-    const items: LedgerItem[] = [];
-    for (const inv of matchedInvoices) {
-      for (const line of inv.lines || []) {
-        items.push({
-          id: `inv-${inv.invoiceNumber}-${line.id}`,
-          date: inv.invoiceDate,
-          type: "canteen",
-          typeLabel: "مشتريات كانتين",
-          description: `${line.itemName} (كمية: ${line.quantity} × ${line.unitPrice} ج.م)`,
-          debit: line.total,
-          credit: 0,
-          status: "فاتورة مبيعات",
-        });
-      }
-    }
-    return items;
-  }, [sales, resident]);
-
-  const canteenPayments = useMemo(() => {
-    if (!sales) return [];
-    return sales.invoices
-      .filter((invoice) => !invoice.voided && invoice.residentId === resident.id)
-      .flatMap((invoice) => invoice.payments.map((payment): LedgerItem => ({
-        id: `payment-${invoice.invoiceNumber}-${payment.id}`,
-        date: payment.paymentDate,
-        type: "deposit",
-        typeLabel: payment.kind === "refund" ? "استرداد من فاتورة" : "سداد فاتورة كانتين",
-        description: `فاتورة رقم ${invoice.invoiceNumber}`,
-        debit: 0,
-        credit: payment.kind === "refund" ? -payment.amount : payment.amount,
-        status: payment.kind === "refund" ? "مسترد" : "مسدد",
-      })));
-  }, [sales, resident]);
-
-  // 3. تجميع أدوية العيادة (عليه - Debit)
-  const clinicMedications = useMemo(() => {
-    if (!treatment) return [];
-    const record = findRecordForResident(resident, treatment.records);
-    if (!record) return [];
-    return record.entries
-      .filter((e) => !e.voided)
-      .map(
-        (e): LedgerItem => ({
-          id: `med-${e.id}`,
-          date: e.treatmentDate || "",
-          type: "medication",
-          typeLabel: "أدوية وعلاج",
-          description: `${e.medicationName} (كمية: ${e.quantity} · سعر: ${e.amount} ج.م ${e.discount > 0 ? `· خصم: ${e.discount} ج.م` : ""})`,
-          debit: e.total,
-          credit: 0,
-          status: "إذن صرف عيادة",
-        }),
-      );
-  }, [treatment, resident]);
-
-  // 4. دمج السجل الزمني
-  const ledger = useMemo(() => {
-    const combined = [...deposits, ...canteenPayments, ...canteenPurchases, ...clinicMedications];
-    return combined.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  }, [deposits, canteenPayments, canteenPurchases, clinicMedications]);
-
-  const totalDeposits = useMemo(() => deposits.reduce((s, i) => s + i.credit, 0), [deposits]);
-  const totalInvoicePayments = useMemo(() => canteenPayments.reduce((s, i) => s + i.credit, 0), [canteenPayments]);
-  const totalCanteen = useMemo(() => canteenPurchases.reduce((s, i) => s + i.debit, 0), [canteenPurchases]);
-  const totalMedications = useMemo(() => clinicMedications.reduce((s, i) => s + i.debit, 0), [clinicMedications]);
-  const totalDebits = totalCanteen + totalMedications;
-  const netBalance = totalDeposits + totalInvoicePayments - totalDebits; // موجب = رصيد له / سالب = مديونية عليه
+  const ledger = account.entries;
+  const totalDeposits = account.deposits;
+  const totalInvoicePayments = account.canteenPayments;
+  const totalCanteen = account.canteenPurchases;
+  const totalMedications = account.treatment;
+  const netBalance = account.balance; // موجب = رصيد له / سالب = مديونية عليه
 
   return (
     <div
@@ -158,7 +68,7 @@ export default function ResidentStatementModal({
               كشف الحساب المالي الموحد للنزيل
             </h2>
             <p className="text-xs text-teal-100/90 print:text-slate-600">
-              بيان شامل بكافة المقبوضات والأمانات ومشتريات الكانتين وأدوية العيادة
+              بيان شامل بإيداعات الحساب ومشتريات الكانتين وأدوية العيادة
             </p>
           </div>
 
@@ -207,14 +117,14 @@ export default function ResidentStatementModal({
           {/* بطاقات الملخص المالي الثلاثية */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-5 text-center">
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
-              <span className="block text-xs font-bold text-emerald-800 mb-1">إجمالي الأمانات المودعة (+)</span>
+              <span className="block text-xs font-bold text-emerald-800 mb-1">إجمالي الإيداعات (+)</span>
               <span className="text-xl font-black text-emerald-700">
                 {currencyFormatter.format(totalDeposits)} ج.م
               </span>
             </div>
 
             <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
-              <span className="block text-xs font-bold text-blue-800 mb-1">مسددات فواتير الكانتين</span>
+              <span className="block text-xs font-bold text-blue-800 mb-1">مسددات مشتريات الكانتين</span>
               <span className="text-xl font-black text-blue-700">
                 {currencyFormatter.format(totalInvoicePayments)} ج.م
               </span>
@@ -242,7 +152,7 @@ export default function ResidentStatementModal({
               }`}
             >
               <span className="block text-xs font-bold mb-1">
-                {netBalance >= 0 ? "صافي الرصيد المتبقي له (أمانات)" : "صافي المديونية المستحقة عليه"}
+                {netBalance >= 0 ? "الرصيد المتبقي في حسابه" : "صافي المديونية المستحقة عليه"}
               </span>
               <span className="text-2xl font-black">
                 {currencyFormatter.format(Math.abs(netBalance))} ج.م
@@ -283,9 +193,10 @@ export default function ResidentStatementModal({
                         <td className="p-3">
                           <span
                             className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-bold ${
-                              item.type === "deposit"
+                              item.kind === "deposit" ||
+                              item.kind === "canteen-payment"
                                 ? "bg-emerald-100 text-emerald-800"
-                                : item.type === "canteen"
+                                : item.kind === "canteen-purchase"
                                   ? "bg-teal-100 text-teal-800"
                                   : "bg-cyan-100 text-cyan-800"
                             }`}

@@ -248,158 +248,53 @@ export async function createCustodyIssueAction(
   input: unknown,
 ): Promise<{ ok: true; bundle: CustodyBundle } | { ok: false; error: string }> {
   const session = await requireAnyStaffPermission("canManageCustody", "canManageWarehouse");
-  const parsed = z
-    .object({
-      custodyDate: dateSchema,
-      employeeNumber: itemNumberSchema,
-      items: z
-        .array(
-          z.object({
-            itemNumber: itemNumberSchema,
-            quantity: quantitySchema,
-            price: priceSchema,
-          }),
-        )
-        .min(1)
-        .max(100),
-    })
-    .safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: "راجع الموظف وتاريخ العهدة وبنودها." };
-  }
-
-  const total = parsed.data.items.reduce(
-    (sum, line) => sum + line.quantity * line.price,
-    0,
-  );
-  if (!Number.isFinite(total)) {
-    return { ok: false, error: "إجمالي العهدة يتجاوز القيمة المسموحة." };
-  }
+  const parsed = z.object({
+    custodyDate: dateSchema,
+    employeeNumber: itemNumberSchema,
+    items: z.array(z.object({
+      itemName: z.string().trim().min(1).max(255),
+      unit: z.string().trim().max(80).default(""),
+      quantity: quantitySchema,
+      notes: z.string().trim().max(1000).default(""),
+    })).min(1).max(100),
+  }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "راجع الموظف والتاريخ وبيانات البنود." };
 
   const database = getDatabase();
   const result = await database.transaction(async (transaction) => {
     const [employee] = await transaction
-      .select({
-        employeeNumber: staffEmployees.employeeNumber,
-        employeeName: staffEmployees.employeeName,
-      })
+      .select({ employeeNumber: staffEmployees.employeeNumber, employeeName: staffEmployees.employeeName })
       .from(staffEmployees)
       .where(eq(staffEmployees.employeeNumber, parsed.data.employeeNumber))
       .limit(1)
       .for("update");
-    if (!employee) {
-      return { error: "اختر موظفًا مسجلًا في دليل الموظفين." } as const;
-    }
+    if (!employee) return { error: "اختر موظفًا مسجلًا في دليل الموظفين." } as const;
 
-    const itemNumbers = [
-      ...new Set(parsed.data.items.map((line) => line.itemNumber)),
-    ].sort((a, b) => a - b);
-    const warehouseItems = await transaction
-      .select({
-        number: warehouseHeaders.number,
-        itemName: warehouseHeaders.itemName,
-        price: warehouseHeaders.price,
-      })
-      .from(warehouseHeaders)
-      .where(inArray(warehouseHeaders.number, itemNumbers))
-      .orderBy(warehouseHeaders.number)
-      .for("update");
-    if (warehouseItems.length !== itemNumbers.length) {
-      return { error: "لم يتم العثور على أحد أصناف المخزن." } as const;
-    }
-
-    const movementRows = await transaction
-      .select({
-        number: warehouseDetails.number,
-        incoming: warehouseDetails.incoming,
-        outgoing: warehouseDetails.outgoing,
-        needsReview: warehouseDetails.needsReview,
-      })
-      .from(warehouseDetails)
-      .where(
-        and(
-          inArray(warehouseDetails.number, itemNumbers),
-          eq(warehouseDetails.deleted, false),
-          eq(warehouseDetails.needsReview, false),
-        ),
-      );
-    const balances = calculateBalances(movementRows);
-    const requested = new Map<number, number>();
-    for (const line of parsed.data.items) {
-      requested.set(
-        line.itemNumber,
-        (requested.get(line.itemNumber) ?? 0) + line.quantity,
-      );
-    }
-    for (const [number, quantity] of requested) {
-      const available = balances.get(number) ?? 0;
-      if (quantity > available + 1e-9) {
-        const itemName =
-          warehouseItems.find((item) => item.number === number)?.itemName ??
-          String(number);
-        return {
-          error: `الرصيد المتاح غير كافٍ للصنف ${itemName}.`,
-        } as const;
-      }
-    }
-
-    const [header] = await transaction
-      .insert(custodyHeaders)
-      .values({
-        custodyDate: toDate(parsed.data.custodyDate),
-        custody: employee.employeeName,
-        recipientEmployeeNumber: employee.employeeNumber,
-        createdBy: session.user.id,
-      })
-      .returning({ custodyNumber: custodyHeaders.custodyNumber });
-    if (!header) throw new Error("تعذر إنشاء سجل العهدة.");
+    const [header] = await transaction.insert(custodyHeaders).values({
+      custodyDate: toDate(parsed.data.custodyDate),
+      custody: employee.employeeName,
+      recipientEmployeeNumber: employee.employeeNumber,
+      createdBy: session.user.id,
+    }).returning({ custodyNumber: custodyHeaders.custodyNumber });
+    if (!header) throw new Error("تعذر إنشاء إيصال العهدة.");
 
     for (const line of parsed.data.items) {
-      const item = warehouseItems.find(
-        (candidate) => candidate.number === line.itemNumber,
-      );
-      if (!item) throw new Error("تعذر العثور على صنف العهدة.");
-
-      const balance = balances.get(item.number) ?? 0;
-      const remaining = balance - line.quantity;
-      const total = line.quantity * line.price;
-      const [detail] = await transaction
-        .insert(custodyDetails)
-        .values({
-          itemCategory: item.itemName,
-          quantity: line.quantity,
-          price: line.price,
-          total,
-          transactionDate: toDate(parsed.data.custodyDate),
-          custodyNumber: header.custodyNumber,
-          warehouseNumber: item.number,
-          currentEmployeeNumber: employee.employeeNumber,
-        })
-        .returning({ webId: custodyDetails.webId });
-      if (!detail) throw new Error("تعذر حفظ أحد بنود العهدة.");
-
-      await transaction.insert(warehouseDetails).values({
-        number: item.number,
-        balance,
-        incoming: 0,
-        incomingDate: null,
-        outgoing: line.quantity,
-        outgoingDate: toDate(parsed.data.custodyDate),
-        remaining,
-        deleted: false,
-        movementKind: "custody_issue",
-        custodyDetailId: detail.webId,
-        createdBy: session.user.id,
+      await transaction.insert(custodyDetails).values({
+        itemCategory: line.itemName.normalize("NFC"),
+        unit: line.unit.normalize("NFC"),
+        quantity: line.quantity,
+        notes: line.notes.normalize("NFC"),
+        price: 0,
+        total: 0,
+        transactionDate: toDate(parsed.data.custodyDate),
+        custodyNumber: header.custodyNumber,
+        currentEmployeeNumber: employee.employeeNumber,
       });
-      balances.set(item.number, remaining);
     }
-
-    return { ok: true, custodyNumber: header.custodyNumber } as const;
+    return { custodyNumber: header.custodyNumber } as const;
   });
 
-  if ("error" in result && result.error) {
-    return { ok: false, error: result.error };
-  }
+  if ("error" in result && result.error) return { ok: false, error: result.error };
   await recordAuditEvent({
     actorUserId: session.user.id,
     action: "create",

@@ -4,10 +4,10 @@ export const demoResidentFinance: ResidentFinanceBundle = {
   records: [
     {
       residentNumber: 9001,
-      residentId: null,
-      matchScore: null,
+      residentId: "demo-001",
+      matchScore: 1,
       matchAmbiguous: false,
-      residentName: "نزيل تجريبي",
+      residentName: "نموذج تجريبي ٠١",
       entries: [
         {
           id: 1,

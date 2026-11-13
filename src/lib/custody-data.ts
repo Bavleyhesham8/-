@@ -251,6 +251,8 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
       sourceId: detail.id,
       itemNumber: detail.warehouseNumber,
       itemName: detail.itemCategory,
+      unit: detail.unit,
+      notes: detail.notes,
       quantity: detail.quantity,
       price: detail.price,
       total: detail.total,

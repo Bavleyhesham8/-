@@ -488,6 +488,19 @@ export const inventoryItems = pgTable(
   ],
 );
 
+export const inventoryPriceHistory = pgTable(
+  "inventory_price_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id").notNull().references(() => inventoryItems.id, { onDelete: "restrict" }),
+    oldPrice: doublePrecision("old_price").notNull(),
+    newPrice: doublePrecision("new_price").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+    changedBy: text("changed_by").references(() => user.id, { onDelete: "set null" }),
+  },
+  (table) => [index("inventory_price_history_item_date_idx").on(table.itemId, table.changedAt)],
+);
+
 export const warehouseCatalog = pgTable(
   "الاصناف",
   {
@@ -561,6 +574,8 @@ export const custodyDetails = pgTable(
     id: integer("ID"),
     webId: uuid("web_id").primaryKey().defaultRandom(),
     itemCategory: text("الاصناف / الفئة").notNull(),
+    unit: text("unit").notNull().default(""),
+    notes: text("notes").notNull().default(""),
     quantity: doublePrecision("الكمية"),
     price: doublePrecision("السعر").notNull(),
     total: doublePrecision("الإجمالى").notNull(),
@@ -586,6 +601,29 @@ export const custodyDetails = pgTable(
     check("custody_details_quantity_check", sql`${table.quantity} > 0`),
     check("custody_details_price_check", sql`${table.price} >= 0`),
     check("custody_details_total_check", sql`${table.total} >= 0`),
+  ],
+);
+
+export const centerCustodyTransactions = pgTable(
+  "center_custody_transactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull(),
+    transactionDate: date("transaction_date", { mode: "string" }).notNull(),
+    description: text("description").notNull().default(""),
+    unit: text("unit").notNull().default(""),
+    quantity: doublePrecision("quantity").notNull().default(0),
+    unitPrice: doublePrecision("unit_price").notNull().default(0),
+    amount: doublePrecision("amount").notNull(),
+    targetBalance: doublePrecision("target_balance").notNull().default(15000),
+    balanceAfter: doublePrecision("balance_after").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+  },
+  (table) => [
+    index("center_custody_transactions_date_idx").on(table.transactionDate),
+    check("center_custody_transactions_kind_check", sql`${table.kind} IN ('expense', 'replenishment')`),
+    check("center_custody_transactions_amount_check", sql`${table.amount} > 0`),
   ],
 );
 
@@ -691,6 +729,8 @@ export const inventoryMovements = pgTable(
     quantity: doublePrecision("quantity").notNull(),
     unitPrice: doublePrecision("unit_price").notNull().default(0),
     movementDate: date("movement_date", { mode: "string" }).notNull(),
+    destination: text("destination").notNull().default(""),
+    recipient: text("recipient").notNull().default(""),
     note: text("note").notNull().default(""),
     voided: boolean("voided").notNull().default(false),
     voidedAt: timestamp("voided_at", { withTimezone: true }),

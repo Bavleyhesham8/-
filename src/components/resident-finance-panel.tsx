@@ -8,16 +8,27 @@ import {
   voidResidentReceiptAction,
 } from "@/app/actions/resident-finance";
 import { formatDate, localDateValue } from "@/lib/date-format";
+import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
+import type { Resident } from "@/lib/demo-data";
+import {
+  buildResidentAccounts,
+  findUnmatchedFinanceRecords,
+} from "@/lib/resident-account";
 import type {
   ResidentFinanceBundle,
   ResidentFinanceEntry,
 } from "@/lib/resident-finance-types";
+import type { TreatmentBundle } from "@/lib/treatment-types";
 
 type Props = {
   bundle: ResidentFinanceBundle;
+  residents: Resident[];
+  sales?: CanteenSalesBundle;
+  treatment?: TreatmentBundle;
   persistent: boolean;
   canManage: boolean;
   onBundleChange: (bundle: ResidentFinanceBundle) => void;
+  onOpenStatement?: (resident: Resident) => void;
 };
 
 type VoidTarget = {
@@ -35,9 +46,13 @@ function nextEntryId(entries: ResidentFinanceEntry[]) {
 
 export default function ResidentFinancePanel({
   bundle,
+  residents,
+  sales,
+  treatment,
   persistent,
   canManage,
   onBundleChange,
+  onOpenStatement,
 }: Props) {
   const [residentNumber, setResidentNumber] = useState("");
   const [residentName, setResidentName] = useState("");
@@ -51,9 +66,52 @@ export default function ResidentFinancePanel({
   const [editAmount, setEditAmount] = useState("");
   const [editTransactionDate, setEditTransactionDate] = useState("");
   const [editReturnDate, setEditReturnDate] = useState("");
+  const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const accounts = useMemo(
+    () =>
+      buildResidentAccounts(residents, {
+        residentFinance: bundle,
+        sales,
+        treatment,
+      }),
+    [residents, bundle, sales, treatment],
+  );
+  const filteredAccounts = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return accounts;
+    return accounts.filter((account) =>
+      [
+        account.resident.name,
+        account.resident.fileNumber,
+        account.resident.residentNumber,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [accounts, search]);
+  const totals = useMemo(
+    () =>
+      accounts.reduce(
+        (sum, account) => ({
+          deposits: sum.deposits + account.deposits,
+          canteen: sum.canteen + account.canteenPurchases,
+          treatment: sum.treatment + account.treatment,
+          balance: sum.balance + account.balance,
+        }),
+        { deposits: 0, canteen: 0, treatment: 0, balance: 0 },
+      ),
+    [accounts],
+  );
+  const unmatchedRecords = useMemo(
+    () => findUnmatchedFinanceRecords(bundle, residents),
+    [bundle, residents],
+  );
 
   const allEntries = useMemo(
     () => [
@@ -126,7 +184,7 @@ export default function ResidentFinancePanel({
       setSelectedResidentNumber(String(parsedNumber));
       setResidentNumber("");
       setResidentName("");
-      setMessage("تم إنشاء سجل النزيل المالي.");
+      setMessage("تم فتح حساب مالي مستقل.");
     } catch {
       setError("تعذر إنشاء السجل. تحقق من الاتصال ثم حاول مرة أخرى.");
     } finally {
@@ -146,11 +204,11 @@ export default function ResidentFinancePanel({
       parsedAmount <= 0 ||
       !transactionDate
     ) {
-      setError("اختر نزيلًا وأدخل مبلغًا موجبًا وتاريخ الإيصال.");
+      setError("اختر نزيلًا وأدخل مبلغًا موجبًا وتاريخ الإيداع.");
       return;
     }
     if (returnDate && returnDate < transactionDate) {
-      setError("تاريخ التسوية المتوقع لا يمكن أن يسبق تاريخ الإيصال.");
+      setError("تاريخ الاستحقاق لا يمكن أن يسبق تاريخ الإيداع.");
       return;
     }
 
@@ -191,9 +249,9 @@ export default function ResidentFinancePanel({
       }
       setAmount("");
       setReturnDate("");
-      setMessage("تم تسجيل الإيصال.");
+      setMessage("تم تسجيل الإيداع في الحساب.");
     } catch {
-      setError("تعذر تسجيل الإيصال. تحقق من الاتصال ثم حاول مرة أخرى.");
+      setError("تعذر تسجيل الإيداع. تحقق من الاتصال ثم حاول مرة أخرى.");
     } finally {
       setSaving(false);
     }
@@ -202,7 +260,7 @@ export default function ResidentFinancePanel({
   async function submitVoid(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!voidTarget || !voidReason.trim()) {
-      setError("أدخل سببًا لإلغاء الإيصال.");
+      setError("أدخل سببًا لإلغاء الإيداع.");
       return;
     }
     setError("");
@@ -239,9 +297,9 @@ export default function ResidentFinancePanel({
       }
       setVoidTarget(null);
       setVoidReason("");
-      setMessage("تم إلغاء الإيصال مع الاحتفاظ بسجله؛ لم يُسجّل رد نقدي.");
+      setMessage("تم إلغاء الإيداع مع الاحتفاظ بسجله؛ لم يُسجّل رد نقدي.");
     } catch {
-      setError("تعذر إلغاء الإيصال. تحقق من الاتصال ثم حاول مرة أخرى.");
+      setError("تعذر إلغاء الإيداع. تحقق من الاتصال ثم حاول مرة أخرى.");
     } finally {
       setSaving(false);
     }
@@ -252,11 +310,11 @@ export default function ResidentFinancePanel({
     if (!editTarget) return;
     const parsedAmount = Number(editAmount);
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0 || !editTransactionDate) {
-      setError("أدخل مبلغًا موجبًا وتاريخ الإيصال.");
+      setError("أدخل مبلغًا موجبًا وتاريخ الإيداع.");
       return;
     }
     if (editReturnDate && editReturnDate < editTransactionDate) {
-      setError("تاريخ التسوية لا يمكن أن يسبق تاريخ الإيصال.");
+      setError("تاريخ الاستحقاق لا يمكن أن يسبق تاريخ الإيداع.");
       return;
     }
     setSaving(true);
@@ -285,9 +343,9 @@ export default function ResidentFinancePanel({
         });
       }
       setEditTarget(null);
-      setMessage("تم حفظ تعديل الإيصال.");
+      setMessage("تم حفظ تعديل الإيداع.");
     } catch {
-      setError("تعذر حفظ تعديل الإيصال.");
+      setError("تعذر حفظ تعديل الإيداع.");
     } finally {
       setSaving(false);
     }
@@ -297,11 +355,14 @@ export default function ResidentFinancePanel({
     <section className="content-panel resident-finance-panel" dir="rtl">
       <div className="panel-heading">
         <div>
-          <h3>السجلات المالية للنزلاء</h3>
-          <p>يعرض دفتر الرصيد الحركات المالية المسجلة لكل نزيل مباشرة.</p>
+          <h3>حسابات النزلاء</h3>
+          <p>
+            رصيد كل نزيل من الإيداعات ومشتريات الكانتين والعلاج، مع كشف حساب
+            تفصيلي. الرصيد السالب يعني مديونية على النزيل.
+          </p>
         </div>
         <strong className="resident-finance-total">
-          إجمالي الإيصالات غير الملغاة: {numberFormatter.format(receivedTotal)}
+          إجمالي الإيداعات: {numberFormatter.format(receivedTotal)} ج.م
         </strong>
       </div>
 
@@ -311,91 +372,250 @@ export default function ResidentFinancePanel({
         </p>
       )}
       <p className="lookup-demo-note">
-        الإدارة للمسؤول فقط. الإلغاء يحفظ السبب ولا يسجل استردادًا نقديًا.
+        الإدارة للمسؤول فقط. إلغاء الإيداع يحفظ السبب ولا يسجل استردادًا نقديًا.
       </p>
 
-      {canManage && <div className="resident-finance-forms">
-        <form className="lookup-form" onSubmit={submitHeader}>
-          <h4>إضافة سجل نزيل مستقل</h4>
-          <label className="form-field">
-            رقم النزيل (يدوي)
-            <input
-              max={2_147_483_647}
-              min={1}
-              required
-              type="number"
-              value={residentNumber}
-              onChange={(event) => setResidentNumber(event.target.value)}
-            />
-          </label>
-          <label className="form-field">
-            اسم النزيل
-            <input
-              maxLength={200}
-              required
-              value={residentName}
-              onChange={(event) => setResidentName(event.target.value)}
-            />
-          </label>
-          <button className="primary-button" disabled={saving} type="submit">
-            إضافة سجل
-          </button>
-        </form>
+      <div className="resident-account-summary report-summary">
+        <article>
+          <span>إجمالي الإيداعات</span>
+          <strong>{numberFormatter.format(totals.deposits)} ج.م</strong>
+        </article>
+        <article>
+          <span>مشتريات الكانتين</span>
+          <strong>{numberFormatter.format(totals.canteen)} ج.م</strong>
+        </article>
+        <article>
+          <span>مستحقات العلاج</span>
+          <strong>{numberFormatter.format(totals.treatment)} ج.م</strong>
+        </article>
+        <article>
+          <span>صافي أرصدة النزلاء</span>
+          <strong className={totals.balance < 0 ? "resident-account-negative" : ""}>
+            {numberFormatter.format(totals.balance)} ج.م
+          </strong>
+        </article>
+      </div>
 
-        <form className="lookup-form" onSubmit={submitReceipt}>
-          <h4>تسجيل إيصال</h4>
-          <label className="form-field">
-            النزيل
-            <select
-              required
-              value={selectedResidentNumber}
-              onChange={(event) => setSelectedResidentNumber(event.target.value)}
+      <div className="resident-account-toolbar">
+        <label className="form-field">
+          بحث بالاسم أو رقم الملف
+          <input
+            type="search"
+            value={search}
+            maxLength={200}
+            placeholder="اسم النزيل أو رقم الملف..."
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+        <span>
+          النتائج: {numberFormatter.format(filteredAccounts.length)} من{" "}
+          {numberFormatter.format(accounts.length)}
+        </span>
+      </div>
+
+      <div className="table-wrap">
+        <table className="resident-table">
+          <thead>
+            <tr>
+              <th>النزيل</th>
+              <th>رقم الملف</th>
+              <th>الإيداعات</th>
+              <th>مشتريات الكانتين</th>
+              <th>العلاج</th>
+              <th>الرصيد الحالي</th>
+              <th>كشف الحساب</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredAccounts.map((account) => (
+              <tr key={account.resident.id}>
+                <td>
+                  {account.resident.name}
+                  {account.financeAmbiguous && (
+                    <span
+                      className="resident-account-flag"
+                      title="توجد مطابقة مالية قديمة تحتاج مراجعة"
+                    >
+                      مطابقة تحتاج مراجعة
+                    </span>
+                  )}
+                </td>
+                <td>{account.resident.fileNumber}</td>
+                <td>{numberFormatter.format(account.deposits)}</td>
+                <td>{numberFormatter.format(account.canteenPurchases)}</td>
+                <td>{numberFormatter.format(account.treatment)}</td>
+                <td>
+                  <strong
+                    className={
+                      account.balance < 0
+                        ? "resident-account-negative"
+                        : "resident-account-positive"
+                    }
+                  >
+                    {numberFormatter.format(account.balance)} ج.م
+                  </strong>
+                  {account.balance < 0 && (
+                    <span className="resident-account-debt">مديونية</span>
+                  )}
+                </td>
+                <td>
+                  {onOpenStatement && (
+                    <button
+                      className="table-action"
+                      type="button"
+                      onClick={() => onOpenStatement(account.resident)}
+                    >
+                      كشف الحساب
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {!filteredAccounts.length && (
+              <tr>
+                <td colSpan={7}>
+                  <div className="empty-state">
+                    {accounts.length
+                      ? "لا توجد حسابات مطابقة للبحث."
+                      : "لا يوجد نزلاء لعرض حساباتهم."}
+                  </div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {!!unmatchedRecords.length && (
+        <section className="resident-account-unmatched">
+          <h4>إيداعات قديمة غير مرتبطة بنزيل</h4>
+          <p>
+            هذه سجلات مالية لم تُطابق أي نزيل في السجل الحديث. تظهر للمراجعة ولا
+            تُضاف إلى أرصدة النزلاء.
+          </p>
+          <div className="table-wrap">
+            <table className="resident-table">
+              <thead>
+                <tr>
+                  <th>رقم السجل المالي</th>
+                  <th>الاسم المسجل</th>
+                  <th>عدد الإيداعات</th>
+                  <th>إجمالي الإيداعات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unmatchedRecords.map((record) => (
+                  <tr key={record.residentNumber}>
+                    <td>{record.residentNumber}</td>
+                    <td>{record.residentName || "—"}</td>
+                    <td>{numberFormatter.format(record.entries.length)}</td>
+                    <td>
+                      {numberFormatter.format(
+                        record.entries.reduce(
+                          (sum, entry) =>
+                            sum +
+                            (!entry.voided && entry.amount !== null
+                              ? entry.amount
+                              : 0),
+                          0,
+                        ),
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {canManage && (
+        <div className="resident-finance-forms">
+          <form className="lookup-form" onSubmit={submitReceipt}>
+            <h4>إيداع في الحساب</h4>
+            <label className="form-field">
+              النزيل
+              <select
+                required
+                value={selectedResidentNumber}
+                onChange={(event) => setSelectedResidentNumber(event.target.value)}
+              >
+                <option value="">اختر النزيل</option>
+                {bundle.records.map((record) => (
+                  <option key={record.residentNumber} value={record.residentNumber}>
+                    {record.residentName || "—"} — {record.residentNumber}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-field">
+              المبلغ المودع
+              <input
+                min="0.01"
+                required
+                step="any"
+                type="number"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+              />
+            </label>
+            <label className="form-field">
+              تاريخ الإيداع
+              <input
+                required
+                type="date"
+                value={transactionDate}
+                onChange={(event) => setTransactionDate(event.target.value)}
+              />
+            </label>
+            <label className="form-field">
+              تاريخ الاستحقاق المتوقع (اختياري)
+              <input
+                type="date"
+                value={returnDate}
+                onChange={(event) => setReturnDate(event.target.value)}
+              />
+            </label>
+            <button
+              className="primary-button"
+              disabled={saving || !bundle.records.length}
+              type="submit"
             >
-              <option value="">اختر النزيل</option>
-              {bundle.records.map((record) => (
-                <option key={record.residentNumber} value={record.residentNumber}>
-                  {record.residentName || "—"} — {record.residentNumber}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="form-field">
-            المبلغ المستلم
-            <input
-              min="0.01"
-              required
-              step="any"
-              type="number"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-            />
-          </label>
-          <label className="form-field">
-            تاريخ الإيصال
-            <input
-              required
-              type="date"
-              value={transactionDate}
-              onChange={(event) => setTransactionDate(event.target.value)}
-            />
-          </label>
-          <label className="form-field">
-            تاريخ التسوية المتوقع (اختياري)
-            <input
-              type="date"
-              value={returnDate}
-              onChange={(event) => setReturnDate(event.target.value)}
-            />
-          </label>
-          <button
-            className="primary-button"
-            disabled={saving || !bundle.records.length}
-            type="submit"
-          >
-            تسجيل الإيصال
-          </button>
-        </form>
-      </div>}
+              تسجيل الإيداع
+            </button>
+          </form>
+
+          <form className="lookup-form" onSubmit={submitHeader}>
+            <h4>فتح حساب مالي مستقل (سجلات قديمة)</h4>
+            <p className="access-note">
+              استخدمه فقط لإيداعات قديمة لا يوجد لها نزيل مطابق في السجل الحديث.
+            </p>
+            <label className="form-field">
+              رقم النزيل (يدوي)
+              <input
+                max={2_147_483_647}
+                min={1}
+                required
+                type="number"
+                value={residentNumber}
+                onChange={(event) => setResidentNumber(event.target.value)}
+              />
+            </label>
+            <label className="form-field">
+              اسم النزيل
+              <input
+                maxLength={200}
+                required
+                value={residentName}
+                onChange={(event) => setResidentName(event.target.value)}
+              />
+            </label>
+            <button className="primary-button" disabled={saving} type="submit">
+              فتح الحساب
+            </button>
+          </form>
+        </div>
+      )}
 
       {error && (
         <p className="form-message form-message-error" role="alert">
@@ -410,7 +630,7 @@ export default function ResidentFinancePanel({
 
       {canManage && voidTarget && (
         <form className="resident-finance-void-form" onSubmit={submitVoid}>
-          <h4>إلغاء إيصال — {voidTarget.residentName}</h4>
+          <h4>إلغاء إيداع — {voidTarget.residentName}</h4>
           <label className="form-field">
             سبب الإلغاء
             <input
@@ -437,14 +657,14 @@ export default function ResidentFinancePanel({
 
       {canManage && editTarget && (
         <form className="resident-finance-void-form" onSubmit={submitEdit}>
-          <h4>تعديل إيصال — {editTarget.residentNumber ?? "غير مرتبط"}</h4>
+          <h4>تعديل إيداع — {editTarget.residentNumber ?? "غير مرتبط"}</h4>
           <label className="form-field">المبلغ
             <input type="number" min="0.01" step="any" required value={editAmount} onChange={(event) => setEditAmount(event.target.value)} />
           </label>
-          <label className="form-field">تاريخ الإيصال
+          <label className="form-field">تاريخ الإيداع
             <input type="date" required value={editTransactionDate} onChange={(event) => setEditTransactionDate(event.target.value)} />
           </label>
-          <label className="form-field">تاريخ التسوية المتوقع
+          <label className="form-field">تاريخ الاستحقاق المتوقع
             <input type="date" value={editReturnDate} onChange={(event) => setEditReturnDate(event.target.value)} />
           </label>
           <button className="primary-button" disabled={saving} type="submit">حفظ التعديل</button>
@@ -456,47 +676,10 @@ export default function ResidentFinancePanel({
         <table className="resident-table">
           <thead>
             <tr>
-              <th>رقم النزيل</th>
-              <th>اسم النزيل</th>
-              <th>عدد الإيصالات</th>
-              <th>إجمالي المستلم</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bundle.records.map((record) => (
-              <tr key={record.residentNumber}>
-                <td>{record.residentNumber}</td>
-                <td>{record.residentName || "—"}</td>
-                <td>{numberFormatter.format(record.entries.length)}</td>
-                <td>
-                  {numberFormatter.format(
-                    record.entries.reduce(
-                      (sum, entry) =>
-                        sum +
-                        (!entry.voided && entry.amount !== null
-                          ? entry.amount
-                          : 0),
-                      0,
-                    ),
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!bundle.records.length && (
-          <div className="empty-state">لا توجد سجلات نزلاء مالية.</div>
-        )}
-      </div>
-
-      <div className="table-wrap">
-        <table className="resident-table">
-          <thead>
-            <tr>
               <th>النزيل</th>
-              <th>المبلغ المستلم</th>
-              <th>تاريخ الإيصال</th>
-              <th>التسوية المتوقعة</th>
+              <th>المبلغ المودع</th>
+              <th>تاريخ الإيداع</th>
+              <th>الاستحقاق المتوقع</th>
               <th>الحالة</th>
               {canManage && <th>الإجراءات</th>}
             </tr>
@@ -545,7 +728,7 @@ export default function ResidentFinancePanel({
                       }}
                       type="button"
                     >
-                      إلغاء الإيصال
+                      إلغاء الإيداع
                     </button>
                     </>
                   )}
@@ -555,7 +738,7 @@ export default function ResidentFinancePanel({
           </tbody>
         </table>
         {!allEntries.length && (
-          <div className="empty-state">لا توجد إيصالات مسجلة.</div>
+          <div className="empty-state">لا توجد إيداعات مسجلة.</div>
         )}
       </div>
     </section>

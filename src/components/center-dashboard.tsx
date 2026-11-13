@@ -53,6 +53,7 @@ import ResidentStayReportPanel from "@/components/resident-stay-report-panel";
 import MeatSalesPanel from "@/components/meat-sales-panel";
 import type { MeatSalesBundle } from "@/lib/meat-sales-types";
 import CustodyPanel from "@/components/custody-panel";
+import CenterCustodyPanel from "@/components/center-custody-panel";
 import type { CustodyBundle } from "@/lib/custody-types";
 import ResidentFinancePanel from "@/components/resident-finance-panel";
 import { demoResidentFinance } from "@/lib/resident-finance-demo-data";
@@ -168,19 +169,21 @@ const navItems: NavItem[] = [
   { id: "resident-periods", key: "resident-stay-reports", label: "تقارير الإقامة", icon: "calendar", group: "النزلاء والإقامة" },
   { id: "resident-reports", key: "resident-reports", label: "تقارير النزلاء", icon: "search", group: "النزلاء والإقامة", tab: "names" },
 
-  { id: "food-store", key: "inventory", label: "مخزن الأغذية", icon: "box", group: "التشغيل والمخازن" },
-  { id: "warehouse-stock", key: "custody", label: "مخزن العهدة", icon: "box", group: "التشغيل والمخازن", tab: "receipts" },
-  { id: "warehouse-catalog", key: "custody", label: "أصناف وأسعار مخزن العهدة", icon: "box", group: "التشغيل والمخازن", tab: "catalog" },
-  { id: "canteen", key: "canteen", label: "مخزون الكانتين", icon: "box", group: "التشغيل والمخازن" },
-  { id: "canteen-sales", key: "sales", label: "فواتير الكانتين", icon: "box", group: "التشغيل والمخازن", tab: "history" },
-  { id: "refrigerator", key: "meat-sales", label: "مبيعات الثلاجة", icon: "box", group: "التشغيل والمخازن", tab: "sale" },
-  { id: "custody", key: "custody", label: "عهد الموظفين", icon: "box", group: "العهد والأصول", tab: "custody" },
+  { id: "food-store", key: "inventory", label: "مخزن الأغذية", icon: "box", group: "المخزن" },
 
-  { id: "resident-finance", key: "resident-finance", label: "أمانات النزلاء", icon: "box", group: "الفواتير والتقارير والحركات" },
-  { id: "resident-purchases", key: "invoice-reports", label: "مشتريات النزلاء", icon: "search", group: "الفواتير والتقارير والحركات" },
-  { id: "canteen-report", key: "canteen-reports", label: "أرصدة الكانتين والمنصرف", icon: "search", group: "الفواتير والتقارير والحركات" },
-  { id: "global-tracking", key: "tracking", label: "التتبع العام", icon: "search", group: "الفواتير والتقارير والحركات" },
-  { id: "lookups", key: "lookups", label: "البحث والبيانات المرجعية", icon: "search", group: "الفواتير والتقارير والحركات" },
+  { id: "canteen", key: "canteen", label: "مخزون الكانتين", icon: "box", group: "الكانتين" },
+  { id: "canteen-sales", key: "sales", label: "حركات ومبيعات الكانتين", icon: "box", group: "الكانتين", tab: "history" },
+  { id: "canteen-report", key: "canteen", label: "تقرير حركات الكانتين", icon: "search", group: "الكانتين", tab: "report" },
+  { id: "resident-purchases", key: "invoice-reports", label: "مشتريات النزلاء", icon: "search", group: "الكانتين" },
+
+  { id: "refrigerator", key: "meat-sales", label: "مبيعات الثلاجة", icon: "box", group: "الثلاجة", tab: "sale" },
+
+  { id: "custody", key: "custody", label: "عهد الموظفين", icon: "box", group: "العهد والأصول", tab: "custody" },
+  { id: "center-custody", key: "custody", label: "عهدة المركز", icon: "box", group: "العهد والأصول", tab: "center" },
+
+  { id: "resident-finance", key: "resident-finance", label: "حسابات النزلاء", icon: "box", group: "الحسابات والتقارير والحركات" },
+  { id: "global-tracking", key: "tracking", label: "التتبع العام", icon: "search", group: "الحسابات والتقارير والحركات" },
+  { id: "lookups", key: "lookups", label: "البحث والبيانات المرجعية", icon: "search", group: "الحسابات والتقارير والحركات" },
 
   { id: "treatment", key: "treatment", label: "العلاج", icon: "pill", group: "الخدمات والموظفون والإدارة" },
   { id: "staff", key: "staff", label: "الموظفون", icon: "people", group: "الخدمات والموظفون والإدارة" },
@@ -1361,11 +1364,11 @@ export default function CenterDashboard({
     treatment: "العلاج",
     rooms: "السكن والغرف",
     inventory: "مخزن الأغذية",
-    custody: "مخزن العهدة",
-    "resident-finance": "أمانات النزلاء",
+    custody: "عهد الموظفين",
+    "resident-finance": "حسابات النزلاء",
     canteen: "الكانتين",
     "canteen-reports": "أرصدة الكانتين والمنصرف",
-    sales: "فواتير الكانتين",
+    sales: "حركات ومبيعات الكانتين",
     "invoice-reports": "مشتريات النزلاء",
     "resident-stay-reports": "الفترة الزمنية",
     "meat-sales": "الثلاجة",
@@ -1377,9 +1380,9 @@ export default function CenterDashboard({
   };
   const pageTitle = view === "custody"
     ? viewTab === "receipts"
-      ? "مخزن العهدة"
+      ? "عهد الموظفين"
       : viewTab === "catalog"
-        ? "أصناف وأسعار مخزن العهدة"
+        ? "إدارة عهد الموظفين"
         : "عهد الموظفين"
     : pageTitles[view];
 
@@ -1403,11 +1406,9 @@ export default function CenterDashboard({
 
         <nav className="nav-list" aria-label="القائمة الرئيسية">
           {navItems
-            .filter((item) =>
-              isScreenAllowed(item.key) &&
-              (item.id !== "warehouse-stock" || canManageWarehouse || canManageCustody) &&
-              (item.id !== "warehouse-catalog" || canManageWarehouse || canManageCustody),
-            )
+            .filter((item) => item.id === "canteen-report"
+              ? isScreenAllowed("canteen") || isScreenAllowed("canteen-reports")
+              : isScreenAllowed(item.key))
             .map((item, index, visibleItems) => {
               const previousGroup =
                 index > 0 ? visibleItems[index - 1].group : null;
@@ -1544,8 +1545,8 @@ export default function CenterDashboard({
                       : "بيانات كانتين وهمية لاختبار المخزون والصلاحيات."
                   : view === "sales"
                     ? persistent
-                      ? "مبيعات الكانتين وفواتير النزلاء والدفعات محفوظة مع سجل الإلغاء."
-                      : "بيانات مبيعات وهمية لاختبار الفواتير والمخزون."
+                      ? "مبيعات الكانتين وحركات النزلاء والدفعات محفوظة مع سجل الإلغاء."
+                      : "بيانات مبيعات تجريبية لاختبار الحركات والمخزون."
                   : view === "meat-sales"
                     ? persistent
                       ? "مبيعات اللحوم ودفعاتها وخصم الثلاجة محفوظة في قاعدة البيانات."
@@ -1824,8 +1825,6 @@ export default function CenterDashboard({
           {view === "inventory" && isScreenAllowed("inventory") && (
             <InventoryPanel
               inventory={activeInventory}
-              canteen={isScreenAllowed("canteen") ? canteen : { products: [], movements: [] }}
-              refrigerator={isScreenAllowed("meat-sales") ? meatSales : { catalog: [], products: [], movements: [], invoices: [], needsReviewCount: 0 }}
               persistent={persistent}
               canManage={canManageWarehouse}
               onInventoryChange={setInventory}
@@ -1834,32 +1833,43 @@ export default function CenterDashboard({
           )}
 
           {view === "custody" && isScreenAllowed("custody") && (
-            <CustodyPanel
-              key={viewTab ?? "custody"}
-              bundle={activeCustody}
-              persistent={persistent}
-              canManage={canManageWarehouse || canManageCustody}
-              currentEmployeeNumber={currentEmployeeNumber}
-              initialSection={viewTab === "receipts" || viewTab === "catalog" ? viewTab : "custody"}
-              onBundleChange={setCustody}
-            />
+            viewTab === "center" ? (
+              <CenterCustodyPanel persistent={persistent} canManage={canManageWarehouse || canManageCustody} />
+            ) : (
+              <CustodyPanel
+                key={viewTab ?? "custody"}
+                bundle={activeCustody}
+                persistent={persistent}
+                canManage={canManageWarehouse || canManageCustody}
+                currentEmployeeNumber={currentEmployeeNumber}
+                initialSection={viewTab === "receipts" || viewTab === "catalog" ? viewTab : "custody"}
+                onBundleChange={setCustody}
+              />
+            )
           )}
 
           {view === "resident-finance" && isScreenAllowed("resident-finance") && (
             <ResidentFinancePanel
               bundle={residentFinance}
+              residents={residents}
+              sales={sales}
+              treatment={treatment}
               persistent={persistent}
               canManage={activeUser.role === "admin"}
               onBundleChange={setResidentFinance}
+              onOpenStatement={setStatementResident}
             />
           )}
 
-          {view === "canteen" && isScreenAllowed("canteen") && (
+          {view === "canteen" && (isScreenAllowed("canteen") || (viewTab === "report" && isScreenAllowed("canteen-reports"))) && (
             <CanteenPanel
+              key={viewTab ?? "stock"}
               canteen={canteen}
               persistent={persistent}
               canManage={canManageCanteen}
               canVoid={activeUser.role === "admin"}
+              canViewReport={isScreenAllowed("canteen-reports")}
+              initialReport={viewTab === "report"}
               onCanteenChange={setCanteen}
             />
           )}
@@ -1884,7 +1894,11 @@ export default function CenterDashboard({
           )}
 
           {view === "invoice-reports" && isScreenAllowed("invoice-reports") && (
-            <InvoiceReportPanel persistent={persistent} />
+            <InvoiceReportPanel
+              persistent={persistent}
+              residents={residents}
+              onOpenStatement={setStatementResident}
+            />
           )}
 
           {view === "resident-stay-reports" && isScreenAllowed("resident-stay-reports") && (

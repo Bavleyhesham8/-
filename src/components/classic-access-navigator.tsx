@@ -76,18 +76,33 @@ const classicColumns: MenuColumn[] = [
     ],
   },
   {
-    title: "الكانتين والثلاجة",
+    title: "المخزن",
+    headerColor: "green",
+    items: [
+      { label: "مخزن الأغذية", targetView: "inventory", itemColor: "green" },
+    ],
+  },
+  {
+    title: "الكانتين",
     headerColor: "green",
     items: [
       {
-        label: "إضافة فاتورة كانتين",
+        label: "تسجيل حركة بيع",
         targetView: "sales",
         targetTab: "sale",
         itemColor: "green",
         requiredCapability: "issue-invoices",
       },
-      { label: "سجل فواتير الكانتين", targetView: "sales", targetTab: "history", itemColor: "green" },
+      { label: "سجل حركات البيع", targetView: "sales", targetTab: "history", itemColor: "green" },
       { label: "مخزون الكانتين", targetView: "canteen", itemColor: "green" },
+      { label: "تقرير حركات الكانتين", targetView: "canteen", targetTab: "report", itemColor: "green" },
+      { label: "مشتريات النزلاء", targetView: "invoice-reports", itemColor: "green" },
+    ],
+  },
+  {
+    title: "الثلاجة",
+    headerColor: "green",
+    items: [
       {
         label: "مبيعات الثلاجة",
         targetView: "meat-sales",
@@ -100,13 +115,10 @@ const classicColumns: MenuColumn[] = [
     ],
   },
   {
-    title: "المخزن والحركات",
+    title: "الحسابات والمتابعة",
     headerColor: "green",
     items: [
-      { label: "مخزن الأغذية", targetView: "inventory", itemColor: "green" },
-      { label: "مخزن العهدة", targetView: "custody", itemColor: "green" },
-      { label: "مشتريات النزلاء", targetView: "invoice-reports", itemColor: "green" },
-      { label: "أرصدة الكانتين", targetView: "canteen-reports", itemColor: "green" },
+      { label: "حسابات النزلاء", targetView: "resident-finance", itemColor: "green" },
       { label: "التتبع العام", targetView: "tracking", itemColor: "green" },
     ],
   },

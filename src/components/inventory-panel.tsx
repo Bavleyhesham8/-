@@ -11,18 +11,16 @@ import {
 } from "@/app/actions/inventory";
 import { formatDate, localDateValue } from "@/lib/date-format";
 import { createDemoId } from "@/lib/inventory-demo-data";
+import PrintBrand from "@/components/print-brand";
 import type {
   InventoryBundle,
   InventoryDirection,
   InventoryItem,
+  InventoryMovement,
 } from "@/lib/inventory-types";
-import type { CanteenBundle } from "@/lib/canteen-types";
-import type { MeatSalesBundle } from "@/lib/meat-sales-types";
 
 type InventoryPanelProps = {
   inventory: InventoryBundle;
-  canteen: CanteenBundle;
-  refrigerator: MeatSalesBundle;
   persistent: boolean;
   canManage: boolean;
   onInventoryChange: (update: (current: InventoryBundle) => InventoryBundle) => void;
@@ -35,8 +33,6 @@ const numberFormatter = new Intl.NumberFormat("ar-EG", {
 
 export default function InventoryPanel({
   inventory,
-  canteen,
-  refrigerator,
   persistent,
   canManage,
   onInventoryChange,
@@ -54,60 +50,22 @@ export default function InventoryPanel({
   const [itemCategoryId, setItemCategoryId] = useState("");
   const [itemUnit, setItemUnit] = useState("وحدة");
   const [itemPrice, setItemPrice] = useState("0");
+  const [itemInitialQuantity, setItemInitialQuantity] = useState("0");
+  const [itemInitialDate, setItemInitialDate] = useState(localDateValue());
   const [showMovementForm, setShowMovementForm] = useState(false);
   const [movementItemId, setMovementItemId] = useState("");
   const [movementDirection, setMovementDirection] =
     useState<InventoryDirection>("in");
   const [movementQuantity, setMovementQuantity] = useState("");
   const [movementDate, setMovementDate] = useState("");
+  const [movementDestination, setMovementDestination] = useState("");
+  const [movementRecipient, setMovementRecipient] = useState("");
   const [movementNote, setMovementNote] = useState("");
+  const [reportItemId, setReportItemId] = useState("all");
+  const [reportStart, setReportStart] = useState("");
+  const [reportEnd, setReportEnd] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-
-  const canteenStock = useMemo(() => {
-    const balances = new Map<number, number>();
-    for (const movement of canteen.movements) {
-      if (movement.voided || movement.needsReview) continue;
-      balances.set(
-        movement.itemNumber,
-        (balances.get(movement.itemNumber) ?? 0) +
-          (movement.incoming ?? 0) -
-          (movement.outgoing ?? 0),
-      );
-    }
-    return canteen.products.map((product) => ({
-      key: product.itemNumber,
-      name: product.name,
-      balance: balances.get(product.itemNumber) ?? 0,
-      price: product.price,
-    }));
-  }, [canteen]);
-  const refrigeratorStock = useMemo(() => {
-    const balances = new Map<number, number>();
-    for (const movement of refrigerator.movements) {
-      if (movement.voided || movement.needsReview) continue;
-      const change = movement.direction === "in"
-        ? movement.quantity ?? 0
-        : movement.outgoing ?? movement.quantity ?? 0;
-      balances.set(
-        movement.itemNumber,
-        (balances.get(movement.itemNumber) ?? 0) +
-          (movement.direction === "in" ? change : -change),
-      );
-    }
-    const catalogById = new Map(
-      refrigerator.catalog.map((item) => [item.id, item] as const),
-    );
-    return refrigerator.products.map((product) => {
-      const catalog = catalogById.get(product.catalogId);
-      return {
-        key: product.itemNumber,
-        name: product.itemCategory || catalog?.itemCategory || "صنف غير مسمى",
-        balance: balances.get(product.itemNumber) ?? 0,
-        price: catalog?.price ?? 0,
-      };
-    });
-  }, [refrigerator]);
 
   const categories = inventory.categories.filter((category) => category.active);
   const allCategoryIds = new Set(
@@ -149,7 +107,10 @@ export default function InventoryPanel({
     return result;
   }, [inventory.movements]);
   const visibleMovements = inventory.movements.filter((movement) => {
-    return visibleCategoryIds.has(movement.categoryId);
+    return visibleCategoryIds.has(movement.categoryId) &&
+      (reportItemId === "all" || movement.itemId === reportItemId) &&
+      (!reportStart || movement.movementDate >= reportStart) &&
+      (!reportEnd || movement.movementDate <= reportEnd);
   });
   const movementItem = inventory.items.find(
     (item) => item.id === movementItemId && item.active,
@@ -172,6 +133,14 @@ export default function InventoryPanel({
     (total, item) => total + (balances.get(item.id) ?? 0) * item.unitPrice,
     0,
   );
+  const reportItemName =
+    reportItemId === "all"
+      ? "كل الأصناف"
+      : inventory.items.find((item) => item.id === reportItemId)?.name ?? "—";
+  const reportPeriodLabel =
+    reportStart || reportEnd
+      ? `${reportStart ? formatDate(reportStart) : "البداية"} — ${reportEnd ? formatDate(reportEnd) : "اليوم"}`
+      : "كل الفترات";
 
   function resetCategoryForm() {
     setShowCategoryForm(false);
@@ -307,6 +276,8 @@ export default function InventoryPanel({
     );
     setItemUnit("وحدة");
     setItemPrice("0");
+    setItemInitialQuantity("0");
+    setItemInitialDate(localDateValue());
     setShowItemForm(true);
     setShowCategoryForm(false);
     setShowMovementForm(false);
@@ -319,6 +290,7 @@ export default function InventoryPanel({
     setItemCategoryId(item.categoryId);
     setItemUnit(item.unit);
     setItemPrice(String(item.unitPrice));
+    setItemInitialQuantity("0");
     setShowItemForm(true);
     setShowCategoryForm(false);
     setShowMovementForm(false);
@@ -328,6 +300,8 @@ export default function InventoryPanel({
   function resetItemForm() {
     setShowItemForm(false);
     setEditingItemId(null);
+    setItemInitialQuantity("0");
+    setItemInitialDate(localDateValue());
     setError("");
   }
 
@@ -335,9 +309,19 @@ export default function InventoryPanel({
     event.preventDefault();
     setError("");
     const parsedPrice = Number(itemPrice);
+    const parsedInitialQuantity = Number(itemInitialQuantity || 0);
     const normalizedName = itemName.trim().normalize("NFC");
     if (!itemCategoryId || !Number.isFinite(parsedPrice) || parsedPrice < 0) {
       setError("أدخل فئة وسعرًا صالحين للصنف.");
+      return;
+    }
+    if (
+      !editingItemId &&
+      (!Number.isFinite(parsedInitialQuantity) ||
+        parsedInitialQuantity < 0 ||
+        (parsedInitialQuantity > 0 && !itemInitialDate))
+    ) {
+      setError("أدخل كمية افتتاحية صحيحة وتاريخها.");
       return;
     }
     if (
@@ -361,7 +345,16 @@ export default function InventoryPanel({
         unitPrice: parsedPrice,
       };
       if (persistent) {
-        const result = await saveInventoryItemAction(editingItemId, draft);
+        const result = await saveInventoryItemAction(
+          editingItemId,
+          editingItemId
+            ? draft
+            : {
+                ...draft,
+                initialQuantity: parsedInitialQuantity,
+                initialQuantityDate: itemInitialDate,
+              },
+        );
         if (!result.ok) {
           setError(result.error);
           return;
@@ -373,6 +366,9 @@ export default function InventoryPanel({
                 item.id === result.item.id ? result.item : item,
               )
             : [...current.items, result.item],
+          movements: result.movement
+            ? [result.movement, ...current.movements]
+            : current.movements,
         }));
       } else {
         const nextItem: InventoryItem = {
@@ -380,6 +376,23 @@ export default function InventoryPanel({
           id: editingItemId ?? createDemoId(),
           active: true,
         };
+        const nextMovement: InventoryMovement | null =
+          !editingItemId && parsedInitialQuantity > 0
+            ? {
+                id: createDemoId(),
+                itemId: nextItem.id,
+                itemName: nextItem.name,
+                categoryId: nextItem.categoryId,
+                direction: "in",
+                quantity: parsedInitialQuantity,
+                unitPrice: nextItem.unitPrice,
+                movementDate: itemInitialDate,
+                destination: "",
+                recipient: "",
+                note: "رصيد افتتاحي",
+                voided: false,
+              }
+            : null;
         onInventoryChange((current) => ({
           ...current,
           items: editingItemId
@@ -387,6 +400,9 @@ export default function InventoryPanel({
                 item.id === editingItemId ? nextItem : item,
               )
             : [...current.items, nextItem],
+          movements: nextMovement
+            ? [nextMovement, ...current.movements]
+            : current.movements,
         }));
       }
       resetItemForm();
@@ -402,6 +418,8 @@ export default function InventoryPanel({
     setMovementDirection("in");
     setMovementQuantity("");
     setMovementDate(localDateValue());
+    setMovementDestination("");
+    setMovementRecipient("");
     setMovementNote("");
     setShowMovementForm(true);
     setShowCategoryForm(false);
@@ -502,6 +520,8 @@ export default function InventoryPanel({
           direction: movementDirection,
           quantity,
           movementDate,
+          destination: movementDestination,
+          recipient: movementRecipient,
           note: movementNote,
         });
         if (!result.ok) {
@@ -522,6 +542,8 @@ export default function InventoryPanel({
           quantity,
           unitPrice: movementItem.unitPrice,
           movementDate,
+          destination: movementDestination.trim(),
+          recipient: movementRecipient.trim(),
           note: movementNote.trim(),
           voided: false,
         };
@@ -540,12 +562,20 @@ export default function InventoryPanel({
 
   return (
     <section className="content-panel inventory-panel">
+      <PrintBrand
+        title="تقرير مخزن الأغذية"
+        subtitle="الأصناف والحركات حسب الفلتر المطبق"
+        meta={[
+          { label: "الصنف", value: reportItemName },
+          { label: "الفترة", value: reportPeriodLabel },
+        ]}
+      />
       <div className="panel-heading">
         <div>
-          <h3>الأصناف والأرصدة</h3>
+          <h3>مخزن الأغذية — الأصناف والأرصدة</h3>
           <p>
             {canManage
-              ? "متابعة مخزون الأغذية والكانتين والثلاجة في مكان واحد، مع إبقاء رصيد وحركات كل دفتر منفصلة. مخزن العهدة مخصص لأصناف الموظفين وليس للأغذية."
+              ? "إدارة مخزن الأغذية فقط: تعريف الأصناف وأسعارها وتسجيل الوارد والمنصرف للمطبخ أو أي جهة أخرى."
               : "عرض فقط للفئات التي سمح لك المسؤول بالوصول إليها. الفئة تصنيف، والصنف هو المنتج المخزن."}
           </p>
         </div>
@@ -588,50 +618,9 @@ export default function InventoryPanel({
         )}
       </div>
 
-      <section className="inventory-linked-sources" aria-labelledby="linked-food-stores-title">
-        <div className="inventory-section-heading">
-          <div>
-            <h4 id="linked-food-stores-title">أرصدة مخازن الأغذية حسب مصدرها</h4>
-            <p>
-              الكانتين والثلاجة لهما دفاتر حركة مستقلة؛ يعرضهما هذا الملخص هنا للمتابعة فقط،
-              ولا يخلط أرصدتهما برصيد المخزن العام.
-            </p>
-          </div>
-        </div>
-        <div className="inventory-linked-grid">
-          {[
-            { title: "الكانتين", rows: canteenStock },
-            { title: "الثلاجة", rows: refrigeratorStock },
-          ].map(({ title, rows }) => (
-            <section className="inventory-linked-card" key={title}>
-              <h5>{title}</h5>
-              <div className="table-wrap">
-                <table className="resident-table inventory-table">
-                  <thead><tr><th>الصنف</th><th>الرصيد</th><th>سعر الوحدة</th><th>قيمة الرصيد</th></tr></thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr key={row.key}>
-                        <td>{row.name}</td>
-                        <td>{numberFormatter.format(row.balance)}</td>
-                        <td>{numberFormatter.format(row.price)} ج.م</td>
-                        <td>{numberFormatter.format(row.balance * row.price)} ج.م</td>
-                      </tr>
-                    ))}
-                    {!rows.length && <tr><td colSpan={4}>لا توجد أصناف مسجلة في دفتر {title}.</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ))}
-        </div>
-        <p className="access-note">
-          الوارد والصرف وتعديل الأسعار يتم من صفحة كل مخزن؛ لا تُنشأ أصناف أو حركات من هذا الملخص.
-        </p>
-      </section>
-
       {categories.length > 0 && (
         <div className="inventory-category-bar">
-          <div className="filter-list" aria-label="فئات المخزون المتاحة">
+          <div className="filter-list" aria-label="فئات مخزن الأغذية المتاحة">
             {canManage && (
               <button
                 className={`filter-chip ${categoryFilter === "all" ? "active" : ""}`}
@@ -668,7 +657,7 @@ export default function InventoryPanel({
 
       {canManage && (
         <div className="inventory-category-management">
-          <h4>إدارة الفئات</h4>
+          <h4>فئات مخزن الأغذية</h4>
           {inventory.categories.length ? (
             inventory.categories.map((category) => (
               <div className="inventory-management-row" key={category.id}>
@@ -704,7 +693,7 @@ export default function InventoryPanel({
             ))
           ) : (
             <p className="access-note">
-              لم تُنشأ فئات بعد. أضف المخازن أو الكانتين أو الثلاجة.
+              لم تُنشأ فئات بعد. أضف فئة غذائية مثل: خضروات أو مواد جافة.
             </p>
           )}
         </div>
@@ -720,7 +709,7 @@ export default function InventoryPanel({
               maxLength={120}
               value={categoryName}
               onChange={(event) => setCategoryName(event.target.value)}
-              placeholder="مثال: مخازن"
+              placeholder="مثال: خضروات"
             />
           </label>
           {error && <p className="form-error" role="alert">{error}</p>}
@@ -793,6 +782,33 @@ export default function InventoryPanel({
               onChange={(event) => setItemPrice(event.target.value)}
             />
           </label>
+          {!editingItemId && (
+            <>
+              <label className="form-field">
+                الكمية الافتتاحية (اختياري)
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={itemInitialQuantity}
+                  onChange={(event) => setItemInitialQuantity(event.target.value)}
+                />
+              </label>
+              <label className="form-field">
+                تاريخ الرصيد الافتتاحي
+                <input
+                  type="date"
+                  required={Number(itemInitialQuantity) > 0}
+                  value={itemInitialDate}
+                  onChange={(event) => setItemInitialDate(event.target.value)}
+                />
+              </label>
+            </>
+          )}
+          <p className="form-hint">
+            الكمية الافتتاحية تُسجَّل كحركة وارد واحدة، ويمكن تعديل الرصيد بعد ذلك
+            بحركات الوارد والمنصرف.
+          </p>
           {error && <p className="form-error" role="alert">{error}</p>}
           <div className="action-group">
             <button
@@ -832,9 +848,11 @@ export default function InventoryPanel({
             <select
               value={movementDirection}
               onChange={(event) =>
-                setMovementDirection(
-                  event.target.value === "out" ? "out" : "in",
-                )
+                (() => {
+                  const direction = event.target.value === "out" ? "out" : "in";
+                  setMovementDirection(direction);
+                  setMovementDestination(direction === "out" ? "المطبخ" : "");
+                })()
               }
             >
               <option value="in">وارد</option>
@@ -859,6 +877,26 @@ export default function InventoryPanel({
               required
               value={movementDate}
               onChange={(event) => setMovementDate(event.target.value)}
+            />
+          </label>
+          <label className="form-field">
+            الجهة (مورد / جهة صرف)
+            <input
+              list="inventory-destinations"
+              maxLength={160}
+              value={movementDestination}
+              onChange={(event) => setMovementDestination(event.target.value)}
+            />
+            <datalist id="inventory-destinations">
+              <option value="المطبخ" />
+            </datalist>
+          </label>
+          <label className="form-field">
+            اسم المستلم (اختياري)
+            <input
+              maxLength={160}
+              value={movementRecipient}
+              onChange={(event) => setMovementRecipient(event.target.value)}
             />
           </label>
           <label className="form-field inventory-note-field">
@@ -893,7 +931,7 @@ export default function InventoryPanel({
       {!categories.length ? (
         <div className="empty-state">
           {canManage
-            ? "لا توجد فئات نشطة. فعّل فئة موجودة أو أضف المخازن أو الكانتين أو الثلاجة."
+            ? "لا توجد فئات نشطة. أضف فئة غذائية أولًا ثم سجّل الأصناف."
             : "لم يمنحك المسؤول صلاحية عرض أي فئة من المخزون."}
         </div>
       ) : (
@@ -1020,9 +1058,22 @@ export default function InventoryPanel({
 
           <div className="panel-heading inventory-history-heading">
             <div>
-              <h3>حركة المخزون</h3>
-              <p>سجل الوارد والمنصرف للفئات المتاحة.</p>
+              <h3>حركة مخزن الأغذية</h3>
+              <p>سجل الوارد والمنصرف مع جهة الصرف والمستلم والسعر وقت الحركة.</p>
             </div>
+            <div className="action-group no-print">
+              <button className="secondary-button" type="button" onClick={() => window.print()}>طباعة التقرير</button>
+            </div>
+          </div>
+          <div className="filter-list no-print" aria-label="تصفية تقرير المخزون">
+            <label className="form-field">الصنف
+              <select value={reportItemId} onChange={(event) => setReportItemId(event.target.value)}>
+                <option value="all">كل الأصناف</option>
+                {items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
+            <label className="form-field">من تاريخ<input type="date" value={reportStart} onChange={(event) => setReportStart(event.target.value)} /></label>
+            <label className="form-field">إلى تاريخ<input type="date" value={reportEnd} onChange={(event) => setReportEnd(event.target.value)} /></label>
           </div>
           <div className="table-wrap">
             <table className="resident-table inventory-table">
@@ -1034,6 +1085,9 @@ export default function InventoryPanel({
                   <th scope="col">الحركة</th>
                   <th scope="col">الكمية</th>
                   <th scope="col">سعر الوحدة</th>
+                  <th scope="col">إجمالي الحركة</th>
+                  <th scope="col">جهة الصرف</th>
+                  <th scope="col">المستلم</th>
                   <th scope="col">ملاحظات</th>
                   {canManage && <th scope="col">إدارة</th>}
                 </tr>
@@ -1059,6 +1113,9 @@ export default function InventoryPanel({
                       </td>
                       <td>{numberFormatter.format(movement.quantity)}</td>
                       <td>{numberFormatter.format(movement.unitPrice)}</td>
+                      <td>{numberFormatter.format(movement.quantity * movement.unitPrice)} ج.م</td>
+                      <td>{movement.destination || "—"}</td>
+                      <td>{movement.recipient || "—"}</td>
                       <td>{movement.note || "—"}</td>
                       {canManage && (
                         <td>
@@ -1078,7 +1135,7 @@ export default function InventoryPanel({
                 ))}
                 {!visibleMovements.length && (
                   <tr>
-                    <td colSpan={canManage ? 8 : 7}>
+                    <td colSpan={canManage ? 11 : 10}>
                       <div className="empty-state">
                         لا توجد حركات مسجلة لهذه الفئات.
                       </div>

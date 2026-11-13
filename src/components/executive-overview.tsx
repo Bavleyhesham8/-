@@ -344,7 +344,7 @@ export default function ExecutiveOverview({
                 onClick={() => onNavigate("sales", "history")}
                 className="rounded-xl border border-white/30 bg-white/10 px-4 py-2.5 text-xs font-bold text-white backdrop-blur-sm transition hover:bg-white/20"
               >
-                سجل فواتير الكانتين
+                سجل حركات بيع الكانتين
               </button>
             )}
           </div>
@@ -444,7 +444,7 @@ export default function ExecutiveOverview({
           </div>
         </div>
 
-        {/* بطاقة أمانات وسندات النزلاء */}
+        {/* بطاقة حسابات النزلاء */}
         <div
           onClick={
             canNavigate("resident-finance")

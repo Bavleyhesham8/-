@@ -1,10 +1,11 @@
 import "server-only";
 
-import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, ilike, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import {
   invoiceCategories,
+  legacyResidents,
   residentInvoiceLines,
   residentInvoiceVoids,
   residentInvoices,
@@ -32,6 +33,9 @@ const reportFilterSchema = z
     startDate: dateSchema,
     endDate: dateSchema,
     categoryId: z.number().int().refine((value) => value !== 0).nullable(),
+    itemName: z.string().trim().max(160).default(""),
+    residentName: z.string().trim().max(200).default(""),
+    saleType: z.enum(["all", "resident", "cash"]).default("all"),
   })
   .refine((filters) => filters.startDate <= filters.endDate);
 
@@ -95,14 +99,24 @@ export async function getInvoiceReport(
         )!
       : eq(residentInvoiceLines.categoryId, filters.categoryId));
   }
+  if (filters.itemName) conditions.push(ilike(residentInvoiceLines.itemName, `%${filters.itemName}%`));
+  if (filters.residentName) {
+    conditions.push(or(
+      ilike(residents.name, `%${filters.residentName}%`),
+      ilike(legacyResidents.name, `%${filters.residentName}%`),
+    )!);
+  }
+  if (filters.saleType !== "all") conditions.push(eq(residentInvoices.saleType, filters.saleType));
 
   const rows = await database
       .select({
         invoiceNumber: residentInvoices.invoiceNumber,
         invoiceDate: residentInvoices.invoiceDate,
         saleType: residentInvoices.saleType,
+        residentId: residentInvoices.residentId,
         residentNumber: residentInvoices.residentNumber,
         residentName: residents.name,
+        legacyResidentName: legacyResidents.name,
         balance: residentInvoiceLines.balance,
         alternateCategory: residentInvoiceLines.alternateCategory,
         categoryId: residentInvoiceLines.categoryId,
@@ -121,6 +135,7 @@ export async function getInvoiceReport(
         eq(residentInvoices.invoiceNumber, residentInvoiceLines.invoiceNumber),
       )
       .leftJoin(residents, eq(residents.id, residentInvoices.residentId))
+      .leftJoin(legacyResidents, eq(legacyResidents.id, residentInvoices.residentNumber))
       .leftJoin(
         invoiceCategories,
         eq(invoiceCategories.id, residentInvoiceLines.categoryId),
@@ -145,8 +160,9 @@ export async function getInvoiceReport(
       invoiceNumber: row.invoiceNumber,
       invoiceDate: row.invoiceDate,
       saleType: row.saleType === "cash" ? "cash" : "resident",
+      residentId: row.residentId,
       residentNumber: row.residentNumber,
-      residentName: row.residentName ?? "",
+      residentName: row.residentName ?? row.legacyResidentName ?? "",
       balance: row.balance,
       alternateCategory: row.alternateCategory,
       categoryId: row.categoryId,
@@ -172,5 +188,8 @@ export function invoiceReportFilterFromParams(
     endDate: params.get("endDate") ?? "",
     categoryId:
       category === null || category === "" ? null : Number(category),
+    itemName: params.get("itemName") ?? "",
+    residentName: params.get("residentName") ?? "",
+    saleType: (params.get("saleType") === "cash" || params.get("saleType") === "resident") ? params.get("saleType") as "cash" | "resident" : "all",
   };
 }

@@ -58,7 +58,7 @@ const moduleLabels: Record<TrackingModule, string> = {
   inventory: "المخزون",
   custody: "العهدة والمخزن",
   canteen: "الكانتين",
-  sales: "فواتير الكانتين",
+  sales: "حركات بيع الكانتين",
   meat: "مبيعات اللحوم",
   finance: "حسابات النزلاء",
   treatment: "العيادة والعلاج",
@@ -317,8 +317,8 @@ export default function GlobalTrackingPanel({
         module: "sales",
         moduleLabel: moduleLabels.sales,
         direction: "in",
-        typeLabel: "فاتورة مبيعات كانتين",
-        title: `فاتورة رقم ${invoice.invoiceNumber}`,
+        typeLabel: "حركة بيع كانتين",
+        title: `حركة بيع رقم ${invoice.invoiceNumber}`,
         detail: `${invoice.residentName || "بيع نقدي"} — ${invoice.lines.length} بند`,
         quantity: null,
         unit: "",
@@ -339,7 +339,7 @@ export default function GlobalTrackingPanel({
             direction: payment.kind === "payment" ? "in" : "out",
             typeLabel:
               payment.kind === "payment" ? "تحصيل دفعة" : "مرتجع دفعة",
-            title: `فاتورة رقم ${invoice.invoiceNumber}`,
+            title: `حركة بيع رقم ${invoice.invoiceNumber}`,
             detail: invoice.residentName || "بيع نقدي",
             quantity: null,
             unit: "",
@@ -465,7 +465,7 @@ export default function GlobalTrackingPanel({
         module: "finance",
         moduleLabel: moduleLabels.finance,
         direction: "in",
-        typeLabel: "إيداع / أمانة",
+        typeLabel: "إيداع في حساب نزيل",
         title:
           financeNames.get(String(entry.residentNumber)) ||
           (entry.residentNumber
@@ -941,7 +941,7 @@ export default function GlobalTrackingPanel({
           <strong>{formatMoney(summary.outstanding)}</strong>
         </article>
         <article>
-          <span>إيداعات / أمانات</span>
+          <span>إيداعات الحسابات</span>
           <strong>{formatMoney(summary.deposits)}</strong>
         </article>
         <article>

@@ -28,12 +28,12 @@ const AVAILABLE_SCREENS = [
   { id: "rooms", label: "السكن والغرف" },
   { id: "treatment", label: "العلاج" },
   { id: "canteen", label: "الكانتين" },
-  { id: "sales", label: "فواتير الكانتين" },
-  { id: "custody", label: "مخزن العهدة" },
+  { id: "sales", label: "حركات بيع الكانتين" },
+  { id: "custody", label: "عهد الموظفين" },
   { id: "meat-sales", label: "الثلاجة" },
   { id: "inventory", label: "مخزن الأغذية" },
-  { id: "resident-finance", label: "أمانات النزلاء" },
-  { id: "canteen-reports", label: "أرصدة الكانتين والمنصرف" },
+  { id: "resident-finance", label: "حسابات النزلاء" },
+  { id: "canteen-reports", label: "تقارير الكانتين" },
   { id: "invoice-reports", label: "مشتريات النزلاء" },
   { id: "tracking", label: "دفتر اليومية والحركات" },
   { id: "staff", label: "الموظفون" },
@@ -286,7 +286,7 @@ export default function AccessManagerPanel({
                         onChange={(e) => handleUpdateUser(user, { canIssueInvoices: e.target.checked })}
                         className="h-4 w-4 rounded-sm text-teal-600 focus:ring-teal-500"
                       />
-                      <span>تسجيل فواتير ومبيعات الكانتين</span>
+                      <span>تسجيل حركات ومبيعات الكانتين</span>
                     </label>
 
                     <label className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 text-xs font-semibold text-slate-800 hover:bg-slate-100/70 cursor-pointer">

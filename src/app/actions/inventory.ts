@@ -7,6 +7,7 @@ import {
   inventoryCategories,
   inventoryItems,
   inventoryMovements,
+  inventoryPriceHistory,
   user,
   userInventoryCategories,
 } from "@/db/schema";
@@ -22,15 +23,6 @@ import type {
 } from "@/lib/inventory-types";
 
 const idSchema = z.string().uuid();
-const categorySchema = z.object({
-  name: z.string().trim().min(1).max(120),
-});
-const itemSchema = z.object({
-  categoryId: idSchema,
-  name: z.string().trim().min(1).max(160),
-  unit: z.string().trim().min(1).max(40),
-  unitPrice: z.number().finite().min(0).max(1_000_000_000),
-});
 const dateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -41,12 +33,25 @@ const dateSchema = z
       parsed.toISOString().slice(0, 10) === value
     );
   });
+const categorySchema = z.object({
+  name: z.string().trim().min(1).max(120),
+});
+const itemSchema = z.object({
+  categoryId: idSchema,
+  name: z.string().trim().min(1).max(160),
+  unit: z.string().trim().min(1).max(40),
+  unitPrice: z.number().finite().min(0).max(1_000_000_000),
+  initialQuantity: z.number().finite().nonnegative().max(1_000_000_000).default(0),
+  initialQuantityDate: dateSchema.optional(),
+});
 const movementSchema = z.object({
   itemId: idSchema,
   direction: z.enum(["in", "out"]),
   quantity: z.number().finite().positive().max(1_000_000_000),
   movementDate: dateSchema,
   note: z.string().trim().max(500),
+  destination: z.string().trim().max(160).default(""),
+  recipient: z.string().trim().max(160).default(""),
 });
 
 export async function saveInventoryCategoryAction(
@@ -175,7 +180,8 @@ export async function saveInventoryItemAction(
   idInput: string | null,
   input: unknown,
 ): Promise<
-  { ok: true; item: InventoryItem } | { ok: false; error: string }
+  | { ok: true; item: InventoryItem; movement?: InventoryMovement }
+  | { ok: false; error: string }
 > {
   const session = await requireStaffPermission("canManageWarehouse");
   const parsed = itemSchema.safeParse(input);
@@ -184,10 +190,15 @@ export async function saveInventoryItemAction(
     return { ok: false, error: "راجع بيانات الصنف والسعر والفئة." };
   }
 
+  const {
+    initialQuantity,
+    initialQuantityDate,
+    ...itemInput
+  } = parsed.data;
   const draft = {
-    ...parsed.data,
-    name: parsed.data.name.normalize("NFC"),
-    unit: parsed.data.unit.normalize("NFC"),
+    ...itemInput,
+    name: itemInput.name.normalize("NFC"),
+    unit: itemInput.unit.normalize("NFC"),
   };
   const database = getDatabase();
   const result = await database.transaction(async (transaction) => {
@@ -196,6 +207,7 @@ export async function saveInventoryItemAction(
           .select({
             id: inventoryItems.id,
             categoryId: inventoryItems.categoryId,
+            unitPrice: inventoryItems.unitPrice,
           })
           .from(inventoryItems)
           .where(eq(inventoryItems.id, id.data))
@@ -279,6 +291,57 @@ export async function saveInventoryItemAction(
             unitPrice: inventoryItems.unitPrice,
             active: inventoryItems.active,
           });
+    if (existing && existing.unitPrice !== draft.unitPrice) {
+      await transaction.insert(inventoryPriceHistory).values({
+        itemId: existing.id,
+        oldPrice: existing.unitPrice,
+        newPrice: draft.unitPrice,
+        changedBy: session.user.id,
+      });
+    }
+
+    if (!existing && initialQuantity > 0) {
+      const movementDate =
+        initialQuantityDate ?? new Date().toISOString().slice(0, 10);
+      const [movement] = await transaction
+        .insert(inventoryMovements)
+        .values({
+          itemId: item.id,
+          direction: "in",
+          quantity: initialQuantity,
+          unitPrice: item.unitPrice,
+          movementDate,
+          destination: "",
+          recipient: "",
+          note: "رصيد افتتاحي",
+          createdBy: session.user.id,
+        })
+        .returning({
+          id: inventoryMovements.id,
+          itemId: inventoryMovements.itemId,
+          direction: inventoryMovements.direction,
+          quantity: inventoryMovements.quantity,
+          unitPrice: inventoryMovements.unitPrice,
+          movementDate: inventoryMovements.movementDate,
+          destination: inventoryMovements.destination,
+          recipient: inventoryMovements.recipient,
+          note: inventoryMovements.note,
+          voided: inventoryMovements.voided,
+        });
+      if (!movement) {
+        return { error: "تعذر تسجيل الرصيد الافتتاحي للصنف." } as const;
+      }
+      return {
+        item,
+        movement: {
+          ...movement,
+          itemName: item.name,
+          categoryId: item.categoryId,
+          direction: "in" as const,
+        },
+      } as const;
+    }
+
     return { item } as const;
   });
 
@@ -293,9 +356,18 @@ export async function saveInventoryItemAction(
     action: id?.success ? "update" : "create",
     entity: "inventoryItems",
     entityId: result.item.id,
-    metadata: { fields: "categoryId,name,unit,unitPrice" },
+    metadata: {
+      fields:
+        initialQuantity > 0
+          ? "categoryId,name,unit,unitPrice,initialQuantity"
+          : "categoryId,name,unit,unitPrice",
+    },
   });
-  return { ok: true, item: result.item };
+  return {
+    ok: true,
+    item: result.item,
+    ...("movement" in result ? { movement: result.movement } : {}),
+  };
 }
 
 export async function setInventoryItemActiveAction(
@@ -404,6 +476,8 @@ export async function recordInventoryMovementAction(
         quantity: inventoryMovements.quantity,
         unitPrice: inventoryMovements.unitPrice,
         movementDate: inventoryMovements.movementDate,
+        destination: inventoryMovements.destination,
+        recipient: inventoryMovements.recipient,
         note: inventoryMovements.note,
         voided: inventoryMovements.voided,
       });

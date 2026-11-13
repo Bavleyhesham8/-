@@ -1,7 +1,7 @@
 "use client";
 
 import PrintBrand from "@/components/print-brand";
-import { printSingleRecord } from "@/lib/print";
+import { printCurrentView, printSingleRecord } from "@/lib/print";
 
 import { useMemo, useState, type FormEvent } from "react";
 import {
@@ -13,6 +13,10 @@ import {
 } from "@/app/actions/canteen-sales";
 import { formatDate, localDateValue } from "@/lib/date-format";
 import ResidentPicker from "@/components/resident-picker";
+import {
+  filterCanteenInvoices,
+  summarizeCanteenInvoices,
+} from "@/lib/canteen-sales-utils";
 import type { CanteenBundle, CanteenMovement } from "@/lib/canteen-types";
 import type { Resident } from "@/lib/demo-data";
 import type {
@@ -66,13 +70,13 @@ export default function CanteenSalesPanel({
       : "sale";
   });
   const [saleType, setSaleType] = useState<"resident" | "cash">("resident");
+  const [saleMode, setSaleMode] = useState<"single" | "grouped">("single");
   const [residentId, setResidentId] = useState(residents[0]?.id ?? "");
   const [residentPickerValue, setResidentPickerValue] = useState(() => {
     const resident = residents[0];
     return resident ? `${resident.name} — ${resident.fileNumber}` : "";
   });
   const [invoiceDate, setInvoiceDate] = useState(localDateValue());
-  const [initialPayment, setInitialPayment] = useState("0");
   const [draftLines, setDraftLines] = useState<DraftLine[]>([
     {
       catalogId: "",
@@ -94,6 +98,13 @@ export default function CanteenSalesPanel({
   const [voidTargetId, setVoidTargetId] = useState<number | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [confirmRefund, setConfirmRefund] = useState(false);
+  const [historyResident, setHistoryResident] = useState("");
+  const [historyItem, setHistoryItem] = useState("");
+  const [historyFromDate, setHistoryFromDate] = useState("");
+  const [historyToDate, setHistoryToDate] = useState("");
+  const [historySaleType, setHistorySaleType] = useState<
+    "all" | "cash" | "resident"
+  >("all");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -110,6 +121,50 @@ export default function CanteenSalesPanel({
     }
     return balances;
   }, [canteen.movements]);
+
+  const filteredInvoices = useMemo(
+    () =>
+      filterCanteenInvoices(
+        sales.invoices,
+        {
+          residentQuery: historyResident,
+          itemQuery: historyItem,
+          fromDate: historyFromDate,
+          toDate: historyToDate,
+          saleType: historySaleType,
+        },
+        residents,
+      ),
+    [
+      sales.invoices,
+      residents,
+      historyResident,
+      historyItem,
+      historyFromDate,
+      historyToDate,
+      historySaleType,
+    ],
+  );
+
+  const historySummary = useMemo(
+    () => summarizeCanteenInvoices(filteredInvoices),
+    [filteredInvoices],
+  );
+
+  const historyFiltersDescription = [
+    historyFromDate || historyToDate
+      ? `الفترة: ${historyFromDate ? formatDate(historyFromDate) : "البداية"} — ${historyToDate ? formatDate(historyToDate) : "الآن"}`
+      : "الفترة: كل الحركات",
+    historyResident.trim() ? `النزيل: ${historyResident.trim()}` : null,
+    historyItem.trim() ? `الصنف: ${historyItem.trim()}` : null,
+    historySaleType === "cash"
+      ? "النوع: بيع نقدي"
+      : historySaleType === "resident"
+        ? "النوع: على الحساب"
+        : null,
+  ]
+    .filter(Boolean)
+    .join(" — ");
 
   const preparedLines = draftLines.map((line) => {
     const catalogItem = sales.items.find(
@@ -149,9 +204,13 @@ export default function CanteenSalesPanel({
 
   function clearDraft() {
     setSaleType("resident");
-    setResidentId(residents[0]?.id ?? "");
+    setSaleMode("single");
+    const firstResident = residents[0];
+    setResidentId(firstResident?.id ?? "");
+    setResidentPickerValue(
+      firstResident ? `${firstResident.name} — ${firstResident.fileNumber}` : "",
+    );
     setInvoiceDate(localDateValue());
-    setInitialPayment("0");
     setDraftLines([
       {
         catalogId: "",
@@ -165,8 +224,7 @@ export default function CanteenSalesPanel({
   async function submitInvoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    const initialPaid =
-      saleType === "cash" ? draftTotal : Number(initialPayment);
+    const initialPaid = saleType === "cash" ? draftTotal : 0;
     const items = preparedLines.map((line) => ({
       catalogId: line.catalogItem?.id ?? 0,
       quantity: line.quantity,
@@ -183,7 +241,7 @@ export default function CanteenSalesPanel({
       initialPaid < 0 ||
       initialPaid > draftTotal
     ) {
-      setError("أكمل بيانات الفاتورة وتأكد من صحة المبالغ والكميات.");
+      setError("أكمل بيانات الحركة وتأكد من صحة المبالغ والكميات.");
       return;
     }
     for (const line of preparedLines) {
@@ -330,7 +388,7 @@ export default function CanteenSalesPanel({
       clearDraft();
       setSection("history");
     } catch {
-      setError("تعذر حفظ الفاتورة. تحقق من الاتصال وحاول مرة أخرى.");
+      setError("تعذر حفظ الحركة. تحقق من الاتصال وحاول مرة أخرى.");
     } finally {
       setSaving(false);
     }
@@ -528,11 +586,11 @@ export default function CanteenSalesPanel({
       (entry) => entry.invoiceNumber === voidTargetId,
     );
     if (!invoice || !voidReason.trim()) {
-      setError("أدخل سبب إلغاء الفاتورة.");
+      setError("أدخل سبب إلغاء الحركة.");
       return;
     }
     if (invoice.paid > 0 && !confirmRefund) {
-      setError("أكد تنفيذ رد المبلغ قبل إلغاء الفاتورة المسددة.");
+      setError("أكد تنفيذ رد المبلغ قبل إلغاء الحركة المسددة.");
       return;
     }
     setError("");
@@ -595,7 +653,7 @@ export default function CanteenSalesPanel({
       setVoidReason("");
       setConfirmRefund(false);
     } catch {
-      setError("تعذر إلغاء الفاتورة.");
+      setError("تعذر إلغاء الحركة.");
     } finally {
       setSaving(false);
     }
@@ -605,10 +663,10 @@ export default function CanteenSalesPanel({
     <section className="content-panel inventory-panel sales-panel">
       <div className="panel-heading">
         <div>
-          <h3>مبيعات الكانتين وفواتير النزلاء</h3>
+          <h3>حركات ومبيعات الكانتين</h3>
           <p>
-            تُخصم الأصناف المرتبطة بالمخزون عند حفظ الفاتورة. إدارة المبيعات
-            للمسؤول فقط.
+            سجّل حركة بيع نقدي أو على حساب نزيل، وتُخصم الأصناف المرتبطة
+            بالمخزون فورًا. إدارة المبيعات للمسؤول فقط.
           </p>
         </div>
         <div className="action-group">
@@ -620,7 +678,7 @@ export default function CanteenSalesPanel({
               setError("");
             }}
           >
-            فاتورة جديدة
+            تسجيل حركة بيع جديدة
           </button>}
           <button
             className={
@@ -632,7 +690,7 @@ export default function CanteenSalesPanel({
               setError("");
             }}
           >
-            سجل الفواتير
+            سجل حركات البيع
           </button>
           {canManage && <button
             className={
@@ -644,7 +702,7 @@ export default function CanteenSalesPanel({
               setError("");
             }}
           >
-            أصناف البيع وفئات الفاتورة
+            أصناف البيع والفئات
           </button>}
         </div>
       </div>
@@ -658,13 +716,28 @@ export default function CanteenSalesPanel({
       {canManage && section === "sale" && (
         <form className="inventory-form sales-form" onSubmit={submitInvoice}>
           <label className="form-field">
-            نوع الفاتورة
+            نمط البيع
+            <select
+              value={saleMode}
+              onChange={(event) => {
+                const next = event.target.value === "grouped" ? "grouped" : "single";
+                setSaleMode(next);
+                if (next === "single") {
+                  setDraftLines((current) => current.slice(0, 1));
+                }
+              }}
+            >
+              <option value="single">بيع مفرد — صنف واحد</option>
+              <option value="grouped">بيع مجمّع — عدة أصناف</option>
+            </select>
+          </label>
+          <label className="form-field">
+            طريقة البيع
             <select
               value={saleType}
               onChange={(event) => {
                 const next = event.target.value === "cash" ? "cash" : "resident";
                 setSaleType(next);
-                setInitialPayment(next === "cash" ? String(draftTotal) : "0");
               }}
             >
               <option value="resident">على حساب نزيل</option>
@@ -689,7 +762,7 @@ export default function CanteenSalesPanel({
             </label>
           )}
           <label className="form-field">
-            تاريخ الفاتورة
+            تاريخ الحركة
             <input
               type="date"
               required
@@ -697,18 +770,10 @@ export default function CanteenSalesPanel({
               onChange={(event) => setInvoiceDate(event.target.value)}
             />
           </label>
-          <label className="form-field">
-            الدفعة الأولى
-            <input
-              type="number"
-              min="0"
-              step="1"
-              required
-              readOnly={saleType === "cash"}
-              value={saleType === "cash" ? draftTotal : initialPayment}
-              onChange={(event) => setInitialPayment(event.target.value)}
-            />
-          </label>
+          {saleType === "cash" && <label className="form-field">
+            المبلغ المدفوع نقدًا
+            <input type="number" value={draftTotal} readOnly />
+          </label>}
 
           <div className="sales-lines">
             {preparedLines.map((line, index) => (
@@ -743,49 +808,53 @@ export default function CanteenSalesPanel({
                     }
                   />
                 </label>
-                <label className="form-field">
-                  فئة الفاتورة
-                  <select
-                    value={line.draft.categoryId}
-                    onChange={(event) =>
-                      updateDraftLine(index, { categoryId: event.target.value })
-                    }
-                  >
-                    <option value="">بدون فئة</option>
-                    {sales.categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="form-field">
-                  فئة المصدر القديمة
-                  <select
-                    value={line.draft.alternateCategory}
-                    onChange={(event) =>
-                      updateDraftLine(index, {
-                        alternateCategory: event.target.value,
-                      })
-                    }
-                  >
-                    <option value="">بدون فئة بديلة</option>
-                    {lookups.alternateCategories.map((category) =>
-                      category.name ? (
-                        <option key={category.id} value={category.name}>
-                          {category.name}
-                        </option>
-                      ) : null,
-                    )}
-                  </select>
-                </label>
+                {saleMode === "grouped" && (
+                  <>
+                    <label className="form-field">
+                      فئة الصنف
+                      <select
+                        value={line.draft.categoryId}
+                        onChange={(event) =>
+                          updateDraftLine(index, { categoryId: event.target.value })
+                        }
+                      >
+                        <option value="">بدون فئة</option>
+                        {sales.categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="form-field">
+                      فئة المصدر القديمة
+                      <select
+                        value={line.draft.alternateCategory}
+                        onChange={(event) =>
+                          updateDraftLine(index, {
+                            alternateCategory: event.target.value,
+                          })
+                        }
+                      >
+                        <option value="">بدون فئة بديلة</option>
+                        {lookups.alternateCategories.map((category) =>
+                          category.name ? (
+                            <option key={category.id} value={category.name}>
+                              {category.name}
+                            </option>
+                          ) : null,
+                        )}
+                      </select>
+                    </label>
+                  </>
+                )}
                 <span className="sales-line-total">
                   الإجمالي:{" "}
                   {line.validTotal
                     ? numberFormatter.format(line.total)
                     : "تحقق من السعر والكمية"}
                 </span>
-                {draftLines.length > 1 && (
+                {saleMode === "grouped" && draftLines.length > 1 && (
                   <button
                     className="table-action"
                     type="button"
@@ -803,36 +872,45 @@ export default function CanteenSalesPanel({
             ))}
           </div>
 
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={saving || draftLines.length >= 100}
-            onClick={() =>
-              setDraftLines((current) => [
-                ...current,
-                {
-                  catalogId: "",
-                  quantity: "1",
-                  categoryId: "",
-                  alternateCategory: "",
-                },
-              ])
-            }
-          >
-            إضافة بند
-          </button>
+          {saleMode === "grouped" && (
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={saving || draftLines.length >= 100}
+              onClick={() =>
+                setDraftLines((current) => [
+                  ...current,
+                  {
+                    catalogId: "",
+                    quantity: "1",
+                    categoryId: "",
+                    alternateCategory: "",
+                  },
+                ])
+              }
+            >
+              إضافة بند
+            </button>
+          )}
 
           <div className="sales-total">
-            إجمالي الفاتورة: <strong>{numberFormatter.format(draftTotal)}</strong>
+            إجمالي الحركة: <strong>{numberFormatter.format(draftTotal)}</strong>
             {saleType === "cash" && " — يلزم سداد القيمة كاملة"}
+            {saleType === "resident" && " — يُضاف كامل المبلغ إلى حساب النزيل"}
           </div>
+          {saleType === "resident" && (
+            <p className="access-note">
+              سيُخصم المبلغ من حساب النزيل فورًا، ويُسمح بأن يصبح الرصيد سالبًا
+              (مديونية على النزيل).
+            </p>
+          )}
           {!sales.items.length && (
             <p className="access-note">
-              أضف أصناف المشتريات أولًا من تبويب أصناف البيع وفئات الفاتورة.
+              أضف أصناف البيع أولًا من تبويب الأصناف والفئات.
             </p>
           )}
           {saleType === "resident" && !residents.length && (
-            <p className="access-note">لا يوجد نزلاء متاحون لإنشاء فاتورة.</p>
+            <p className="access-note">لا يوجد نزلاء متاحون لتسجيل حركة على الحساب.</p>
           )}
           <div className="action-group">
             <button
@@ -847,7 +925,7 @@ export default function CanteenSalesPanel({
               className="primary-button"
               disabled={saving || !canCreateInvoice}
             >
-              {saving ? "جارٍ الحفظ..." : "حفظ الفاتورة وخصم المخزون"}
+              {saving ? "جارٍ الحفظ..." : "تسجيل حركة البيع وخصم المخزون"}
             </button>
           </div>
         </form>
@@ -897,7 +975,7 @@ export default function CanteenSalesPanel({
                 checked={itemAddFlag}
                 onChange={(event) => setItemAddFlag(event.target.checked)}
               />
-              إضافة إلى الفاتورة
+              إضافة إلى الحركة
             </label>
             <button className="primary-button" disabled={saving}>
               حفظ الصنف
@@ -905,9 +983,9 @@ export default function CanteenSalesPanel({
           </form>
 
           <form className="inventory-form sales-form" onSubmit={submitCategory}>
-            <h4>فئات الفاتورة</h4>
+            <h4>فئات الأصناف</h4>
             <label className="form-field">
-              اسم فئة الفاتورة
+              اسم فئة الصنف
               <input
                 required
                 maxLength={120}
@@ -975,8 +1053,8 @@ export default function CanteenSalesPanel({
             <table className="resident-table inventory-table">
               <thead>
                 <tr>
-                  <th scope="col">رقم فئة الفاتورة</th>
-                  <th scope="col">اسم فئة الفاتورة</th>
+                  <th scope="col">رقم الفئة</th>
+                  <th scope="col">اسم الفئة</th>
                   <th scope="col">الإجراءات</th>
                 </tr>
               </thead>
@@ -1014,20 +1092,137 @@ export default function CanteenSalesPanel({
 
       {section === "history" && (
         <div className="sales-invoice-list">
-          {sales.invoices.map((invoice) => (
+          <div className="sales-history-heading">
+            <div>
+              <h4>سجل حركات البيع</h4>
+              <p className="access-note">
+                ابحث بالنزيل أو الصنف أو الفترة، ثم اطبع نتائج البحث كما تظهر
+                على الشاشة.
+              </p>
+            </div>
+            <div className="action-group no-print">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setHistoryResident("");
+                  setHistoryItem("");
+                  setHistoryFromDate("");
+                  setHistoryToDate("");
+                  setHistorySaleType("all");
+                }}
+              >
+                مسح البحث
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={printCurrentView}
+                disabled={!filteredInvoices.length}
+              >
+                طباعة نتائج البحث
+              </button>
+            </div>
+          </div>
+
+          <div className="canteen-report-filters sales-history-filters">
+            <label>
+              النزيل أو رقم الملف
+              <input
+                type="search"
+                value={historyResident}
+                maxLength={160}
+                placeholder="اسم النزيل أو رقم الملف..."
+                onChange={(event) => setHistoryResident(event.target.value)}
+              />
+            </label>
+            <label>
+              الصنف
+              <input
+                type="search"
+                value={historyItem}
+                maxLength={160}
+                placeholder="اسم الصنف..."
+                onChange={(event) => setHistoryItem(event.target.value)}
+              />
+            </label>
+            <label>
+              نوع البيع
+              <select
+                value={historySaleType}
+                onChange={(event) =>
+                  setHistorySaleType(
+                    event.target.value === "cash"
+                      ? "cash"
+                      : event.target.value === "resident"
+                        ? "resident"
+                        : "all",
+                  )
+                }
+              >
+                <option value="all">النقدي والحساب</option>
+                <option value="cash">بيع نقدي</option>
+                <option value="resident">على حساب نزيل</option>
+              </select>
+            </label>
+            <label>
+              من تاريخ
+              <input
+                type="date"
+                value={historyFromDate}
+                onChange={(event) => setHistoryFromDate(event.target.value)}
+              />
+            </label>
+            <label>
+              إلى تاريخ
+              <input
+                type="date"
+                value={historyToDate}
+                onChange={(event) => setHistoryToDate(event.target.value)}
+              />
+            </label>
+          </div>
+          <p className="sales-history-filter-note">
+            {historyFiltersDescription}
+            {historySummary.voided > 0
+              ? ` — ${numberFormatter.format(historySummary.voided)} حركة ملغاة لا تدخل في الإجماليات`
+              : ""}
+          </p>
+
+          <div className="canteen-report-summary report-summary sales-history-summary">
+            <article>
+              <span>إجمالي البيع النقدي</span>
+              <strong>{numberFormatter.format(historySummary.cash)}</strong>
+            </article>
+            <article>
+              <span>إجمالي البيع على الحساب</span>
+              <strong>{numberFormatter.format(historySummary.account)}</strong>
+            </article>
+            <article>
+              <span>إجمالي حركات البيع</span>
+              <strong>{numberFormatter.format(historySummary.total)}</strong>
+            </article>
+            <article>
+              <span>عدد الحركات</span>
+              <strong>{numberFormatter.format(historySummary.count)}</strong>
+            </article>
+          </div>
+
+          {filteredInvoices.map((invoice) => (
             <article className="sales-invoice-card" key={invoice.invoiceNumber}>
               <PrintBrand
-                title={`فاتورة رقم ${invoice.invoiceNumber}`}
+                title={`حركة بيع رقم ${invoice.invoiceNumber}`}
                 subtitle={`${formatDate(invoice.invoiceDate)} — ${invoice.saleType === "cash" ? "بيع نقدي" : invoice.residentName}`}
                 meta={[
                   { label: "الإجمالي", value: numberFormatter.format(invoice.total) },
                   { label: "المسدد", value: numberFormatter.format(invoice.paid) },
                   { label: "الرصيد", value: numberFormatter.format(invoice.balance) },
+                  { label: "البحث", value: historyFiltersDescription },
                 ]}
               />
               <div className="sales-invoice-heading">
                 <div>
-                  <h4>فاتورة رقم {invoice.invoiceNumber}</h4>
+                  <h4>حركة بيع رقم {invoice.invoiceNumber}</h4>
                   <p>
                     {formatDate(invoice.invoiceDate)} —{" "}
                     {invoice.saleType === "cash" ? "بيع نقدي" : invoice.residentName}
@@ -1046,7 +1241,7 @@ export default function CanteenSalesPanel({
                       if (card instanceof HTMLElement) printSingleRecord(card);
                     }}
                   >
-                    طباعة الفاتورة
+                    طباعة الحركة
                   </button>
                 </div>
               </div>
@@ -1058,7 +1253,7 @@ export default function CanteenSalesPanel({
                       <th scope="col">السعر</th>
                       <th scope="col">الكمية</th>
                       <th scope="col">الاجمالى</th>
-                      <th scope="col">فئة الفاتورة</th>
+                      <th scope="col">فئة الصنف</th>
                       <th scope="col">فئة المصدر</th>
                     </tr>
                   </thead>
@@ -1120,7 +1315,7 @@ export default function CanteenSalesPanel({
                       setError("");
                     }}
                   >
-                    إلغاء الفاتورة
+                    إلغاء الحركة
                   </button>
                 )}
               </div>}
@@ -1198,13 +1393,17 @@ export default function CanteenSalesPanel({
               )}
             </article>
           ))}
-          {!sales.invoices.length && (
-            <div className="empty-state">لا توجد فواتير مسجلة بعد.</div>
+          {!filteredInvoices.length && (
+            <div className="empty-state">
+              {sales.invoices.length
+                ? "لا توجد حركات بيع مطابقة لعوامل التصفية."
+                : "لا توجد حركات بيع مسجلة بعد."}
+            </div>
           )}
           <p className="access-note">
-            تعرض الصفحة آخر 100 فاتورة. فواتير البيع النقدي تُسدد كاملة عند
-            التسجيل؛ دفعات حساب النزيل يمكن أن تكون جزئية. إلغاء فاتورة مسددة
-            يسجل رد المبلغ بعد تأكيد تنفيذه.
+            تعرض الصفحة آخر 100 حركة بيع. البيع النقدي يُسدد كاملًا عند
+            التسجيل؛ والبيع على الحساب يظهر كمدين في كشف حساب النزيل ويُسمح
+            بالرصيد السالب. إلغاء حركة مسددة يسجل رد المبلغ بعد تأكيد تنفيذه.
           </p>
         </div>
       )}

@@ -7,6 +7,7 @@ export type InvoiceReportRow = {
   invoiceNumber: number;
   invoiceDate: string;
   saleType: "resident" | "cash";
+  residentId: string | null;
   residentNumber: number | null;
   residentName: string;
   balance: number;
@@ -31,6 +32,9 @@ export type InvoiceReportFilters = {
   startDate: string;
   endDate: string;
   categoryId: number | null;
+  itemName: string;
+  residentName: string;
+  saleType: "all" | "resident" | "cash";
 };
 
 export type InvoiceReportPeriodTotal = {

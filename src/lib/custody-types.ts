@@ -52,6 +52,8 @@ export type CustodyDetail = {
   sourceId: number | null;
   itemNumber: number | null;
   itemName: string;
+  unit: string;
+  notes: string;
   quantity: number | null;
   price: number;
   total: number;
