@@ -644,7 +644,7 @@ export default function CanteenSalesPanel({
               setError("");
             }}
           >
-            الأصناف والفئات
+            أصناف البيع وفئات الفاتورة
           </button>}
         </div>
       </div>
@@ -744,7 +744,7 @@ export default function CanteenSalesPanel({
                   />
                 </label>
                 <label className="form-field">
-                  الفئة
+                  فئة الفاتورة
                   <select
                     value={line.draft.categoryId}
                     onChange={(event) =>
@@ -760,7 +760,7 @@ export default function CanteenSalesPanel({
                   </select>
                 </label>
                 <label className="form-field">
-                  الفئه
+                  فئة المصدر القديمة
                   <select
                     value={line.draft.alternateCategory}
                     onChange={(event) =>
@@ -828,7 +828,7 @@ export default function CanteenSalesPanel({
           </div>
           {!sales.items.length && (
             <p className="access-note">
-              أضف أصناف المشتريات أولًا من تبويب الأصناف والفئات.
+              أضف أصناف المشتريات أولًا من تبويب أصناف البيع وفئات الفاتورة.
             </p>
           )}
           {saleType === "resident" && !residents.length && (
@@ -905,9 +905,9 @@ export default function CanteenSalesPanel({
           </form>
 
           <form className="inventory-form sales-form" onSubmit={submitCategory}>
-            <h4>الفئة</h4>
+            <h4>فئات الفاتورة</h4>
             <label className="form-field">
-              اسم الفئة
+              اسم فئة الفاتورة
               <input
                 required
                 maxLength={120}
@@ -975,8 +975,9 @@ export default function CanteenSalesPanel({
             <table className="resident-table inventory-table">
               <thead>
                 <tr>
-                  <th scope="col">رقم الفئة</th>
-                  <th scope="col">الفئة</th>
+                  <th scope="col">رقم فئة الفاتورة</th>
+                  <th scope="col">اسم فئة الفاتورة</th>
+                  <th scope="col">الإجراءات</th>
                 </tr>
               </thead>
               <tbody>
@@ -1057,8 +1058,8 @@ export default function CanteenSalesPanel({
                       <th scope="col">السعر</th>
                       <th scope="col">الكمية</th>
                       <th scope="col">الاجمالى</th>
-                      <th scope="col">الفئة</th>
-                      <th scope="col">الفئه</th>
+                      <th scope="col">فئة الفاتورة</th>
+                      <th scope="col">فئة المصدر</th>
                     </tr>
                   </thead>
                   <tbody>

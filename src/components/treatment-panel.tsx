@@ -272,7 +272,7 @@ export default function TreatmentPanel({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="inline-flex items-center gap-2 rounded-lg bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-800">
-              <span>💊</span>
+
               <span>العيادة والصيدلية</span>
             </div>
             <h2 className="mt-2 text-2xl font-bold text-slate-800">

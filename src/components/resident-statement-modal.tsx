@@ -167,7 +167,7 @@ export default function ResidentStatementModal({
               onClick={printDocument}
               className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3.5 py-2 text-xs font-bold text-teal-900 shadow-sm hover:bg-teal-50"
             >
-              <span>🖨️</span>
+
               <span>طباعة كشف الحساب</span>
             </button>
             <button

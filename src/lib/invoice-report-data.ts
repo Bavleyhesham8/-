@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, gte, isNull, lte } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import {
@@ -31,7 +31,7 @@ const reportFilterSchema = z
   .object({
     startDate: dateSchema,
     endDate: dateSchema,
-    categoryId: z.number().int().positive().nullable(),
+    categoryId: z.number().int().refine((value) => value !== 0).nullable(),
   })
   .refine((filters) => filters.startDate <= filters.endDate);
 
@@ -43,6 +43,17 @@ export function parseInvoiceReportFilters(
   return parsed.data;
 }
 
+function legacyCategoryId(name: string, usedIds: Set<number>) {
+  let hash = 2166136261;
+  for (const character of name) {
+    hash = Math.imul(hash ^ character.codePointAt(0)!, 16777619);
+  }
+  let id = -(Math.abs(hash % 2_147_483_646) + 1);
+  while (usedIds.has(id)) id = id === -2_147_483_647 ? -1 : id - 1;
+  usedIds.add(id);
+  return id;
+}
+
 export async function getInvoiceReport(
   input: unknown,
 ): Promise<InvoiceReportData> {
@@ -51,21 +62,41 @@ export async function getInvoiceReport(
   await requireAnyScreenAccess("sales", "invoice-reports");
   const database = getDatabase();
 
+  const [baseCategories, legacyRows] = await Promise.all([
+    database
+      .select({ id: invoiceCategories.id, name: invoiceCategories.name })
+      .from(invoiceCategories)
+      .orderBy(invoiceCategories.name),
+    database
+      .selectDistinct({ name: residentInvoiceLines.alternateCategory })
+      .from(residentInvoiceLines)
+      .where(sql`trim(${residentInvoiceLines.alternateCategory}) <> ''`),
+  ]);
+  const legacyNames = [...new Set(legacyRows.map((row) => row.name.trim().normalize("NFC")).filter(Boolean))]
+    .filter((name) => !baseCategories.some((category) => category.name.trim().normalize("NFC") === name));
+  const usedCategoryIds = new Set(baseCategories.map((category) => category.id));
+  const categories = [
+    ...baseCategories,
+    ...legacyNames.map((name) => ({ id: legacyCategoryId(name, usedCategoryIds), name })),
+  ];
   const conditions = [
     gte(residentInvoices.invoiceDate, filters.startDate),
     lte(residentInvoices.invoiceDate, filters.endDate),
     isNull(residentInvoiceVoids.invoiceNumber),
   ];
   if (filters.categoryId !== null) {
-    conditions.push(eq(residentInvoiceLines.categoryId, filters.categoryId));
+    const selectedCategory = categories.find((category) => category.id === filters.categoryId);
+    conditions.push(filters.categoryId < 0 && selectedCategory
+      ? sql`lower(trim(${residentInvoiceLines.alternateCategory})) = lower(trim(${selectedCategory.name}))`
+      : selectedCategory
+      ? or(
+          eq(residentInvoiceLines.categoryId, filters.categoryId),
+          sql`lower(trim(${residentInvoiceLines.alternateCategory})) = lower(trim(${selectedCategory.name}))`,
+        )!
+      : eq(residentInvoiceLines.categoryId, filters.categoryId));
   }
 
-  const [categories, rows] = await Promise.all([
-    database
-      .select({ id: invoiceCategories.id, name: invoiceCategories.name })
-      .from(invoiceCategories)
-      .orderBy(invoiceCategories.name),
-    database
+  const rows = await database
       .select({
         invoiceNumber: residentInvoices.invoiceNumber,
         invoiceDate: residentInvoices.invoiceDate,
@@ -106,8 +137,7 @@ export async function getInvoiceReport(
         asc(residentInvoices.invoiceDate),
         asc(residentInvoices.invoiceNumber),
         asc(residentInvoiceLines.id),
-      ),
-  ]);
+      );
 
   return {
     categories,

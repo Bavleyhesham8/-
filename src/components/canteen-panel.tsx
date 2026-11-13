@@ -429,7 +429,7 @@ export default function CanteenPanel({
               />
             </label>
             <label className="form-field">
-              الصنف / الفئة
+              بند الصرف / الغرض (اختياري)
               <input
                 maxLength={160}
                 value={itemCategory}
@@ -573,7 +573,7 @@ export default function CanteenPanel({
               <th scope="col">الحركة</th>
               <th scope="col">الوارد</th>
               <th scope="col">المنصرف</th>
-              <th scope="col">المستلم</th>
+              <th scope="col">المستلم / بند الصرف</th>
               <th scope="col">الرصيد بعد الحركة</th>
               <th scope="col">السبب / الحالة</th>
               {canVoid && <th scope="col">الإدارة</th>}
@@ -599,7 +599,7 @@ export default function CanteenPanel({
                     ? "—"
                     : numberFormatter.format(movement.outgoing)}
                 </td>
-                <td>{movement.recipient || "—"}</td>
+                <td>{[movement.recipient, movement.issueCategory].filter(Boolean).join(" · ") || "—"}</td>
                 <td>{numberFormatter.format(movement.balance)}</td>
                 <td>
                   {movement.voided

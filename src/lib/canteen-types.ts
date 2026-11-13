@@ -16,6 +16,7 @@ export type CanteenMovement = {
   outgoing: number | null;
   outgoingDate: string | null;
   recipient: string;
+  issueCategory?: string;
   voucherId: number | null;
   voided: boolean;
   voidReason: string;

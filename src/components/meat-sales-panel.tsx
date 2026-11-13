@@ -770,7 +770,7 @@ export default function MeatSalesPanel({
         <>
           <form className="inventory-form sales-form" onSubmit={submitProduct}>
             <label className="form-field">
-              الصنف / الفئة
+              اسم الصنف
               <input
                 required
                 maxLength={160}
@@ -813,7 +813,7 @@ export default function MeatSalesPanel({
               <thead>
                 <tr>
                   <th scope="col">ID</th>
-                  <th scope="col">الصنف / الفئة</th>
+                  <th scope="col">اسم الصنف</th>
                   <th scope="col">السعر</th>
                   <th scope="col">الكمية</th>
                   <th scope="col">رقم الصنف بالثلاجة</th>
@@ -937,7 +937,7 @@ export default function MeatSalesPanel({
                 <tr>
                   <th scope="col">التاريخ</th>
                   <th scope="col">رقم الصنف</th>
-                  <th scope="col">الصنف / الفئة</th>
+                  <th scope="col">اسم الصنف</th>
                   <th scope="col">الوارد</th>
                   <th scope="col">المنصرف</th>
                   <th scope="col">الرصيد الحالي</th>
@@ -1026,7 +1026,7 @@ export default function MeatSalesPanel({
             {preparedLines.map((line, index) => (
               <div className="sales-line" key={index}>
                 <label className="form-field">
-                  الصنف / الفئة
+                  اسم الصنف
                   <select
                     required
                     value={line.draft.itemNumber}
@@ -1184,7 +1184,7 @@ export default function MeatSalesPanel({
                 <table className="resident-table inventory-table">
                   <thead>
                     <tr>
-                      <th scope="col">الصنف / الفئة</th>
+                      <th scope="col">اسم الصنف</th>
                       <th scope="col">السعر</th>
                       <th scope="col">الكمية</th>
                       <th scope="col">الاجمالى</th>
@@ -1402,7 +1402,7 @@ export default function MeatSalesPanel({
                 <tr>
                   <th>التاريخ</th>
                   <th>رقم الصنف</th>
-                  <th>الصنف / الفئة</th>
+                  <th>اسم الصنف</th>
                   <th>الوارد</th>
                   <th>المنصرف</th>
                   <th>السعر</th>
@@ -1612,7 +1612,7 @@ export default function MeatSalesPanel({
               <thead>
                 <tr>
                   <th>رقم الصنف</th>
-                  <th>الصنف / الفئة</th>
+                  <th>اسم الصنف</th>
                   <th>السعر</th>
                   <th>الوارد</th>
                   <th>المنصرف</th>

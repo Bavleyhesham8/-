@@ -169,10 +169,12 @@ const navItems: NavItem[] = [
   { id: "resident-reports", key: "resident-reports", label: "تقارير النزلاء", icon: "search", group: "النزلاء والإقامة", tab: "names" },
 
   { id: "food-store", key: "inventory", label: "مخزن الأغذية", icon: "box", group: "التشغيل والمخازن" },
+  { id: "warehouse-stock", key: "custody", label: "مخزن العهدة", icon: "box", group: "التشغيل والمخازن", tab: "receipts" },
+  { id: "warehouse-catalog", key: "custody", label: "أصناف وأسعار مخزن العهدة", icon: "box", group: "التشغيل والمخازن", tab: "catalog" },
   { id: "canteen", key: "canteen", label: "مخزون الكانتين", icon: "box", group: "التشغيل والمخازن" },
   { id: "canteen-sales", key: "sales", label: "فواتير الكانتين", icon: "box", group: "التشغيل والمخازن", tab: "history" },
   { id: "refrigerator", key: "meat-sales", label: "مبيعات الثلاجة", icon: "box", group: "التشغيل والمخازن", tab: "sale" },
-  { id: "custody", key: "custody", label: "العهدة", icon: "box", group: "التشغيل والمخازن" },
+  { id: "custody", key: "custody", label: "عهد الموظفين", icon: "box", group: "العهد والأصول", tab: "custody" },
 
   { id: "resident-finance", key: "resident-finance", label: "أمانات النزلاء", icon: "box", group: "الفواتير والتقارير والحركات" },
   { id: "resident-purchases", key: "invoice-reports", label: "مشتريات النزلاء", icon: "search", group: "الفواتير والتقارير والحركات" },
@@ -863,7 +865,9 @@ export default function CenterDashboard({
         (persistent ? undefined : demoUsers[0]),
     ),
   );
-  const [viewTab, setViewTab] = useState<string | null>(null);
+  const [viewTab, setViewTab] = useState<string | null>(() =>
+    view === "custody" ? "custody" : null,
+  );
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1371,7 +1375,13 @@ export default function CenterDashboard({
     tracking: "التتبع العام",
     access: "إدارة الوصول",
   };
-  const pageTitle = pageTitles[view];
+  const pageTitle = view === "custody"
+    ? viewTab === "receipts"
+      ? "مخزن العهدة"
+      : viewTab === "catalog"
+        ? "أصناف وأسعار مخزن العهدة"
+        : "عهد الموظفين"
+    : pageTitles[view];
 
   return (
     <div className="app-shell">
@@ -1393,7 +1403,11 @@ export default function CenterDashboard({
 
         <nav className="nav-list" aria-label="القائمة الرئيسية">
           {navItems
-            .filter((item) => isScreenAllowed(item.key))
+            .filter((item) =>
+              isScreenAllowed(item.key) &&
+              (item.id !== "warehouse-stock" || canManageWarehouse || canManageCustody) &&
+              (item.id !== "warehouse-catalog" || canManageWarehouse || canManageCustody),
+            )
             .map((item, index, visibleItems) => {
               const previousGroup =
                 index > 0 ? visibleItems[index - 1].group : null;
@@ -1571,6 +1585,8 @@ export default function CenterDashboard({
           {view === "overview" && isScreenAllowed("overview") && (
             <ExecutiveOverview
               residents={residents}
+              inventory={activeInventory}
+              canteen={canteen}
               sales={sales}
               meatSales={meatSales}
               treatment={treatment}
@@ -1808,6 +1824,8 @@ export default function CenterDashboard({
           {view === "inventory" && isScreenAllowed("inventory") && (
             <InventoryPanel
               inventory={activeInventory}
+              canteen={isScreenAllowed("canteen") ? canteen : { products: [], movements: [] }}
+              refrigerator={isScreenAllowed("meat-sales") ? meatSales : { catalog: [], products: [], movements: [], invoices: [], needsReviewCount: 0 }}
               persistent={persistent}
               canManage={canManageWarehouse}
               onInventoryChange={setInventory}
@@ -1817,10 +1835,12 @@ export default function CenterDashboard({
 
           {view === "custody" && isScreenAllowed("custody") && (
             <CustodyPanel
+              key={viewTab ?? "custody"}
               bundle={activeCustody}
               persistent={persistent}
               canManage={canManageWarehouse || canManageCustody}
               currentEmployeeNumber={currentEmployeeNumber}
+              initialSection={viewTab === "receipts" || viewTab === "catalog" ? viewTab : "custody"}
               onBundleChange={setCustody}
             />
           )}
@@ -2252,7 +2272,7 @@ function ResidentDetails({
                   fontWeight: 700,
                 }}
               >
-                <span>🖨️</span>
+
                 طباعة الملف (A4 / PDF)
               </button>
               <button
@@ -2305,7 +2325,7 @@ function ResidentDetails({
                   fontWeight: 700,
                 }}
               >
-                <span>🖨️</span>
+
                 طباعة الملف (PDF)
               </button>
               <button

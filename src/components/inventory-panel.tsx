@@ -16,9 +16,13 @@ import type {
   InventoryDirection,
   InventoryItem,
 } from "@/lib/inventory-types";
+import type { CanteenBundle } from "@/lib/canteen-types";
+import type { MeatSalesBundle } from "@/lib/meat-sales-types";
 
 type InventoryPanelProps = {
   inventory: InventoryBundle;
+  canteen: CanteenBundle;
+  refrigerator: MeatSalesBundle;
   persistent: boolean;
   canManage: boolean;
   onInventoryChange: (update: (current: InventoryBundle) => InventoryBundle) => void;
@@ -31,6 +35,8 @@ const numberFormatter = new Intl.NumberFormat("ar-EG", {
 
 export default function InventoryPanel({
   inventory,
+  canteen,
+  refrigerator,
   persistent,
   canManage,
   onInventoryChange,
@@ -57,6 +63,51 @@ export default function InventoryPanel({
   const [movementNote, setMovementNote] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const canteenStock = useMemo(() => {
+    const balances = new Map<number, number>();
+    for (const movement of canteen.movements) {
+      if (movement.voided || movement.needsReview) continue;
+      balances.set(
+        movement.itemNumber,
+        (balances.get(movement.itemNumber) ?? 0) +
+          (movement.incoming ?? 0) -
+          (movement.outgoing ?? 0),
+      );
+    }
+    return canteen.products.map((product) => ({
+      key: product.itemNumber,
+      name: product.name,
+      balance: balances.get(product.itemNumber) ?? 0,
+      price: product.price,
+    }));
+  }, [canteen]);
+  const refrigeratorStock = useMemo(() => {
+    const balances = new Map<number, number>();
+    for (const movement of refrigerator.movements) {
+      if (movement.voided || movement.needsReview) continue;
+      const change = movement.direction === "in"
+        ? movement.quantity ?? 0
+        : movement.outgoing ?? movement.quantity ?? 0;
+      balances.set(
+        movement.itemNumber,
+        (balances.get(movement.itemNumber) ?? 0) +
+          (movement.direction === "in" ? change : -change),
+      );
+    }
+    const catalogById = new Map(
+      refrigerator.catalog.map((item) => [item.id, item] as const),
+    );
+    return refrigerator.products.map((product) => {
+      const catalog = catalogById.get(product.catalogId);
+      return {
+        key: product.itemNumber,
+        name: product.itemCategory || catalog?.itemCategory || "صنف غير مسمى",
+        balance: balances.get(product.itemNumber) ?? 0,
+        price: catalog?.price ?? 0,
+      };
+    });
+  }, [refrigerator]);
 
   const categories = inventory.categories.filter((category) => category.active);
   const allCategoryIds = new Set(
@@ -494,8 +545,8 @@ export default function InventoryPanel({
           <h3>الأصناف والأرصدة</h3>
           <p>
             {canManage
-              ? "إدارة الفئات والأصناف وتسجيل حركات الوارد والمنصرف."
-              : "عرض فقط للفئات التي سمح لك المسؤول بالوصول إليها."}
+              ? "متابعة مخزون الأغذية والكانتين والثلاجة في مكان واحد، مع إبقاء رصيد وحركات كل دفتر منفصلة. مخزن العهدة مخصص لأصناف الموظفين وليس للأغذية."
+              : "عرض فقط للفئات التي سمح لك المسؤول بالوصول إليها. الفئة تصنيف، والصنف هو المنتج المخزن."}
           </p>
         </div>
         {canManage && (
@@ -536,6 +587,47 @@ export default function InventoryPanel({
           </div>
         )}
       </div>
+
+      <section className="inventory-linked-sources" aria-labelledby="linked-food-stores-title">
+        <div className="inventory-section-heading">
+          <div>
+            <h4 id="linked-food-stores-title">أرصدة مخازن الأغذية حسب مصدرها</h4>
+            <p>
+              الكانتين والثلاجة لهما دفاتر حركة مستقلة؛ يعرضهما هذا الملخص هنا للمتابعة فقط،
+              ولا يخلط أرصدتهما برصيد المخزن العام.
+            </p>
+          </div>
+        </div>
+        <div className="inventory-linked-grid">
+          {[
+            { title: "الكانتين", rows: canteenStock },
+            { title: "الثلاجة", rows: refrigeratorStock },
+          ].map(({ title, rows }) => (
+            <section className="inventory-linked-card" key={title}>
+              <h5>{title}</h5>
+              <div className="table-wrap">
+                <table className="resident-table inventory-table">
+                  <thead><tr><th>الصنف</th><th>الرصيد</th><th>سعر الوحدة</th><th>قيمة الرصيد</th></tr></thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.key}>
+                        <td>{row.name}</td>
+                        <td>{numberFormatter.format(row.balance)}</td>
+                        <td>{numberFormatter.format(row.price)} ج.م</td>
+                        <td>{numberFormatter.format(row.balance * row.price)} ج.م</td>
+                      </tr>
+                    ))}
+                    {!rows.length && <tr><td colSpan={4}>لا توجد أصناف مسجلة في دفتر {title}.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ))}
+        </div>
+        <p className="access-note">
+          الوارد والصرف وتعديل الأسعار يتم من صفحة كل مخزن؛ لا تُنشأ أصناف أو حركات من هذا الملخص.
+        </p>
+      </section>
 
       {categories.length > 0 && (
         <div className="inventory-category-bar">

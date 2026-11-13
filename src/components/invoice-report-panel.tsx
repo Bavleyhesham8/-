@@ -82,17 +82,22 @@ export default function InvoiceReportPanel({
           const result = await getInvoiceReportAction(appliedFilters);
           if (active) setReport(result);
         } else {
-          const demo = getDemoInvoiceReport();
+          const source = getDemoInvoiceReport();
+          const legacyCategories = [...new Set(source.rows
+            .map((row) => row.alternateCategory.trim().normalize("NFC"))
+            .filter((name) => name && !source.categories.some((category) => category.name === name)))];
+          const demo = {
+            ...source,
+            categories: [...source.categories, ...legacyCategories.map((name, index) => ({ id: -(index + 1), name }))],
+          };
+          const selectedCategory = demo.categories.find((category) => category.id === appliedFilters.categoryId);
           const filteredRows = demo.rows.filter(
             (row) =>
               row.invoiceDate >= appliedFilters.startDate &&
               row.invoiceDate <= appliedFilters.endDate &&
               (appliedFilters.categoryId === null ||
-                demo.categories.find(
-                  (category) =>
-                    category.name === row.categoryName &&
-                    category.id === appliedFilters.categoryId,
-                ) !== undefined),
+                (row.categoryId === appliedFilters.categoryId ||
+                  (!!selectedCategory && row.alternateCategory.trim().normalize("NFC") === selectedCategory.name))),
           );
           if (active) setReport({ ...demo, rows: filteredRows });
         }
@@ -213,7 +218,7 @@ export default function InvoiceReportPanel({
           />
         </label>
         <label>
-          الفئة
+          فئة الفاتورة أو الفئة القديمة
           <select
             value={filters.categoryId ?? ""}
             onChange={(event) =>
@@ -348,9 +353,9 @@ export default function InvoiceReportPanel({
                   <th>اسم النزيل (ويب)</th>
                   <th>نوع البيع (ويب)</th>
                   <th>الرصيد</th>
-                  <th>الفئه</th>
-                  <th>الفئة (رقم)</th>
-                  <th>اسم الفئة (ويب)</th>
+                  <th>الفئة القديمة</th>
+                  <th>رقم الفئة المنظمة</th>
+                  <th>اسم فئة الفاتورة</th>
                   <th>الصنف</th>
                   <th>السعر</th>
                   <th>الكمية</th>

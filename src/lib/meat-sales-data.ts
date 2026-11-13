@@ -71,8 +71,7 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
           refrigeratorStockLedger.id,
         ),
       )
-      .orderBy(desc(refrigeratorStockLedger.id))
-      .limit(2000),
+      .orderBy(desc(refrigeratorStockLedger.id)),
     database
       .select({
         invoiceNumber: meatSalesInvoices.invoiceNumber,
@@ -94,12 +93,20 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
       .where(eq(refrigeratorStockLedger.needsReview, true)),
   ]);
   const needsReviewCount = reviewCountRows[0]?.count ?? 0;
-  const movements = movementRows.map((movement) => ({
-    ...movement,
-    needsReview: movement.needsReview,
-    voided: movement.voided !== null,
-    voidReason: movement.voidReason ?? "",
-  }));
+  const productByNumber = new Map(products.map((product) => [product.itemNumber, product]));
+  const catalogById = new Map(catalog.map((item) => [item.id, item]));
+  const movements = movementRows.map((movement) => {
+    const product = productByNumber.get(movement.itemNumber);
+    const catalogItem = product ? catalogById.get(product.catalogId) : undefined;
+    return {
+      ...movement,
+      itemCategory:
+        movement.itemCategory?.trim() || product?.itemCategory || catalogItem?.itemCategory || "صنف غير معروف",
+      needsReview: movement.needsReview,
+      voided: movement.voided !== null,
+      voidReason: movement.voidReason ?? "",
+    };
+  });
   if (!invoiceRows.length) {
     return { catalog, products, movements, invoices: [], needsReviewCount };
   }

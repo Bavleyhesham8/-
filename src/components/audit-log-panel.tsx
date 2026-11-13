@@ -104,6 +104,9 @@ export default function AuditLogPanel({ entries, onRefresh }: Props) {
         >
           تحديث السجل
         </button>
+        <span className="audit-log-count" aria-live="polite">
+          {new Intl.NumberFormat("ar-EG").format(entries.length)} سجل معروض
+        </span>
       </div>
       <div className="audit-log-table-wrap">
         <table className="audit-log-table">

@@ -86,6 +86,7 @@ export async function listCanteenForCurrentUser(): Promise<{
         outgoing: canteenStockLedger.outgoing,
         outgoingDate: canteenStockLedger.outgoingDate,
         recipient: sql<string>`coalesce(${canteenIssueVouchers.recipient}, '')`,
+        issueCategory: sql<string>`coalesce(${canteenIssueVouchers.itemCategory}, '')`,
         voucherId: canteenStockMovementLinks.voucherId,
         voided: sql<boolean>`${canteenStockVoids.movementId} IS NOT NULL`,
         voidReason: sql<string>`coalesce(${canteenStockVoids.reason}, '')`,
@@ -160,6 +161,12 @@ export async function listCanteenForCurrentUser(): Promise<{
       "recipient" in movement &&
       typeof movement.recipient === "string"
         ? movement.recipient
+        : "",
+    issueCategory:
+      hasFullAccess &&
+      "issueCategory" in movement &&
+      typeof movement.issueCategory === "string"
+        ? movement.issueCategory
         : "",
     voucherId:
       hasFullAccess &&

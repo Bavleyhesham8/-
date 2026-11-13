@@ -176,6 +176,7 @@ export async function recordWarehouseReceiptAction(
     .object({
       itemNumber: itemNumberSchema,
       quantity: quantitySchema,
+      price: priceSchema,
       receivedDate: dateSchema,
     })
     .safeParse(input);
@@ -192,6 +193,11 @@ export async function recordWarehouseReceiptAction(
       .limit(1)
       .for("update");
     if (!item) return { error: "لم يتم العثور على صنف المخزن." } as const;
+
+    await transaction
+      .update(warehouseHeaders)
+      .set({ price: parsed.data.price })
+      .where(eq(warehouseHeaders.number, item.number));
 
     const previousMovements = await transaction
       .select({
@@ -233,7 +239,7 @@ export async function recordWarehouseReceiptAction(
     action: "create",
     entity: "warehouseDetails",
     entityId: result.id,
-    metadata: { fields: "number,quantity,receivedDate" },
+    metadata: { fields: "number,quantity,price,receivedDate" },
   });
   return { ok: true, bundle: await listCustodyDataForCurrentUser() };
 }

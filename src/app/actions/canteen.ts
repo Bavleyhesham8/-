@@ -282,6 +282,8 @@ export async function recordCanteenMovementAction(
         itemName: product.name,
         recipient:
           parsed.data.direction === "out" ? parsed.data.recipient : "",
+        issueCategory:
+          parsed.data.direction === "out" ? parsed.data.itemCategory : "",
         voucherId,
         voided: false,
         voidReason: "",

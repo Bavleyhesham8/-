@@ -8,9 +8,13 @@ import type { MeatSalesBundle } from "@/lib/meat-sales-types";
 import type { TreatmentBundle } from "@/lib/treatment-types";
 import type { ResidentFinanceBundle } from "@/lib/resident-finance-types";
 import type { LookupData } from "@/lib/lookup-types";
+import type { InventoryBundle } from "@/lib/inventory-types";
+import type { CanteenBundle } from "@/lib/canteen-types";
 
 type Props = {
   residents: Resident[];
+  inventory: InventoryBundle;
+  canteen: CanteenBundle;
   sales?: CanteenSalesBundle;
   meatSales?: MeatSalesBundle;
   treatment?: TreatmentBundle;
@@ -77,6 +81,8 @@ const currencyFormatter = new Intl.NumberFormat("ar-EG", {
 
 export default function ExecutiveOverview({
   residents,
+  inventory,
+  canteen,
   sales,
   meatSales,
   treatment,
@@ -118,6 +124,87 @@ export default function ExecutiveOverview({
         : 0,
     }));
   }, [lookups.villas, currentResidents]);
+
+  const governorateStats = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const resident of currentResidents) {
+      const name = resident.governorate?.trim() || "غير محدد";
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts].map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [currentResidents]);
+
+  const inventoryStats = useMemo(() => {
+    const categoryNames = new Map(inventory.categories.map((category) => [category.id, category.name]));
+    const itemBalances = new Map(inventory.items.map((item) => [item.id, { ...item, balance: 0 }]));
+    for (const movement of inventory.movements) {
+      if (movement.voided) continue;
+      const item = itemBalances.get(movement.itemId);
+      if (item) item.balance += movement.direction === "in" ? movement.quantity : -movement.quantity;
+    }
+    const byCategory = new Map<string, { count: number; value: number }>();
+    for (const item of itemBalances.values()) {
+      const name = categoryNames.get(item.categoryId) ?? "بدون تصنيف";
+      const current = byCategory.get(name) ?? { count: 0, value: 0 };
+      current.count += 1;
+      current.value += Math.max(0, item.balance) * item.unitPrice;
+      byCategory.set(name, current);
+    }
+    return [...byCategory].map(([name, stats]) => ({ name, ...stats }))
+      .sort((a, b) => b.value - a.value);
+  }, [inventory]);
+
+  const canteenStock = useMemo(() => {
+    const balances = new Map<number, number>();
+    for (const movement of canteen.movements) {
+      if (movement.voided) continue;
+      balances.set(
+        movement.itemNumber,
+        (balances.get(movement.itemNumber) ?? 0) +
+          (movement.incoming ?? 0) - (movement.outgoing ?? 0),
+      );
+    }
+    const canteenItems = canteen.products.map((product) => ({
+      name: `الكانتين · ${product.name}`,
+      balance: balances.get(product.itemNumber) ?? 0,
+      value: (balances.get(product.itemNumber) ?? 0) * product.price,
+    }));
+    const refrigeratorBalances = new Map<number, number>();
+    for (const movement of meatSales?.movements ?? []) {
+      if (movement.voided || movement.needsReview) continue;
+      refrigeratorBalances.set(
+        movement.itemNumber,
+        (refrigeratorBalances.get(movement.itemNumber) ?? 0) +
+          (movement.direction === "in" ? movement.quantity ?? 0 : -(movement.outgoing ?? 0)),
+      );
+    }
+    const refrigeratorItems = (meatSales?.products ?? []).map((product) => {
+      const price = meatSales?.catalog.find((item) => item.id === product.catalogId)?.price ?? 0;
+      const balance = refrigeratorBalances.get(product.itemNumber) ?? 0;
+      return {
+        name: `الثلاجة · ${product.itemCategory}`,
+        balance,
+        value: balance * price,
+      };
+    });
+    return [...canteenItems, ...refrigeratorItems].sort((a, b) => b.value - a.value);
+  }, [canteen, meatSales]);
+
+  const medicationStats = useMemo(() => {
+    const meds = new Map<string, { quantity: number; total: number; residents: Set<number> }>();
+    for (const record of treatment?.records ?? []) for (const entry of record.entries) {
+      if (entry.voided) continue;
+      const name = entry.medicationName.trim() || "غير محدد";
+      const stats = meds.get(name) ?? { quantity: 0, total: 0, residents: new Set<number>() };
+      stats.quantity += entry.quantity;
+      stats.total += entry.total;
+      if (record.residentNumber) stats.residents.add(record.residentNumber);
+      meds.set(name, stats);
+    }
+    return [...meds].map(([name, stats]) => ({ name, quantity: stats.quantity, total: stats.total, residents: stats.residents.size }))
+      .sort((a, b) => b.quantity - a.quantity).slice(0, 8);
+  }, [treatment]);
 
   // 2. إجمالي المبيعات والماليات
   const totalCanteenSales = useMemo(() => {
@@ -285,9 +372,7 @@ export default function ExecutiveOverview({
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-600">النزلاء المقيمون الآن</span>
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-xl text-teal-700 group-hover:bg-teal-600 group-hover:text-white transition">
-              👥
-            </span>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-xl text-teal-700 group-hover:bg-teal-600 group-hover:text-white transition">01</span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-black text-slate-900">
@@ -316,9 +401,7 @@ export default function ExecutiveOverview({
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-600">مبيعات الكانتين واللحوم</span>
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-xl text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white transition">
-              🛒
-            </span>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-xl text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white transition">02</span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-black text-emerald-700">
@@ -347,9 +430,7 @@ export default function ExecutiveOverview({
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-600">إجمالي العلاج غير الملغى</span>
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-50 text-xl text-cyan-700 group-hover:bg-cyan-600 group-hover:text-white transition">
-              💊
-            </span>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-50 text-xl text-cyan-700 group-hover:bg-cyan-600 group-hover:text-white transition">03</span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-black text-cyan-800">
@@ -378,9 +459,7 @@ export default function ExecutiveOverview({
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-600">إجمالي المقبوضات المسجلة</span>
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-xl text-amber-700 group-hover:bg-amber-600 group-hover:text-white transition">
-              🪙
-            </span>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-xl text-amber-700 group-hover:bg-amber-600 group-hover:text-white transition">04</span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-black text-amber-800">
@@ -527,6 +606,81 @@ export default function ExecutiveOverview({
           <p className="mt-1 text-[11px] leading-5 text-slate-500">المبيعات إجمالي بيع وليست ربحًا، والعلاج مطالبات مسجلة، والمقبوضات إيصالات غير ملغاة. اضغط على أسماء المؤشرات لإظهارها أو إخفائها.</p>
         </div>
       </div>
+
+      <section className="space-y-5" aria-label="تحليلات التشغيل والمخزون">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <div className="rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div><h2 className="text-base font-bold text-slate-900">توزيع النزلاء حسب المحافظة</h2><p className="mt-1 text-xs text-slate-500">النزلاء المقيمون حاليًا · {currentResidents.length} نزيل</p></div>
+              <span className="rounded-lg bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-800">{governorateStats.length} محافظة</span>
+            </div>
+            <div className="mt-4 max-h-72 space-y-3 overflow-auto">
+              {governorateStats.length ? governorateStats.map((item) => (
+                <div key={item.name}>
+                  <div className="mb-1 flex justify-between text-xs"><span className="font-semibold text-slate-700">{item.name}</span><span className="text-slate-500">{numberFormatter.format(item.count)} · {currentResidents.length ? Math.round(item.count / currentResidents.length * 100) : 0}%</span></div>
+                  <div className="h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-500" style={{ width: `${currentResidents.length ? Math.max(3, item.count / currentResidents.length * 100) : 0}%` }} /></div>
+                </div>
+              )) : <p className="py-8 text-center text-xs text-slate-400">لا توجد بيانات إقامة مسجلة.</p>}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div><h2 className="text-base font-bold text-slate-900">المخزون العام حسب التصنيف</h2><p className="mt-1 text-xs text-slate-500">قيمة تقديرية للأرصدة الحالية من الحركات غير الملغاة</p></div>
+              {canNavigate("inventory") && <button onClick={() => onNavigate("inventory")} className="text-xs font-bold text-teal-700">فتح المخزون ←</button>}
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-right text-xs"><thead className="text-slate-500"><tr><th className="py-2">التصنيف</th><th>الأصناف</th><th>القيمة التقديرية</th></tr></thead><tbody>
+                {inventoryStats.slice(0, 8).map((item) => <tr key={item.name} className="border-t border-slate-100"><td className="py-2.5 font-semibold text-slate-800">{item.name}</td><td>{numberFormatter.format(item.count)}</td><td className="font-bold text-teal-800">{currencyFormatter.format(item.value)} ج.م</td></tr>)}
+                {!inventoryStats.length && <tr><td colSpan={3} className="py-8 text-center text-slate-400">لا توجد بيانات مخزون متاحة.</td></tr>}
+              </tbody></table>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <div className="rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div><h2 className="text-base font-bold text-slate-900">أرصدة الكانتين والثلاجة</h2><p className="mt-1 text-xs text-slate-500">الرصيد الحالي لكل صنف · القيمة محسوبة بسعر الصنف</p></div>
+              {canNavigate("canteen") && <button onClick={() => onNavigate("canteen")} className="text-xs font-bold text-teal-700">فتح الكانتين ←</button>}
+            </div>
+            <div className="mt-4 max-h-72 overflow-auto">
+              <table className="w-full text-right text-xs"><thead className="sticky top-0 bg-white text-slate-500"><tr><th className="py-2">الصنف</th><th>الرصيد</th><th>القيمة</th></tr></thead><tbody>
+                {canteenStock.slice(0, 10).map((item) => <tr key={item.name} className="border-t border-slate-100"><td className="py-2.5 font-semibold text-slate-800">{item.name}</td><td>{numberFormatter.format(item.balance)}</td><td className="font-bold text-emerald-800">{currencyFormatter.format(item.value)} ج.م</td></tr>)}
+                {!canteenStock.length && <tr><td colSpan={3} className="py-8 text-center text-slate-400">لا توجد أرصدة كانتين متاحة.</td></tr>}
+              </tbody></table>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div><h2 className="text-base font-bold text-slate-900">الأدوية والعلاج الأكثر صرفًا</h2><p className="mt-1 text-xs text-slate-500">أكثر 8 أصناف حسب الكمية · من السجلات غير الملغاة</p></div>
+              {canNavigate("treatment") && <button onClick={() => onNavigate("treatment")} className="text-xs font-bold text-teal-700">فتح العلاج ←</button>}
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-right text-xs"><thead className="text-slate-500"><tr><th className="py-2">الدواء</th><th>الكمية</th><th>النزلاء</th><th>القيمة</th></tr></thead><tbody>
+                {medicationStats.map((item) => <tr key={item.name} className="border-t border-slate-100"><td className="py-2.5 font-semibold text-slate-800">{item.name}</td><td>{numberFormatter.format(item.quantity)}</td><td>{numberFormatter.format(item.residents)}</td><td className="font-bold text-cyan-800">{currencyFormatter.format(item.total)} ج.م</td></tr>)}
+                {!medicationStats.length && <tr><td colSpan={4} className="py-8 text-center text-slate-400">لا توجد سجلات علاج متاحة.</td></tr>}
+              </tbody></table>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div><h2 className="text-base font-bold text-slate-900">ملخص النشاط المالي</h2><p className="mt-1 text-xs text-slate-500">الأرقام أدناه إجماليات مسجلة وليست صافي ربح أو رصيد نقدي موحد</p></div>
+            <span className="rounded-lg bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">{currencyFormatter.format(grandRevenue + totalClinicExpenses + totalResidentReceipts)} ج.م إجمالي المؤشرات</span>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: "مبيعات الكانتين", value: totalCanteenSales, color: "text-emerald-800" },
+              { label: "مبيعات الثلاجة واللحوم", value: totalMeatSales, color: "text-orange-800" },
+              { label: "مطالبات العلاج", value: totalClinicExpenses, color: "text-cyan-800" },
+              { label: "مقبوضات النزلاء", value: totalResidentReceipts, color: "text-amber-800" },
+            ].map((item) => <div key={item.label} className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-semibold text-slate-500">{item.label}</p><p className={`mt-2 text-xl font-black ${item.color}`}>{currencyFormatter.format(item.value)} <small className="text-xs">ج.م</small></p></div>)}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

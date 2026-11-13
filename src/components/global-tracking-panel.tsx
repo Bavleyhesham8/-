@@ -34,6 +34,7 @@ type TrackingEvent = {
   direction: TrackingDirection;
   typeLabel: string;
   title: string;
+  category?: string;
   detail: string;
   quantity: number | null;
   unit: string;
@@ -204,6 +205,12 @@ export default function GlobalTrackingPanel({
     const inventoryUnits = new Map(
       inventory.items.map((item) => [item.id, item.unit]),
     );
+    const inventoryCategories = new Map(
+      inventory.categories.map((category) => [category.id, category.name]),
+    );
+    const inventoryItemCategories = new Map(
+      inventory.items.map((item) => [item.id, inventoryCategories.get(item.categoryId) ?? ""]),
+    );
 
     for (const movement of inventory.movements) {
       result.push({
@@ -215,6 +222,7 @@ export default function GlobalTrackingPanel({
         typeLabel:
           movement.direction === "in" ? "توريد مخزون" : "صرف مخزون",
         title: movement.itemName,
+        category: inventoryItemCategories.get(movement.itemId),
         detail: movement.note,
         quantity: movement.quantity,
         unit: inventoryUnits.get(movement.itemId) ?? "",
@@ -267,6 +275,15 @@ export default function GlobalTrackingPanel({
       });
     }
 
+    const canteenBalances = runningBalance(
+      canteen.movements,
+      (movement) => String(movement.itemNumber),
+      (movement) => String(movement.id),
+      (movement) => movement.incomingDate ?? movement.outgoingDate ?? "",
+      (movement) => movement.incoming ?? 0,
+      (movement) => movement.outgoing ?? 0,
+      (movement) => movement.voided,
+    );
     const canteenPrices = new Map(
       canteen.products.map((product) => [product.itemNumber, product.price]),
     );
@@ -281,13 +298,13 @@ export default function GlobalTrackingPanel({
         direction: isIncoming ? "in" : "out",
         typeLabel: isIncoming ? "وارد كانتين" : "منصرف كانتين",
         title: movement.itemName,
-        detail: movement.recipient,
+        detail: [movement.recipient, movement.issueCategory].filter(Boolean).join(" · "),
         quantity,
         unit: "",
         amount: quantity * (canteenPrices.get(movement.itemNumber) ?? 0),
         amountKind: "stock",
         outstanding: null,
-        balanceAfter: movement.balance,
+        balanceAfter: canteenBalances.get(String(movement.id)) ?? null,
         status: movement.voided ? "voided" : "active",
         reference: movement.voucherId ? `سند ${movement.voucherId}` : "",
       });
@@ -345,8 +362,7 @@ export default function GlobalTrackingPanel({
         movement.receivedDate ?? movement.outgoingDate ?? "",
       (movement) =>
         movement.direction === "in" ? (movement.quantity ?? 0) : 0,
-      (movement) =>
-        movement.direction === "out" ? (movement.quantity ?? 0) : 0,
+      (movement) => movement.direction === "out" ? (movement.outgoing ?? 0) : 0,
       (movement) => movement.voided,
     );
     for (const movement of meatSales.movements) {
@@ -360,9 +376,15 @@ export default function GlobalTrackingPanel({
           movement.direction === "in" ? "وارد ثلاجة" : "صرف ثلاجة",
         title: movement.itemCategory,
         detail: movement.recipient ?? "",
-        quantity: movement.quantity ?? 0,
+        quantity:
+          movement.direction === "in"
+            ? movement.quantity ?? 0
+            : movement.outgoing ?? 0,
         unit: "كجم",
-        amount: movement.total,
+        amount:
+          (movement.direction === "in"
+            ? movement.quantity ?? 0
+            : movement.outgoing ?? 0) * (movement.price ?? 0),
         amountKind: "stock",
         outstanding: null,
         balanceAfter: movement.needsReview
@@ -576,7 +598,7 @@ export default function GlobalTrackingPanel({
         }
         if (
           search &&
-          !`${event.moduleLabel} ${event.typeLabel} ${event.title} ${event.detail} ${event.reference}`
+          !`${event.moduleLabel} ${event.typeLabel} ${event.title} ${event.category ?? ""} ${event.detail} ${event.reference}`
             .toLocaleLowerCase()
             .includes(search)
         ) {
@@ -592,8 +614,8 @@ export default function GlobalTrackingPanel({
   }, [appliedFilters, events]);
 
   const summary = useMemo(() => {
-    let incomingQuantity = 0;
-    let outgoingQuantity = 0;
+    let incomingMovementCount = 0;
+    let outgoingMovementCount = 0;
     let incomingValue = 0;
     let outgoingValue = 0;
     let revenue = 0;
@@ -616,10 +638,10 @@ export default function GlobalTrackingPanel({
       }
       if (event.quantity !== null) {
         if (event.direction === "in") {
-          incomingQuantity += event.quantity;
+          incomingMovementCount += 1;
           incomingValue += event.amount ?? 0;
         } else if (event.direction === "out") {
-          outgoingQuantity += event.quantity;
+          outgoingMovementCount += 1;
           outgoingValue += event.amount ?? 0;
         }
       }
@@ -647,9 +669,8 @@ export default function GlobalTrackingPanel({
 
     return {
       count: filteredEvents.length,
-      incomingQuantity,
-      outgoingQuantity,
-      netQuantity: incomingQuantity - outgoingQuantity,
+      incomingMovementCount,
+      outgoingMovementCount,
       incomingValue,
       outgoingValue,
       revenue,
@@ -700,7 +721,9 @@ export default function GlobalTrackingPanel({
       "الوحدة",
       "نوع الحركة",
       "البيان",
+      "الفئة / البند",
       "التفاصيل",
+      "وحدة القياس",
       "الوارد",
       "المنصرف",
       "الرصيد بعد",
@@ -713,7 +736,9 @@ export default function GlobalTrackingPanel({
       event.moduleLabel,
       event.typeLabel,
       event.title,
+      event.category ?? "",
       event.detail,
+      event.unit,
       event.quantity !== null && event.direction === "in"
         ? String(event.quantity)
         : event.quantity === null && event.amount !== null && event.direction === "in"
@@ -888,16 +913,12 @@ export default function GlobalTrackingPanel({
           <strong>{numberFormatter.format(summary.count)}</strong>
         </article>
         <article>
-          <span>إجمالي الوارد (كميات)</span>
-          <strong>{numberFormatter.format(summary.incomingQuantity)}</strong>
+          <span>عدد حركات المخزون الواردة</span>
+          <strong>{numberFormatter.format(summary.incomingMovementCount)}</strong>
         </article>
         <article>
-          <span>إجمالي المنصرف (كميات)</span>
-          <strong>{numberFormatter.format(summary.outgoingQuantity)}</strong>
-        </article>
-        <article>
-          <span>صافي الحركة (كميات)</span>
-          <strong>{numberFormatter.format(summary.netQuantity)}</strong>
+          <span>عدد حركات المخزون المنصرفة</span>
+          <strong>{numberFormatter.format(summary.outgoingMovementCount)}</strong>
         </article>
         <article>
           <span>قيمة الوارد المخزني</span>
@@ -945,6 +966,7 @@ export default function GlobalTrackingPanel({
               <th>الوحدة</th>
               <th>نوع الحركة</th>
               <th>البيان / الصنف</th>
+              <th>الفئة / البند</th>
               <th>التفاصيل</th>
               <th>الوارد</th>
               <th>المنصرف</th>
@@ -979,6 +1001,7 @@ export default function GlobalTrackingPanel({
                   <small className="tracking-type-label">{event.typeLabel}</small>
                 </td>
                 <td>{event.title}</td>
+                <td>{event.category || "—"}</td>
                 <td>{event.detail || "—"}</td>
                 <td className="tracking-number">
                   {event.quantity !== null && event.direction === "in"

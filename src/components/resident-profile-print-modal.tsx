@@ -89,7 +89,7 @@ export default function ResidentProfilePrintModal({ resident, onClose }: Props) 
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ fontSize: "22px" }}>📄</span>
+
             <div>
               <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 800 }}>
                 استمارة قيد وبيانات نزيل رسمية (جاهزة للطباعة / PDF)
@@ -119,7 +119,7 @@ export default function ResidentProfilePrintModal({ resident, onClose }: Props) 
                 boxShadow: "0 4px 12px rgba(245,158,11,0.3)",
               }}
             >
-              <span>🖨️</span>
+
               <span>طباعة الملف الآن (A4 / PDF)</span>
             </button>
             <button

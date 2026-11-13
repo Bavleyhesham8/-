@@ -25,6 +25,7 @@ type Props = {
   persistent: boolean;
   canManage: boolean;
   currentEmployeeNumber: number | null;
+  initialSection?: "custody" | "receipts" | "catalog";
   onBundleChange: (
     update: (current: CustodyBundle) => CustodyBundle,
   ) => void;
@@ -69,11 +70,10 @@ export default function CustodyPanel({
   persistent,
   canManage,
   currentEmployeeNumber,
+  initialSection = "custody",
   onBundleChange,
 }: Props) {
-  const [section, setSection] = useState<"custody" | "receipts" | "catalog">(
-    "custody",
-  );
+  const section = initialSection;
   const [issueDate, setIssueDate] = useState(localDateValue());
   const [employeeNumber, setEmployeeNumber] = useState("");
   const [draftLines, setDraftLines] = useState<DraftLine[]>([
@@ -81,6 +81,7 @@ export default function CustodyPanel({
   ]);
   const [receiptItemNumber, setReceiptItemNumber] = useState("");
   const [receiptQuantity, setReceiptQuantity] = useState("");
+  const [receiptPrice, setReceiptPrice] = useState("");
   const [receiptDate, setReceiptDate] = useState(localDateValue());
   const [newItemName, setNewItemName] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("");
@@ -97,6 +98,10 @@ export default function CustodyPanel({
   const itemByNumber = useMemo(
     () => new Map(bundle.items.map((item) => [item.itemNumber, item])),
     [bundle.items],
+  );
+  const custodyPriceByDetailId = useMemo(
+    () => new Map(bundle.records.flatMap((record) => record.details.map((detail) => [detail.id, detail.price] as const))),
+    [bundle.records],
   );
   const preparedLines = draftLines.map((line) => {
     const item = itemByNumber.get(Number(line.itemNumber));
@@ -306,11 +311,14 @@ export default function CustodyPanel({
     setMessage("");
     const itemNumber = Number(receiptItemNumber);
     const quantity = Number(receiptQuantity);
+    const price = Number(receiptPrice);
     const item = itemByNumber.get(itemNumber);
     if (
       !item ||
       !Number.isFinite(quantity) ||
       quantity <= 0 ||
+      !Number.isFinite(price) ||
+      price < 0 ||
       !receiptDate
     ) {
       setError("اختر صنفًا وأدخل كمية وتاريخ استلام صحيحين.");
@@ -323,6 +331,7 @@ export default function CustodyPanel({
         const result = await recordWarehouseReceiptAction({
           itemNumber,
           quantity,
+          price,
           receivedDate: receiptDate,
         });
         if (!result.ok) {
@@ -354,7 +363,7 @@ export default function CustodyPanel({
             ...current,
             items: current.items.map((entry) =>
               entry.itemNumber === itemNumber
-                ? { ...entry, balance: entry.balance + quantity }
+                ? { ...entry, balance: entry.balance + quantity, price }
                 : entry,
             ),
             warehouseMovements: [movement, ...current.warehouseMovements],
@@ -362,6 +371,7 @@ export default function CustodyPanel({
         });
       }
       setReceiptQuantity("");
+      setReceiptPrice("");
       setSuccess("تم تسجيل وارد المخزن.");
     } finally {
       setSaving(false);
@@ -755,50 +765,23 @@ export default function CustodyPanel({
     }
   }
 
-  const sectionButtons = (
-    <>
-      <button
-        role="tab"
-        aria-selected={section === "custody"}
-        type="button"
-        className={section === "custody" ? "active" : ""}
-        onClick={() => setSection("custody")}
-      >
-        العهدة
-      </button>
-      {canManage && (
-        <>
-          <button
-            role="tab"
-            aria-selected={section === "receipts"}
-            type="button"
-            className={section === "receipts" ? "active" : ""}
-            onClick={() => setSection("receipts")}
-          >
-            استلام المخزن
-          </button>
-          <button
-            role="tab"
-            aria-selected={section === "catalog"}
-            type="button"
-            className={section === "catalog" ? "active" : ""}
-            onClick={() => setSection("catalog")}
-          >
-            الأصناف والأسعار
-          </button>
-        </>
-      )}
-    </>
-  );
-
   return (
     <section className="custody-panel content-panel">
       <div className="panel-heading">
         <div>
-          <h3>إدارة العهدة والمخزن</h3>
+          <h3>
+            {section === "custody"
+              ? "عهد الموظفين"
+              : section === "receipts"
+                ? "مخزن العهدة"
+                : "أصناف مخزن العهدة وأسعارها"}
+          </h3>
           <p>
-            تحفظ الجداول الأصلية للعهدة والمخزن، مع سجل إضافي للإرجاع والنقل
-            والإلغاء.
+            {section === "custody"
+              ? "تسليم الأصناف للموظفين ومتابعة الإرجاع أو النقل والإلغاء. كل بند يظهر معه الصنف والسعر والكمية والمسؤول الحالي."
+              : section === "receipts"
+                ? "هذا المخزن يمد سجلات عهد الموظفين بالأصناف؛ الوارد يزيد الرصيد، والتسليم كعهدة يخصمه. مخزن الأغذية العام والكانتین والثلاجة منفصلة."
+                : "تعريف أصناف مخزن العهدة وأسعارها الافتراضية. السعر المسجل يظهر مع كل حركة ويمكن تعديله في سجل العهدة."}
           </p>
         </div>
         <span className="panel-role">
@@ -812,10 +795,6 @@ export default function CustodyPanel({
           المراجعة؛ لا تدخل في حساب الرصيد.
         </p>
       )}
-
-      <div className="custody-tabs" role="tablist" aria-label="أقسام العهدة">
-        {sectionButtons}
-      </div>
 
       {error && (
         <p className="form-message form-message-error" role="alert">
@@ -842,7 +821,7 @@ export default function CustodyPanel({
               <div className="custody-section-heading">
                 <div>
                   <h4>تسجيل عهدة جديدة</h4>
-                  <p>يُخصم المخزون في العملية نفسها بعد التحقق من الرصيد.</p>
+                  <p>مخزن العهدة يحتوي الأصناف التي يمكن تسليمها للموظفين كسجلات عهدة. مخزن الأغذية العام والكانتين والثلاجة وحدات مستقلة.</p>
                 </div>
               </div>
               <div className="custody-issue-fields">
@@ -881,7 +860,7 @@ export default function CustodyPanel({
                   return (
                     <div className="custody-draft-line" key={index}>
                       <label>
-                        <span>الصنف / الفئة</span>
+                        <span>الصنف</span>
                         <select
                           value={line.itemNumber}
                           onChange={(event) =>
@@ -1163,7 +1142,7 @@ export default function CustodyPanel({
                       <table>
                         <thead>
                           <tr>
-                            <th>الصنف / الفئة</th>
+                            <th>الصنف</th>
                             <th>الكمية</th>
                             <th>السعر</th>
                             <th>الإجمالى</th>
@@ -1290,9 +1269,12 @@ export default function CustodyPanel({
                 <span>الصنف</span>
                 <select
                   value={receiptItemNumber}
-                  onChange={(event) =>
-                    setReceiptItemNumber(event.target.value)
-                  }
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setReceiptItemNumber(value);
+                    const item = itemByNumber.get(Number(value));
+                    setReceiptPrice(item?.price == null ? "" : String(item.price));
+                  }}
                   required
                 >
                   <option value="">اختر الصنف</option>
@@ -1303,6 +1285,17 @@ export default function CustodyPanel({
                     </option>
                   ))}
                 </select>
+              </label>
+              <label>
+                <span>سعر الوحدة</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={receiptPrice}
+                  onChange={(event) => setReceiptPrice(event.target.value)}
+                  required
+                />
               </label>
               <label>
                 <span>الكمية الواردة</span>
@@ -1377,6 +1370,7 @@ export default function CustodyPanel({
                 <tr>
                   <th>الصنف</th>
                   <th>نوع الحركة</th>
+                  <th>سعر الوحدة</th>
                   <th>الوارد</th>
                   <th>المنصرف</th>
                   <th>الرصيد قبل الحركة</th>
@@ -1404,6 +1398,13 @@ export default function CustodyPanel({
                           : movement.kind === "custody_return"
                             ? "مرتجع عهدة"
                             : "استرداد إلغاء"}
+                    </td>
+                    <td>
+                      {formatOptionalNumber(
+                        (movement.custodyDetailId
+                          ? custodyPriceByDetailId.get(movement.custodyDetailId)
+                          : undefined) ?? itemByNumber.get(movement.itemNumber)?.price ?? null,
+                      )}
                     </td>
                     <td>{formatOptionalNumber(movement.incoming)}</td>
                     <td>{formatOptionalNumber(movement.outgoing)}</td>

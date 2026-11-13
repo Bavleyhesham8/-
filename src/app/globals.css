@@ -41,6 +41,13 @@ body {
   min-height: 100vh;
 }
 
+@media (max-width: 760px) {
+  body {
+    background-attachment: scroll;
+    background-position: center top;
+  }
+}
+
 button,
 input,
 select {
@@ -1542,6 +1549,39 @@ button:disabled {
   padding: 6px 8px;
   font: inherit;
   font-size: 11px;
+}
+
+.inventory-linked-sources {
+  margin: 1rem 0 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--border, #d7e4df);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.inventory-linked-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.inventory-linked-card {
+  min-width: 0;
+}
+
+.inventory-linked-card h5 {
+  margin: 0 0 0.65rem;
+  color: #173d32;
+}
+
+.inventory-linked-card .table-wrap {
+  overflow-x: auto;
+}
+
+@media (max-width: 760px) {
+  .inventory-linked-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .inventory-summary {
@@ -3817,6 +3857,19 @@ label.form-field {
   line-height: 1.7;
 }
 
+.audit-log-count {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #cfe0d5;
+  border-radius: 999px;
+  background: #f1f7f3;
+  color: #145942;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .audit-log-table-wrap {
   overflow: auto;
   border: 1px solid #d9e4dd;
@@ -3951,5 +4004,9 @@ label.form-field {
 
   .audit-log-heading .secondary-button {
     width: 100%;
+  }
+
+  .audit-log-count {
+    align-self: flex-start;
   }
 }
