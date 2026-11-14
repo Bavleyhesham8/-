@@ -10,6 +10,13 @@ import {
 import PrintBrand from "@/components/print-brand";
 import { formatDate, localDateValue } from "@/lib/date-format";
 import { printCurrentView, printSingleRecord } from "@/lib/print";
+import {
+  filterRefrigeratorInvoices,
+  filterRefrigeratorMovements,
+  meatSaleRemaining,
+  meatSaleStatus,
+  summarizeRefrigeratorReport,
+} from "@/lib/meat-sales-report-utils";
 import type {
   MeatSaleInvoice,
   MeatSaleLine,
@@ -137,88 +144,39 @@ export default function MeatSalesPanel({
 
   const reportMovements = useMemo(
     () =>
-      sales.movements.filter((movement) => {
-        const date = movement.receivedDate ?? movement.outgoingDate ?? "";
-        return (
-          (!appliedReportStartDate || date >= appliedReportStartDate) &&
-          (!appliedReportEndDate || date <= appliedReportEndDate) &&
-          (appliedReportItemNumber === "all" || String(movement.itemNumber) === appliedReportItemNumber)
-        );
+      filterRefrigeratorMovements(sales.movements, {
+        startDate: appliedReportStartDate,
+        endDate: appliedReportEndDate,
+        itemNumber: appliedReportItemNumber,
       }),
     [sales.movements, appliedReportStartDate, appliedReportEndDate, appliedReportItemNumber],
   );
 
   const reportInvoices = useMemo(
     () =>
-      sales.invoices.filter(
-        (invoice) =>
-          (!appliedReportStartDate ||
-            invoice.saleDate >= appliedReportStartDate) &&
-          (!appliedReportEndDate || invoice.saleDate <= appliedReportEndDate) &&
-          (appliedReportItemNumber === "all" || invoice.lines.some((line) => String(line.refrigeratorItemNumber) === appliedReportItemNumber)),
-      ),
+      filterRefrigeratorInvoices(sales.invoices, {
+        startDate: appliedReportStartDate,
+        endDate: appliedReportEndDate,
+        itemNumber: appliedReportItemNumber,
+      }),
     [sales.invoices, appliedReportStartDate, appliedReportEndDate, appliedReportItemNumber],
   );
 
-  const reportSummary = useMemo(() => {
-    let incomingQuantity = 0;
-    let incomingValue = 0;
-    let incomingValueComplete = true;
-    let outgoingQuantity = 0;
-    let outgoingValue = 0;
-    let outgoingValueComplete = true;
-    for (const movement of reportMovements) {
-      if (movement.voided) continue;
-      if (movement.quantity !== null) {
-        incomingQuantity += movement.quantity;
-        if (movement.price === null) incomingValueComplete = false;
-        else incomingValue += movement.quantity * movement.price;
-      }
-      if (movement.outgoing !== null) {
-        outgoingQuantity += movement.outgoing;
-        if (movement.price === null) outgoingValueComplete = false;
-        else outgoingValue += movement.outgoing * movement.price;
-      }
-    }
-    const activeInvoices = reportInvoices.filter(
-      (invoice) => !invoice.voided,
-    );
-    return {
-      incomingQuantity,
-      incomingValue: incomingValueComplete ? incomingValue : null,
-      outgoingQuantity,
-      outgoingValue: outgoingValueComplete ? outgoingValue : null,
-      remainingQuantity: incomingQuantity - outgoingQuantity,
-      remainingValue:
-        incomingValueComplete && outgoingValueComplete
-          ? incomingValue - outgoingValue
-          : null,
-      invoiceCount: activeInvoices.length,
-      invoiceTotal: activeInvoices.every((invoice) => invoice.total !== null)
-        ? activeInvoices.reduce((sum, invoice) => sum + (appliedReportItemNumber === "all" ? (invoice.total ?? 0) : invoice.lines.filter((line) => String(line.refrigeratorItemNumber) === appliedReportItemNumber).reduce((lineTotal, line) => lineTotal + (line.total ?? line.price * line.quantity), 0)), 0)
-        : null,
-      invoicePaid: activeInvoices.reduce((sum, invoice) => {
-        if (appliedReportItemNumber === "all") return sum + invoice.paid;
-        const selectedTotal = invoice.lines
-          .filter((line) => String(line.refrigeratorItemNumber) === appliedReportItemNumber)
-          .reduce((lineTotal, line) => lineTotal + (line.total ?? line.price * line.quantity), 0);
-        return sum + (invoice.total ? invoice.paid * selectedTotal / invoice.total : 0);
-      }, 0),
-      invoiceOutstanding: activeInvoices.every((invoice) => invoice.total !== null)
-        ? activeInvoices.reduce(
-            (sum, invoice) => {
-              if (appliedReportItemNumber === "all") return sum + Math.max(0, (invoice.total ?? 0) - invoice.paid);
-              const selectedTotal = invoice.lines
-                .filter((line) => String(line.refrigeratorItemNumber) === appliedReportItemNumber)
-                .reduce((lineTotal, line) => lineTotal + (line.total ?? line.price * line.quantity), 0);
-              const allocatedPaid = invoice.total ? invoice.paid * selectedTotal / invoice.total : 0;
-              return sum + Math.max(0, selectedTotal - allocatedPaid);
-            },
-            0,
-          )
-        : null,
-    };
-  }, [reportMovements, reportInvoices, appliedReportItemNumber]);
+  const reportSummary = useMemo(
+    () =>
+      summarizeRefrigeratorReport(sales.movements, sales.invoices, {
+        startDate: appliedReportStartDate,
+        endDate: appliedReportEndDate,
+        itemNumber: appliedReportItemNumber,
+      }),
+    [
+      sales.movements,
+      sales.invoices,
+      appliedReportStartDate,
+      appliedReportEndDate,
+      appliedReportItemNumber,
+    ],
+  );
 
   const reportBalances = useMemo(() => {
     const result = new Map<number, number>();
@@ -1154,27 +1112,27 @@ export default function MeatSalesPanel({
 
       {section === "history" && (
         <div className="sales-invoice-list">
-          {sales.invoices.map((invoice) => (
+          {sales.invoices.map((invoice) => {
+            const remaining = meatSaleRemaining(invoice);
+            return (
             <article className="sales-invoice-card" key={invoice.invoiceNumber}>
               <PrintBrand
-                title={`فاتورة بيع اللحوم رقم ${invoice.invoiceNumber}`}
+                title={`فاتورة الثلاجة رقم ${invoice.invoiceNumber}`}
                 subtitle={invoice.beneficiary}
                 meta={[
                   { label: "التاريخ", value: formatDate(invoice.saleDate) },
-                  { label: "الإجمالي", value: formatOptionalNumber(invoice.total) },
+                  { label: "الإجمالي المستحق", value: formatOptionalNumber(invoice.total) },
                   { label: "المسدد", value: numberFormatter.format(invoice.paid) },
                   {
                     label: "المتبقي",
-                    value: invoice.total === null
-                      ? "—"
-                      : numberFormatter.format(Math.max(0, invoice.total - invoice.paid)),
+                    value: remaining === null ? "—" : numberFormatter.format(remaining),
                   },
-                  { label: "الحالة", value: invoice.voided ? "ملغاة" : "سارية" },
+                  { label: "الحالة", value: invoice.voided ? "ملغاة" : meatSaleStatus(invoice) },
                 ]}
               />
               <div className="sales-invoice-heading">
                 <div>
-                  <h4>فاتورة بيع اللحوم رقم {invoice.invoiceNumber}</h4>
+                  <h4>فاتورة الثلاجة رقم {invoice.invoiceNumber}</h4>
                   <p>
                     {formatDate(invoice.saleDate)} — {invoice.beneficiary}
                     {invoice.issuePermitNumber === null
@@ -1183,9 +1141,14 @@ export default function MeatSalesPanel({
                   </p>
                 </div>
                 <div className="sales-invoice-totals">
-                  <span>الإجمالي: {formatOptionalNumber(invoice.total)}</span>
-                  <span>المسدد: {numberFormatter.format(invoice.paid)}</span>
-                  <strong>{invoice.voided ? "ملغاة" : "مسددة"}</strong>
+                  <span>
+                    الإجمالي المستحق: {formatOptionalNumber(invoice.total)} ج.م
+                  </span>
+                  <span>المسدد: {numberFormatter.format(invoice.paid)} ج.م</span>
+                  <span>
+                    المتبقي: {remaining === null ? "—" : `${numberFormatter.format(remaining)} ج.م`}
+                  </span>
+                  <strong>{meatSaleStatus(invoice)}</strong>
                   {invoice.voided && <span>{invoice.voidReason}</span>}
                   <button
                     className="secondary-button no-print"
@@ -1219,6 +1182,28 @@ export default function MeatSalesPanel({
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr>
+                      <th colSpan={3}>الإجمالي المستحق</th>
+                      <td>
+                        {invoice.total === null
+                          ? "—"
+                          : `${formatOptionalNumber(invoice.total)} ج.م`}
+                      </td>
+                    </tr>
+                    <tr>
+                      <th colSpan={3}>المسدد</th>
+                      <td>{numberFormatter.format(invoice.paid)} ج.م</td>
+                    </tr>
+                    <tr>
+                      <th colSpan={3}>المتبقي</th>
+                      <td>
+                        {remaining === null
+                          ? "—"
+                          : `${numberFormatter.format(remaining)} ج.م`}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
               {invoice.payments.length > 0 && (
@@ -1247,7 +1232,7 @@ export default function MeatSalesPanel({
                 </button>
               )}
               {canManage && voidTargetId === invoice.invoiceNumber && (
-                <form className="sales-inline-form" onSubmit={submitVoid}>
+                <form className="sales-inline-form no-print" onSubmit={submitVoid}>
                   <label className="form-field">
                     سبب الإلغاء
                     <input
@@ -1283,7 +1268,8 @@ export default function MeatSalesPanel({
                 </form>
               )}
             </article>
-          ))}
+            );
+          })}
           {!sales.invoices.length && (
             <div className="empty-state">لا توجد فواتير بيع مسجلة بعد.</div>
           )}
@@ -1298,7 +1284,29 @@ export default function MeatSalesPanel({
             meta={[
               {
                 label: "الفترة",
-                value: `${formatDate(appliedReportStartDate)} — ${formatDate(appliedReportEndDate)}`,
+                value:
+                  !appliedReportStartDate && !appliedReportEndDate
+                    ? "كل الفترة"
+                    : `${appliedReportStartDate ? formatDate(appliedReportStartDate) : "بدون بداية"} — ${appliedReportEndDate ? formatDate(appliedReportEndDate) : "بدون نهاية"}`,
+              },
+              {
+                label: "الصنف",
+                value:
+                  appliedReportItemNumber === "all"
+                    ? "كل الأصناف"
+                    : sales.products.find(
+                        (product) =>
+                          String(product.itemNumber) ===
+                          appliedReportItemNumber,
+                      )?.itemCategory ?? appliedReportItemNumber,
+              },
+              {
+                label: "إجمالي الفواتير",
+                value: formatOptionalNumber(reportSummary.invoiceTotal),
+              },
+              {
+                label: "المتبقي",
+                value: formatOptionalNumber(reportSummary.invoiceOutstanding),
               },
             ]}
           />
@@ -1352,6 +1360,20 @@ export default function MeatSalesPanel({
               className="secondary-button"
               type="button"
               onClick={() => {
+                setReportStartDate("");
+                setReportEndDate("");
+                setAppliedReportStartDate("");
+                setAppliedReportEndDate("");
+                setAppliedReportItemNumber(reportItemNumber);
+                setReportError("");
+              }}
+            >
+              كل الفترة
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
                 setReportStartDate(firstRecordedDate(sales));
                 setReportEndDate(localDateValue());
                 setAppliedReportStartDate(firstRecordedDate(sales));
@@ -1364,6 +1386,10 @@ export default function MeatSalesPanel({
               إعادة ضبط
             </button>
           </form>
+          <p className="access-note sales-wide">
+            اختر الصنف وحده ثم «كل الفترة» لعرض كل حركاته بلا حد زمني، أو حدد
+            الفترة وحدها لعرض كل الأصناف خلالها.
+          </p>
 
           {reportError && (
             <p className="resident-report-error" role="alert">
@@ -1509,7 +1535,7 @@ export default function MeatSalesPanel({
                   <th>رقم الفاتورة</th>
                   <th>التاريخ</th>
                   <th>المستفيد</th>
-                  <th>الإجمالي</th>
+                  <th>الإجمالي المستحق</th>
                   <th>المسدد</th>
                   <th>المتبقي</th>
                   <th>الحالة</th>
@@ -1517,7 +1543,9 @@ export default function MeatSalesPanel({
                 </tr>
               </thead>
               <tbody>
-                {reportInvoices.map((invoice) => (
+                {reportInvoices.map((invoice) => {
+                  const remaining = meatSaleRemaining(invoice);
+                  return (
                   <tr key={invoice.invoiceNumber}>
                     <td>{invoice.invoiceNumber}</td>
                     <td>{formatDate(invoice.saleDate)}</td>
@@ -1525,22 +1553,19 @@ export default function MeatSalesPanel({
                     <td>{formatOptionalNumber(invoice.total)}</td>
                     <td>{numberFormatter.format(invoice.paid)}</td>
                     <td>
-                      {invoice.total === null
-                        ? "—"
-                        : numberFormatter.format(
-                            Math.max(0, invoice.total - invoice.paid),
-                          )}
+                      {remaining === null ? "—" : numberFormatter.format(remaining)}
                     </td>
-                    <td>{invoice.voided ? "ملغاة" : "سارية"}</td>
+                    <td>{meatSaleStatus(invoice)}</td>
                     <td>
                       <PrintBrand
-                        title={`فاتورة رقم ${invoice.invoiceNumber}`}
+                        title={`فاتورة الثلاجة رقم ${invoice.invoiceNumber}`}
                         subtitle={invoice.beneficiary}
                         meta={[
                           { label: "التاريخ", value: formatDate(invoice.saleDate) },
-                          { label: "الإجمالي", value: formatOptionalNumber(invoice.total) },
+                          { label: "الإجمالي المستحق", value: formatOptionalNumber(invoice.total) },
                           { label: "المسدد", value: numberFormatter.format(invoice.paid) },
-                          { label: "المتبقي", value: invoice.total === null ? "—" : numberFormatter.format(Math.max(0, invoice.total - invoice.paid)) },
+                          { label: "المتبقي", value: remaining === null ? "—" : numberFormatter.format(remaining) },
+                          { label: "الحالة", value: meatSaleStatus(invoice) },
                         ]}
                       />
                       <button
@@ -1555,7 +1580,8 @@ export default function MeatSalesPanel({
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {!reportInvoices.length && (
                   <tr>
                     <td colSpan={8}>

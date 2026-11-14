@@ -6,6 +6,10 @@ import { getDatabase } from "@/db";
 import { centerCustodyTransactions } from "@/db/schema";
 import { requireAnyStaffPermission } from "@/lib/auth-session";
 import { recordAuditEvent } from "@/lib/audit-log";
+import {
+  expenseAmount,
+  roundMoney,
+} from "@/lib/center-custody-utils";
 import type { CenterCustodyBundle } from "@/lib/center-custody-types";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -30,7 +34,12 @@ async function readBalance(transaction: Parameters<Parameters<ReturnType<typeof 
     .from(centerCustodyTransactions)
     .orderBy(asc(centerCustodyTransactions.createdAt));
   return {
-    balance: rows.reduce((sum, row) => sum + (row.kind === "replenishment" ? row.amount : -row.amount), 0),
+    balance: roundMoney(
+      rows.reduce(
+        (sum, row) => sum + (row.kind === "replenishment" ? row.amount : -row.amount),
+        0,
+      ),
+    ),
     targetBalance: rows.at(-1)?.targetBalance ?? 15000,
   };
 }
@@ -63,13 +72,13 @@ export async function recordCenterCustodyExpenseAction(input: unknown) {
   const session = await requireAnyStaffPermission("canManageCustody", "canManageWarehouse");
   const parsed = entrySchema.safeParse(input);
   if (!parsed.success) return { ok: false as const, error: "راجع البيان والوحدة والكمية والسعر والتاريخ." };
-  const amount = parsed.data.quantity * parsed.data.unitPrice;
+  const amount = expenseAmount(parsed.data.quantity, parsed.data.unitPrice);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false as const, error: "إجمالي المصروف غير صالح." };
 
   const result = await withFundLock(async (transaction) => {
     const current = await readBalance(transaction);
     if (amount > current.balance + 1e-9) return { error: "المصروف أكبر من الرصيد المتاح في عهدة المركز." } as const;
-    const balanceAfter = current.balance - amount;
+    const balanceAfter = roundMoney(current.balance - amount);
     const [row] = await transaction.insert(centerCustodyTransactions).values({
       kind: "expense",
       transactionDate: parsed.data.transactionDate,
@@ -97,7 +106,7 @@ export async function renewCenterCustodyAction(input: unknown) {
     const current = await readBalance(transaction);
     const expected = Math.max(0, parsed.data.targetBalance - current.balance);
     if (expected <= 0) return { error: "الرصيد وصل بالفعل للمبلغ المستهدف أو تجاوزه." } as const;
-    const balanceAfter = current.balance + parsed.data.amount;
+    const balanceAfter = roundMoney(current.balance + parsed.data.amount);
     const [row] = await transaction.insert(centerCustodyTransactions).values({
       kind: "replenishment",
       transactionDate: parsed.data.transactionDate,

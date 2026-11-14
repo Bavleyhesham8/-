@@ -439,7 +439,7 @@ export default function ExecutiveOverview({
             <span className="text-xs text-cyan-900 font-bold">ج.م</span>
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-slate-600 border-t border-slate-100 pt-2">
-            <span>تذاكر العلاج: {treatment?.records.length || 0}</span>
+            <span>عمليات صرف الدواء: {treatment?.records.length || 0}</span>
             <span className="text-teal-700">مطالبات مسجلة</span>
           </div>
         </div>

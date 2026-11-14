@@ -6,7 +6,6 @@ import { printCurrentView } from "@/lib/print";
 import type { Resident } from "@/lib/demo-data";
 import type { CanteenBundle } from "@/lib/canteen-types";
 import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
-import type { CustodyBundle } from "@/lib/custody-types";
 import type { InventoryBundle } from "@/lib/inventory-types";
 import type { MeatSalesBundle } from "@/lib/meat-sales-types";
 import type { ResidentFinanceBundle } from "@/lib/resident-finance-types";
@@ -14,7 +13,6 @@ import type { TreatmentBundle } from "@/lib/treatment-types";
 
 type TrackingModule =
   | "inventory"
-  | "custody"
   | "canteen"
   | "sales"
   | "meat"
@@ -56,7 +54,6 @@ type TrackingFilters = {
 
 const moduleLabels: Record<TrackingModule, string> = {
   inventory: "المخزون",
-  custody: "العهدة والمخزن",
   canteen: "الكانتين",
   sales: "حركات بيع الكانتين",
   meat: "مبيعات اللحوم",
@@ -67,7 +64,6 @@ const moduleLabels: Record<TrackingModule, string> = {
 
 const moduleOrder: TrackingModule[] = [
   "inventory",
-  "custody",
   "canteen",
   "sales",
   "meat",
@@ -80,13 +76,6 @@ const directionLabels: Record<TrackingDirection, string> = {
   in: "وارد",
   out: "منصرف",
   neutral: "تسوية",
-};
-
-const custodyKindLabels: Record<string, string> = {
-  receipt: "استلام مخزن",
-  custody_issue: "صرف عهدة",
-  custody_return: "مرتجع عهدة",
-  custody_void: "إلغاء حركة عهدة",
 };
 
 const numberFormatter = new Intl.NumberFormat("ar-EG", {
@@ -169,7 +158,6 @@ function runningBalance<T>(
 export default function GlobalTrackingPanel({
   residents,
   inventory,
-  custody,
   canteen,
   sales,
   meatSales,
@@ -179,7 +167,6 @@ export default function GlobalTrackingPanel({
 }: {
   residents: Resident[];
   inventory: InventoryBundle;
-  custody: CustodyBundle;
   canteen: CanteenBundle;
   sales: CanteenSalesBundle;
   meatSales: MeatSalesBundle;
@@ -232,46 +219,6 @@ export default function GlobalTrackingPanel({
         balanceAfter: inventoryBalances.get(movement.id) ?? null,
         status: movement.voided ? "voided" : "active",
         reference: movement.id,
-      });
-    }
-
-    const custodyItems = new Map(
-      custody.items.map((item) => [item.itemNumber, item]),
-    );
-    for (const movement of custody.warehouseMovements) {
-      const item = custodyItems.get(movement.itemNumber);
-      const incoming = movement.incoming ?? 0;
-      const outgoing = movement.outgoing ?? 0;
-      const quantity = incoming || outgoing;
-      const direction: TrackingDirection =
-        movement.kind === "receipt" || movement.kind === "custody_return"
-          ? "in"
-          : movement.kind === "custody_issue"
-            ? "out"
-            : "neutral";
-      result.push({
-        id: `custody-${movement.id}`,
-        date: movement.incomingDate ?? movement.outgoingDate ?? "",
-        module: "custody",
-        moduleLabel: moduleLabels.custody,
-        direction,
-        typeLabel: custodyKindLabels[movement.kind] ?? "حركة عهدة",
-        title: item?.itemName ?? `صنف رقم ${movement.itemNumber}`,
-        detail: item?.responsible ? `المسؤول: ${item.responsible}` : "",
-        quantity,
-        unit: "",
-        amount: quantity * (item?.price ?? 0),
-        amountKind: "stock",
-        outstanding: null,
-        balanceAfter: movement.needsReview
-          ? null
-          : movement.remaining ?? movement.balance,
-        status: movement.needsReview
-          ? "needs_review"
-          : movement.deleted
-            ? "voided"
-            : "active",
-        reference: String(movement.id),
       });
     }
 
@@ -564,7 +511,7 @@ export default function GlobalTrackingPanel({
     }
 
     return result;
-  }, [canteen, custody, inventory, meatSales, residentFinance, residents, sales, treatment]);
+  }, [canteen, inventory, meatSales, residentFinance, residents, sales, treatment]);
 
   const filteredEvents = useMemo(() => {
     const search = appliedFilters.search.trim().toLocaleLowerCase();
@@ -899,10 +846,9 @@ export default function GlobalTrackingPanel({
         </button>
       </form>
 
-      {custody.needsReviewCount + meatSales.needsReviewCount > 0 && (
+      {meatSales.needsReviewCount > 0 && (
         <p className="review-warning" role="status">
-          حركات قيد المراجعة لا تدخل في حسابات الأرصدة. المخزن:{" "}
-          {numberFormatter.format(custody.needsReviewCount)}، الثلاجة:{" "}
+          حركات الثلاجة قيد المراجعة لا تدخل في حسابات الأرصدة:{" "}
           {numberFormatter.format(meatSales.needsReviewCount)}.
         </p>
       )}

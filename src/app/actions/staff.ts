@@ -144,8 +144,13 @@ export async function saveStaffProfileAction(
       };
     }
 
-    const currentChurch = existingProfile?.church ?? "";
-    if (profile.church && profile.church !== currentChurch) {
+    const currentGovernorate = existingProfile?.governorate ?? "";
+    const currentDistrict = existingProfile?.district ?? "";
+    const locationUnchanged =
+      profile.governorate === currentGovernorate &&
+      profile.district === currentDistrict;
+
+    if (profile.church) {
       const matchingChurches = await transaction
         .select({ id: churchLookup.id })
         .from(churchLookup)
@@ -156,18 +161,7 @@ export async function saveStaffProfileAction(
       }
     }
 
-    const currentGovernorate = existingProfile?.governorate ?? "";
-    const currentDistrict = existingProfile?.district ?? "";
-    const locationUnchanged =
-      profile.governorate === currentGovernorate &&
-      profile.district === currentDistrict;
-    if (
-      (profile.governorate || profile.district) &&
-      !locationUnchanged
-    ) {
-      if (!profile.governorate || !profile.district) {
-        return { ok: false, error: "اختر المحافظة والمركز / الحي معًا." };
-      }
+    if (profile.governorate && profile.district) {
       const matchingLocations = await transaction
         .select({ id: governorateLookup.id })
         .from(governorateLookup)
@@ -184,6 +178,14 @@ export async function saveStaffProfileAction(
           district: profile.district,
         });
       }
+    } else if (
+      !locationUnchanged &&
+      (profile.governorate || profile.district)
+    ) {
+      return {
+        ok: false,
+        error: "أدخل المحافظة والمركز / الحي معًا عند تغيير الموقع.",
+      };
     }
 
     if (profileNumber) {

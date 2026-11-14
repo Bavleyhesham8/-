@@ -140,6 +140,64 @@ test("builds a resident balance from deposits, canteen and treatment", () => {
   assert.equal(account.entries.length, 3);
 });
 
+test("deducts treatment immediately and allows a negative balance", () => {
+  const account = buildResidentAccount(resident(), {
+    residentFinance: financeBundle([
+      {
+        id: 1,
+        residentNumber: 9001,
+        amount: 20,
+        transactionDate: "2026-11-01",
+        returnDate: null,
+        voided: false,
+        voidReason: "",
+        voidedAt: null,
+      },
+    ]),
+    treatment: treatmentBundle(50),
+  });
+
+  assert.equal(account.treatment, 50);
+  assert.equal(account.balance, -30);
+});
+
+test("does not deduct voided treatment entries", () => {
+  const treatment = treatmentBundle(50);
+  treatment.records[0].entries[0].voided = true;
+  treatment.records[0].entries[0].voidReason = "خطأ في الصرف";
+
+  const account = buildResidentAccount(resident(), {
+    residentFinance: financeBundle([
+      {
+        id: 1,
+        residentNumber: 9001,
+        amount: 500,
+        transactionDate: "2026-11-01",
+        returnDate: null,
+        voided: false,
+        voidReason: "",
+        voidedAt: null,
+      },
+    ]),
+    treatment,
+  });
+
+  assert.equal(account.treatment, 0);
+  assert.equal(account.balance, 500);
+});
+
+test("matches treatment records by resident number when id is missing", () => {
+  const treatment = treatmentBundle(80);
+  treatment.records[0].residentId = null;
+
+  const account = buildResidentAccount(resident({ residentNumber: "1" }), {
+    treatment,
+  });
+
+  assert.equal(account.treatment, 80);
+  assert.equal(account.balance, -80);
+});
+
 test("excludes voided movements and applies canteen payments", () => {
   const finance = financeBundle([
     {

@@ -17,6 +17,7 @@ import type {
   StaffProfile,
 } from "@/lib/staff-types";
 import type { LookupData } from "@/lib/lookup-types";
+import { mergeStaffProfileLookups } from "@/lib/staff-lookup-utils";
 
 type Props = {
   bundle: StaffBundle;
@@ -25,6 +26,7 @@ type Props = {
   persistent: boolean;
   lookups: LookupData;
   onBundleChange: (update: (current: StaffBundle) => StaffBundle) => void;
+  onLookupsChange: (update: (current: LookupData) => LookupData) => void;
 };
 
 type ProfileDraft = Omit<StaffProfile, "profileNumber">;
@@ -68,7 +70,7 @@ const profileFields: {
   { key: "nationalId", label: "الرقم القومى" },
   { key: "address", label: "العنوان" },
   { key: "governorate", label: "المحافظة" },
-  { key: "district", label: "المركز / الحى" },
+  { key: "district", label: "المركز / الحي" },
   { key: "birthDate", label: "تاريخ الميلاد", type: "date" },
   { key: "maritalStatus", label: "الحالة الاجتماعية" },
   { key: "qualification", label: "الموهل الدراسى" },
@@ -139,6 +141,7 @@ function StaffProfileFields({
                   onChange?.(field.key, nextValue);
                   if (
                     field.key === "governorate" &&
+                    nextValue !== value.governorate &&
                     !lookups.governorates.some(
                       (entry) =>
                         entry.governorate === nextValue &&
@@ -193,6 +196,12 @@ function StaffProfileFields({
           )}
         </label>
       ))}
+      {!disabled && (
+        <p className="form-hint full">
+          يمكنك اختيار المحافظة أو المركز أو الكنيسة من الاقتراحات، أو كتابة
+          قيمة جديدة. تُضاف القيم الجديدة إلى القوائم بعد حفظ الملف.
+        </p>
+      )}
       <p className="form-hint full">
         حقلا «صورة» و«ImagePath» يحفظان مسارًا نصيًا فقط؛ لا يتم رفع ملفات أو
         صور إلى التطبيق.
@@ -208,6 +217,7 @@ export default function StaffPanel({
   persistent,
   lookups,
   onBundleChange,
+  onLookupsChange,
 }: Props) {
   const isAdministrator = currentUser.role === "admin";
   const canViewAllStaff = isAdministrator || currentUser.role === "viewer";
@@ -309,6 +319,9 @@ export default function StaffPanel({
             )
           : [...current.profiles, savedProfile],
       }));
+      onLookupsChange((current) =>
+        mergeStaffProfileLookups(current, savedProfile),
+      );
       setEditingProfileNumber(null);
       setProfileDraft(emptyProfile);
       setMessage("تم حفظ ملف الموظف.");

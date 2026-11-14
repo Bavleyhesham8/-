@@ -734,12 +734,9 @@ const emptyInventory: InventoryBundle = {
   movements: [],
 };
 const emptyCustody: CustodyBundle = {
-  items: [],
-  warehouseMovements: [],
   employees: [],
   records: [],
   linkedEmployeeNumber: null,
-  needsReviewCount: 0,
 };
 const emptyResidentFinance: ResidentFinanceBundle = {
   records: [],
@@ -941,8 +938,6 @@ export default function CenterDashboard({
     if (currentEmployeeNumber === null) {
       return {
         ...custody,
-        items: [],
-        warehouseMovements: [],
         employees: [],
         records: [],
         linkedEmployeeNumber: null,
@@ -951,8 +946,6 @@ export default function CenterDashboard({
 
     return {
       ...custody,
-      items: [],
-      warehouseMovements: [],
       employees: [],
       records: custody.records.filter(
         (record) =>
@@ -1378,13 +1371,7 @@ export default function CenterDashboard({
     tracking: "التتبع العام",
     access: "إدارة الوصول",
   };
-  const pageTitle = view === "custody"
-    ? viewTab === "receipts"
-      ? "عهد الموظفين"
-      : viewTab === "catalog"
-        ? "إدارة عهد الموظفين"
-        : "عهد الموظفين"
-    : pageTitles[view];
+  const pageTitle = pageTitles[view];
 
   return (
     <div className="app-shell">
@@ -1817,8 +1804,11 @@ export default function CenterDashboard({
             <TreatmentPanel
               bundle={treatment}
               residents={residents}
+              residentFinance={residentFinance}
+              sales={sales}
               canManage={canAccessClinic}
               onBundleChange={setTreatment}
+              onOpenStatement={setStatementResident}
             />
           )}
 
@@ -1842,7 +1832,6 @@ export default function CenterDashboard({
                 persistent={persistent}
                 canManage={canManageWarehouse || canManageCustody}
                 currentEmployeeNumber={currentEmployeeNumber}
-                initialSection={viewTab === "receipts" || viewTab === "catalog" ? viewTab : "custody"}
                 onBundleChange={setCustody}
               />
             )
@@ -1924,6 +1913,7 @@ export default function CenterDashboard({
               currentUser={activeUser}
               persistent={persistent}
               onBundleChange={setStaffData}
+              onLookupsChange={setLookups}
             />
           )}
 
@@ -1956,7 +1946,6 @@ export default function CenterDashboard({
             <GlobalTrackingPanel
               residents={residents}
               inventory={activeInventory}
-              custody={activeCustody}
               canteen={canteen}
               sales={sales}
               meatSales={meatSales}
