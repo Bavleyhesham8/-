@@ -5,12 +5,14 @@ import {
   getCenterCustodyBundleAction,
   recordCenterCustodyExpenseAction,
   renewCenterCustodyAction,
+  updateCenterCustodyTransactionAction,
 } from "@/app/actions/center-custody";
 import PrintBrand from "@/components/print-brand";
 import {
   CENTER_CUSTODY_TARGET,
   canCoverExpense,
   expenseAmount,
+  recalculateCustodyRows,
   remainingToTarget,
   renewalOutcome,
   roundMoney,
@@ -18,7 +20,10 @@ import {
 } from "@/lib/center-custody-utils";
 import { localDateValue, formatDate } from "@/lib/date-format";
 import { printCurrentView } from "@/lib/print";
-import type { CenterCustodyBundle } from "@/lib/center-custody-types";
+import type {
+  CenterCustodyBundle,
+  CenterCustodyTransaction,
+} from "@/lib/center-custody-types";
 
 const money = new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 });
 const initialBundle: CenterCustodyBundle = {
@@ -51,6 +56,16 @@ export default function CenterCustodyPanel({
   const [renewalTarget, setRenewalTarget] = useState(
     String(CENTER_CUSTODY_TARGET),
   );
+  const [renewalDate, setRenewalDate] = useState(localDateValue());
+  const [editingTransaction, setEditingTransaction] =
+    useState<CenterCustodyTransaction | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editUnit, setEditUnit] = useState("");
+  const [editQuantity, setEditQuantity] = useState("");
+  const [editUnitPrice, setEditUnitPrice] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editTarget, setEditTarget] = useState("");
 
   useEffect(() => {
     if (!persistent) return;
@@ -139,26 +154,33 @@ export default function CenterCustodyPanel({
         }
         setBundle(result.bundle);
       } else {
-        const balanceAfter = roundMoney(bundle.balance - draftTotal);
-        setBundle((current) => ({
-          ...current,
-          balance: balanceAfter,
-          transactions: [
+        const recalculated = recalculateCustodyRows(
+          [
+            ...bundle.transactions,
             {
               id: crypto.randomUUID(),
-              kind: "expense",
+              kind: "expense" as const,
               transactionDate,
               description,
               unit,
               quantity: Number(quantity),
               unitPrice: Number(unitPrice),
               amount: draftTotal,
-              targetBalance: current.targetBalance,
-              balanceAfter,
+              targetBalance: bundle.targetBalance,
+              balanceAfter: 0,
             },
-            ...current.transactions,
           ],
-        }));
+          bundle.targetBalance,
+        );
+        if (!recalculated.ok) {
+          setError(recalculated.error);
+          return;
+        }
+        setBundle({
+          targetBalance: bundle.targetBalance,
+          balance: recalculated.balance,
+          transactions: recalculated.rows,
+        });
       }
       setDescription("");
       setUnit("");
@@ -176,6 +198,7 @@ export default function CenterCustodyPanel({
     const target = bundle.targetBalance || CENTER_CUSTODY_TARGET;
     setRenewalTarget(String(target));
     setRenewalAmount(String(suggestedRenewal(bundle.balance, target)));
+    setRenewalDate(localDateValue());
     setShowRenewal(true);
     setError("");
     setMessage("");
@@ -201,7 +224,7 @@ export default function CenterCustodyPanel({
     try {
       if (persistent) {
         const result = await renewCenterCustodyAction({
-          transactionDate,
+          transactionDate: renewalDate,
           targetBalance: renewalTargetValue,
           amount: renewalAmountValue,
         });
@@ -212,32 +235,139 @@ export default function CenterCustodyPanel({
         setBundle(result.bundle);
         setRenewalTarget(String(result.bundle.targetBalance));
       } else {
-        const balanceAfter = roundMoney(bundle.balance + renewalAmountValue);
-        setBundle((current) => ({
-          ...current,
-          targetBalance: renewalTargetValue,
-          balance: balanceAfter,
-          transactions: [
+        const recalculated = recalculateCustodyRows(
+          [
+            ...bundle.transactions,
             {
               id: crypto.randomUUID(),
-              kind: "replenishment",
-              transactionDate,
+              kind: "replenishment" as const,
+              transactionDate: renewalDate,
               description: "تجديد عهدة المركز",
               unit: "",
               quantity: 0,
               unitPrice: 0,
               amount: renewalAmountValue,
               targetBalance: renewalTargetValue,
-              balanceAfter,
+              balanceAfter: 0,
             },
-            ...current.transactions,
           ],
-        }));
+          renewalTargetValue,
+        );
+        if (!recalculated.ok) {
+          setError(recalculated.error);
+          return;
+        }
+        setBundle({
+          targetBalance: renewalTargetValue,
+          balance: recalculated.balance,
+          transactions: recalculated.rows,
+        });
       }
       setShowRenewal(false);
       setMessage("تم تسجيل تجديد عهدة المركز.");
     } catch {
       setError("تعذر تسجيل تجديد العهدة.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function startEditTransaction(row: CenterCustodyTransaction) {
+    if (!canManage) return;
+    setEditingTransaction(row);
+    setEditDate(row.transactionDate);
+    setEditDescription(row.description);
+    setEditUnit(row.unit);
+    setEditQuantity(String(row.quantity));
+    setEditUnitPrice(String(row.unitPrice));
+    setEditAmount(String(row.amount));
+    setEditTarget(String(row.targetBalance));
+    setError("");
+    setMessage("");
+  }
+
+  async function submitTransactionEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingTransaction) return;
+    setError("");
+    setMessage("");
+
+    const isExpense = editingTransaction.kind === "expense";
+    const nextQuantity = isExpense ? Number(editQuantity) : 0;
+    const nextUnitPrice = isExpense ? Number(editUnitPrice) : 0;
+    const nextAmount = isExpense
+      ? expenseAmount(nextQuantity, nextUnitPrice)
+      : Number(editAmount);
+    const nextTarget = Number(editTarget);
+
+    if (!editDate) {
+      setError("أدخل تاريخ الحركة.");
+      return;
+    }
+    if (isExpense && nextAmount <= 0) {
+      setError("أدخل كمية وسعرًا صحيحين للمصروف.");
+      return;
+    }
+    if (!isExpense && nextAmount <= 0) {
+      setError("أدخل مبلغ تجديد صحيحًا.");
+      return;
+    }
+    if (!Number.isFinite(nextTarget) || nextTarget <= 0) {
+      setError("أدخل الرصيد المستهدف بشكل صحيح.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (persistent) {
+        const result = await updateCenterCustodyTransactionAction({
+          id: editingTransaction.id,
+          transactionDate: editDate,
+          description: editDescription,
+          unit: isExpense ? editUnit : "",
+          quantity: nextQuantity,
+          unitPrice: nextUnitPrice,
+          amount: isExpense ? undefined : nextAmount,
+          targetBalance: nextTarget,
+        });
+        if (!result.ok) {
+          setError(result.error ?? "تعذر تعديل حركة العهدة.");
+          return;
+        }
+        setBundle(result.bundle);
+        setRenewalTarget(String(result.bundle.targetBalance));
+      } else {
+        const updatedRows = bundle.transactions.map((row) =>
+          row.id === editingTransaction.id
+            ? {
+                ...row,
+                transactionDate: editDate,
+                description: isExpense
+                  ? editDescription
+                  : editDescription || "تجديد عهدة المركز",
+                unit: isExpense ? editUnit : "",
+                quantity: nextQuantity,
+                unitPrice: nextUnitPrice,
+                amount: nextAmount,
+              }
+            : row,
+        );
+        const recalculated = recalculateCustodyRows(updatedRows, nextTarget);
+        if (!recalculated.ok) {
+          setError(recalculated.error);
+          return;
+        }
+        setBundle({
+          targetBalance: nextTarget,
+          balance: recalculated.balance,
+          transactions: recalculated.rows,
+        });
+        setRenewalTarget(String(nextTarget));
+      }
+      setEditingTransaction(null);
+      setSuccess("تم تعديل الحركة وإعادة حساب الأرصدة اللاحقة.");
+    } catch {
+      setError("تعذر تعديل حركة العهدة.");
     } finally {
       setSaving(false);
     }
@@ -287,7 +417,7 @@ export default function CenterCustodyPanel({
           طباعة التقرير
         </button>
       </div>
-      <div className="inventory-summary">
+      <div className="inventory-summary report-summary">
         <div className="inventory-summary-card">
           <span>الرصيد الحالي</span>
           <strong>{money.format(bundle.balance)} ج.م</strong>
@@ -433,6 +563,15 @@ export default function CenterCustodyPanel({
                   required
                 />
               </label>
+              <label className="form-field">
+                تاريخ التجديد
+                <input
+                  type="date"
+                  value={renewalDate}
+                  onChange={(event) => setRenewalDate(event.target.value)}
+                  required
+                />
+              </label>
               <p className="access-note">
                 المقترح الحالي:{" "}
                 {money.format(
@@ -476,6 +615,119 @@ export default function CenterCustodyPanel({
               </button>
             </form>
           )}
+          {editingTransaction && (
+            <form
+              className="inventory-form no-print"
+              onSubmit={submitTransactionEdit}
+            >
+              <div className="inventory-section-heading">
+                <div>
+                  <h4>
+                    تعديل حركة{" "}
+                    {editingTransaction.kind === "expense"
+                      ? "مصروف"
+                      : "تجديد"}
+                  </h4>
+                  <p>
+                    يمكن تعديل كل الحقول، وسيُعاد حساب الرصيد بعد الحركة
+                    والحركات اللاحقة تلقائيًا.
+                  </p>
+                </div>
+              </div>
+              <label className="form-field">
+                التاريخ
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(event) => setEditDate(event.target.value)}
+                  required
+                />
+              </label>
+              <label className="form-field">
+                البيان
+                <input
+                  maxLength={255}
+                  value={editDescription}
+                  onChange={(event) => setEditDescription(event.target.value)}
+                  placeholder={
+                    editingTransaction.kind === "replenishment"
+                      ? "تجديد عهدة المركز"
+                      : "بيان المصروف"
+                  }
+                />
+              </label>
+              {editingTransaction.kind === "expense" ? (
+                <>
+                  <label className="form-field">
+                    الوحدة
+                    <input
+                      maxLength={80}
+                      value={editUnit}
+                      onChange={(event) => setEditUnit(event.target.value)}
+                    />
+                  </label>
+                  <label className="form-field">
+                    الكمية
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="any"
+                      value={editQuantity}
+                      onChange={(event) => setEditQuantity(event.target.value)}
+                      required
+                    />
+                  </label>
+                  <label className="form-field">
+                    سعر الوحدة
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editUnitPrice}
+                      onChange={(event) => setEditUnitPrice(event.target.value)}
+                      required
+                    />
+                  </label>
+                </>
+              ) : (
+                <label className="form-field">
+                  مبلغ التجديد
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="any"
+                    value={editAmount}
+                    onChange={(event) => setEditAmount(event.target.value)}
+                    required
+                  />
+                </label>
+              )}
+              <label className="form-field">
+                الرصيد المستهدف
+                <input
+                  type="number"
+                  min="1"
+                  step="any"
+                  value={editTarget}
+                  onChange={(event) => setEditTarget(event.target.value)}
+                  required
+                />
+              </label>
+              <div className="action-group">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => setEditingTransaction(null)}
+                >
+                  إلغاء
+                </button>
+                <button className="primary-button" disabled={saving}>
+                  {saving ? "جارٍ الحفظ..." : "حفظ التعديل"}
+                </button>
+              </div>
+            </form>
+          )}
         </>
       )}
       <div className="filter-list no-print">
@@ -499,7 +751,7 @@ export default function CenterCustodyPanel({
       {loading ? (
         <div className="empty-state">جارٍ تحميل السجل...</div>
       ) : (
-        <div className="table-wrap">
+        <div className="table-wrap report-detail">
           <table className="resident-table inventory-table">
             <thead>
               <tr>
@@ -512,6 +764,7 @@ export default function CenterCustodyPanel({
                 <th>الإجمالي</th>
                 <th>الرصيد بعد الحركة</th>
                 <th>المتبقي للهدف</th>
+                {canManage && <th>الإجراءات</th>}
               </tr>
             </thead>
             <tbody>
@@ -539,11 +792,23 @@ export default function CenterCustodyPanel({
                     )}{" "}
                     ج.م
                   </td>
+                  {canManage && (
+                    <td>
+                      <button
+                        className="table-action no-print"
+                        type="button"
+                        disabled={saving}
+                        onClick={() => startEditTransaction(row)}
+                      >
+                        تعديل
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
               {!periodTransactions.length && (
                 <tr>
-                  <td colSpan={9}>
+                  <td colSpan={canManage ? 10 : 9}>
                     <div className="empty-state">
                       لا توجد حركات في الفترة المحددة.
                     </div>

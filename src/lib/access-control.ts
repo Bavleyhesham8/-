@@ -24,6 +24,37 @@ export const DASHBOARD_SCREENS = [
 export type DashboardScreen = (typeof DASHBOARD_SCREENS)[number];
 export type AccessRole = "admin" | "staff" | "viewer";
 
+/**
+ * كل صلاحية تشغيلية تحتاج شاشة معينة حتى تعمل فعليًا.
+ * تُستخدم هذه الخريطة في واجهة إدارة الوصول والخادم معًا.
+ */
+export const PERMISSION_SCREENS = {
+  canEditResidents: "residents",
+  canAccessClinic: "treatment",
+  canManageCanteen: "canteen",
+  canIssueInvoices: "sales",
+  canManageWarehouse: "inventory",
+  canManageCustody: "custody",
+  canManageMeatSales: "meat-sales",
+} as const satisfies Record<string, DashboardScreen>;
+
+export type OperationalPermission = keyof typeof PERMISSION_SCREENS;
+
+/** يضيف الشاشات المطلوبة تلقائيًا لكل صلاحية مفعّلة. */
+export function withRequiredScreens(
+  allowedScreens: readonly string[],
+  permissions: Partial<Record<OperationalPermission, boolean>>,
+) {
+  const screens = new Set(allowedScreens);
+  for (const [permission, screen] of Object.entries(PERMISSION_SCREENS) as [
+    OperationalPermission,
+    DashboardScreen,
+  ][]) {
+    if (permissions[permission]) screens.add(screen);
+  }
+  return [...screens];
+}
+
 export function hasStaffWritePermission(role: AccessRole, granted: boolean) {
   return role === "admin" || (role === "staff" && granted);
 }

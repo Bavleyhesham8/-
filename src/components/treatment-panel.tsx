@@ -365,7 +365,7 @@ export default function TreatmentPanel({
               setSelectedResidentNumber(resident?.residentNumber ?? "");
               setSelectedResidentId(resident?.id ?? "");
             }}
-            placeholder="ابحث باسم النزيل أو رقم الملف..."
+            placeholder="ابحث باسم النزيل..."
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
             disabled={saving}
           />
@@ -588,7 +588,7 @@ export default function TreatmentPanel({
             />
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm">إجمالي نتائج البحث: <strong>{numberFormatter.format(filteredMedicationTotal)} ج.م</strong></span>
+            <span className="text-sm report-summary">إجمالي نتائج البحث: <strong>{numberFormatter.format(filteredMedicationTotal)} ج.م</strong></span>
             <button type="button" className="secondary-button no-print" onClick={printCurrentView}>طباعة التقرير</button>
           </div>
         </div>
@@ -598,7 +598,7 @@ export default function TreatmentPanel({
             لا توجد سجلات علاج مطابقة للبحث.
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 report-detail">
             {filteredRecords.map((record) => (
               <div
                 key={record.residentNumber}

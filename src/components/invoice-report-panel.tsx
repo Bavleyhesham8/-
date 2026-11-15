@@ -109,6 +109,12 @@ export default function InvoiceReportPanel({
               (!appliedFilters.itemName || row.itemName.toLocaleLowerCase().includes(appliedFilters.itemName.toLocaleLowerCase())) &&
               (!appliedFilters.residentName || row.residentName.toLocaleLowerCase().includes(appliedFilters.residentName.toLocaleLowerCase())) &&
               (appliedFilters.saleType === "all" || row.saleType === appliedFilters.saleType),
+          ).sort(
+            (left, right) =>
+              left.invoiceDate.localeCompare(right.invoiceDate) ||
+              left.invoiceNumber - right.invoiceNumber ||
+              left.lineDate.localeCompare(right.lineDate) ||
+              left.itemName.localeCompare(right.itemName, "ar"),
           );
           if (active) setReport({ ...demo, rows: filteredRows });
         }

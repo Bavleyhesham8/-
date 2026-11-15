@@ -16,6 +16,7 @@ import ResidentPicker from "@/components/resident-picker";
 import {
   filterCanteenInvoices,
   summarizeCanteenInvoices,
+  UNLINKED_RESIDENT_FILTER,
 } from "@/lib/canteen-sales-utils";
 import type { CanteenBundle, CanteenMovement } from "@/lib/canteen-types";
 import type { Resident } from "@/lib/demo-data";
@@ -72,10 +73,9 @@ export default function CanteenSalesPanel({
   const [saleType, setSaleType] = useState<"resident" | "cash">("resident");
   const [saleMode, setSaleMode] = useState<"single" | "grouped">("single");
   const [residentId, setResidentId] = useState(residents[0]?.id ?? "");
-  const [residentPickerValue, setResidentPickerValue] = useState(() => {
-    const resident = residents[0];
-    return resident ? `${resident.name} — ${resident.fileNumber}` : "";
-  });
+  const [residentPickerValue, setResidentPickerValue] = useState(
+    () => residents[0]?.name ?? "",
+  );
   const [invoiceDate, setInvoiceDate] = useState(localDateValue());
   const [draftLines, setDraftLines] = useState<DraftLine[]>([
     {
@@ -98,8 +98,8 @@ export default function CanteenSalesPanel({
   const [voidTargetId, setVoidTargetId] = useState<number | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [confirmRefund, setConfirmRefund] = useState(false);
-  const [historyResident, setHistoryResident] = useState("");
-  const [historyItem, setHistoryItem] = useState("");
+  const [historyResidentId, setHistoryResidentId] = useState("");
+  const [historyItemName, setHistoryItemName] = useState("");
   const [historyFromDate, setHistoryFromDate] = useState("");
   const [historyToDate, setHistoryToDate] = useState("");
   const [historySaleType, setHistorySaleType] = useState<
@@ -122,24 +122,29 @@ export default function CanteenSalesPanel({
     return balances;
   }, [canteen.movements]);
 
+  const historyItemNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const item of sales.items) names.add(item.name);
+    for (const product of canteen.products) names.add(product.name);
+    for (const invoice of sales.invoices) {
+      for (const line of invoice.lines) names.add(line.itemName);
+    }
+    return [...names].sort((left, right) => left.localeCompare(right, "ar"));
+  }, [canteen.products, sales.invoices, sales.items]);
+
   const filteredInvoices = useMemo(
     () =>
-      filterCanteenInvoices(
-        sales.invoices,
-        {
-          residentQuery: historyResident,
-          itemQuery: historyItem,
-          fromDate: historyFromDate,
-          toDate: historyToDate,
-          saleType: historySaleType,
-        },
-        residents,
-      ),
+      filterCanteenInvoices(sales.invoices, {
+        residentId: historyResidentId,
+        itemName: historyItemName,
+        fromDate: historyFromDate,
+        toDate: historyToDate,
+        saleType: historySaleType,
+      }),
     [
       sales.invoices,
-      residents,
-      historyResident,
-      historyItem,
+      historyResidentId,
+      historyItemName,
       historyFromDate,
       historyToDate,
       historySaleType,
@@ -151,12 +156,28 @@ export default function CanteenSalesPanel({
     [filteredInvoices],
   );
 
+  const historyResidentLabel = useMemo(() => {
+    if (!historyResidentId) return "";
+    if (historyResidentId === UNLINKED_RESIDENT_FILTER) {
+      return "غير مرتبط بنزيل";
+    }
+    return (
+      residents.find((resident) => resident.id === historyResidentId)?.name ??
+      ""
+    );
+  }, [historyResidentId, residents]);
+
+  const hasUnlinkedInvoices = useMemo(
+    () => sales.invoices.some((invoice) => invoice.residentId === null),
+    [sales.invoices],
+  );
+
   const historyFiltersDescription = [
     historyFromDate || historyToDate
       ? `الفترة: ${historyFromDate ? formatDate(historyFromDate) : "البداية"} — ${historyToDate ? formatDate(historyToDate) : "الآن"}`
       : "الفترة: كل الحركات",
-    historyResident.trim() ? `النزيل: ${historyResident.trim()}` : null,
-    historyItem.trim() ? `الصنف: ${historyItem.trim()}` : null,
+    historyResidentLabel ? `النزيل: ${historyResidentLabel}` : null,
+    historyItemName.trim() ? `الصنف: ${historyItemName.trim()}` : null,
     historySaleType === "cash"
       ? "النوع: بيع نقدي"
       : historySaleType === "resident"
@@ -207,9 +228,7 @@ export default function CanteenSalesPanel({
     setSaleMode("single");
     const firstResident = residents[0];
     setResidentId(firstResident?.id ?? "");
-    setResidentPickerValue(
-      firstResident ? `${firstResident.name} — ${firstResident.fileNumber}` : "",
-    );
+    setResidentPickerValue(firstResident?.name ?? "");
     setInvoiceDate(localDateValue());
     setDraftLines([
       {
@@ -754,7 +773,7 @@ export default function CanteenSalesPanel({
                   setResidentPickerValue(value);
                   setResidentId(resident?.id ?? "");
                 }}
-                placeholder="ابحث باسم النزيل أو رقم الملف..."
+                placeholder="ابحث باسم النزيل..."
                 required
                 disabled={saving}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
@@ -1105,8 +1124,8 @@ export default function CanteenSalesPanel({
                 className="secondary-button"
                 type="button"
                 onClick={() => {
-                  setHistoryResident("");
-                  setHistoryItem("");
+                  setHistoryResidentId("");
+                  setHistoryItemName("");
                   setHistoryFromDate("");
                   setHistoryToDate("");
                   setHistorySaleType("all");
@@ -1127,24 +1146,37 @@ export default function CanteenSalesPanel({
 
           <div className="canteen-report-filters sales-history-filters">
             <label>
-              النزيل أو رقم الملف
-              <input
-                type="search"
-                value={historyResident}
-                maxLength={160}
-                placeholder="اسم النزيل أو رقم الملف..."
-                onChange={(event) => setHistoryResident(event.target.value)}
-              />
+              النزيل
+              <select
+                value={historyResidentId}
+                onChange={(event) => setHistoryResidentId(event.target.value)}
+              >
+                <option value="">كل النزلاء</option>
+                {hasUnlinkedInvoices && (
+                  <option value={UNLINKED_RESIDENT_FILTER}>
+                    غير مرتبط بنزيل
+                  </option>
+                )}
+                {residents.map((resident) => (
+                  <option key={resident.id} value={resident.id}>
+                    {resident.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               الصنف
-              <input
-                type="search"
-                value={historyItem}
-                maxLength={160}
-                placeholder="اسم الصنف..."
-                onChange={(event) => setHistoryItem(event.target.value)}
-              />
+              <select
+                value={historyItemName}
+                onChange={(event) => setHistoryItemName(event.target.value)}
+              >
+                <option value="">كل الأصناف</option>
+                {historyItemNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               نوع البيع
@@ -1208,6 +1240,7 @@ export default function CanteenSalesPanel({
             </article>
           </div>
 
+          <div className="report-detail">
           {filteredInvoices.map((invoice) => (
             <article className="sales-invoice-card" key={invoice.invoiceNumber}>
               <PrintBrand
@@ -1393,6 +1426,7 @@ export default function CanteenSalesPanel({
               )}
             </article>
           ))}
+          </div>
           {!filteredInvoices.length && (
             <div className="empty-state">
               {sales.invoices.length
@@ -1401,9 +1435,10 @@ export default function CanteenSalesPanel({
             </div>
           )}
           <p className="access-note">
-            تعرض الصفحة آخر 100 حركة بيع. البيع النقدي يُسدد كاملًا عند
-            التسجيل؛ والبيع على الحساب يظهر كمدين في كشف حساب النزيل ويُسمح
-            بالرصيد السالب. إلغاء حركة مسددة يسجل رد المبلغ بعد تأكيد تنفيذه.
+            تعرض الصفحة كل حركات البيع المسجلة مرتبة من الأقدم إلى الأحدث.
+            البيع النقدي يُسدد كاملًا عند التسجيل؛ والبيع على الحساب يظهر
+            كمدين في كشف حساب النزيل ويُسمح بالرصيد السالب. إلغاء حركة مسددة
+            يسجل رد المبلغ بعد تأكيد تنفيذه.
           </p>
         </div>
       )}

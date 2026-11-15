@@ -23,8 +23,15 @@ export function filterCanteenReport(
     );
 
   const allMovements: CanteenReportMovement[] = bundle.movements.map(
-    (movement) => {
+    (movement): CanteenReportMovement => {
       const direction = movement.incoming !== null ? "in" : "out";
+      const quantity =
+        direction === "in"
+          ? (movement.incoming ?? 0)
+          : (movement.outgoing ?? 0);
+      const price =
+        products.find((product) => product.itemNumber === movement.itemNumber)
+          ?.price ?? 0;
       return {
         id: movement.id,
         itemNumber: movement.itemNumber,
@@ -34,17 +41,20 @@ export function filterCanteenReport(
             ? movement.incomingDate
             : movement.outgoingDate) ?? "",
         direction,
-        quantity:
-          direction === "in"
-            ? (movement.incoming ?? 0)
-            : (movement.outgoing ?? 0),
+        quantity,
+        price,
+        value: quantity * price,
         balanceAfter: movement.balance,
         recipient: movement.recipient,
+        issueCategory: movement.issueCategory ?? "",
         voucherId: movement.voucherId,
         voided: movement.voided,
         voidReason: movement.voidReason,
       };
     },
+  ).sort(
+    (left, right) =>
+      left.date.localeCompare(right.date) || left.id - right.id,
   );
 
   const selectedMovements = allMovements.filter((movement) => {
@@ -136,8 +146,11 @@ export function canteenReportToCsv(report: CanteenReportData): string {
     "التاريخ",
     "الوارد",
     "المنصرف",
+    "السعر",
+    "القيمة",
     "الرصيد بعد الحركة",
     "المستلم",
+    "بند الصرف",
     "رقم المستند",
     "ملغاة",
     "سبب الإلغاء",
@@ -149,6 +162,9 @@ export function canteenReportToCsv(report: CanteenReportData): string {
     balance.price,
     balance.balance,
     balance.value,
+    "",
+    "",
+    "",
     "",
     "",
     "",
@@ -176,21 +192,27 @@ export function canteenReportToCsv(report: CanteenReportData): string {
       "",
       "",
       "",
+      "",
+      "",
+      "",
     ],
   ];
   const movementRows = report.movements.map((movement) => [
     "حركة",
     movement.itemNumber,
     movement.itemName,
-    "",
+    movement.price,
     "",
     "",
     movement.direction === "in" ? "وارد" : "منصرف",
     movement.date,
     movement.direction === "in" ? movement.quantity : "",
     movement.direction === "out" ? movement.quantity : "",
+    movement.price,
+    movement.value,
     movement.balanceAfter,
     movement.recipient,
+    movement.issueCategory,
     movement.voucherId ?? "",
     movement.voided ? "نعم" : "",
     movement.voidReason,

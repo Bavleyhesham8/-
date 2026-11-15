@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   filterCanteenInvoices,
   summarizeCanteenInvoices,
+  UNLINKED_RESIDENT_FILTER,
 } from "@/lib/canteen-sales-utils";
 import type { ResidentInvoice } from "@/lib/canteen-sales-types";
 
@@ -35,18 +36,9 @@ function invoice(overrides: Partial<ResidentInvoice> = {}): ResidentInvoice {
   };
 }
 
-const residents = [
-  {
-    id: "resident-1",
-    name: "نزيل تجريبي",
-    fileNumber: "1001",
-    residentNumber: "R-1001",
-  },
-];
-
 const filters = {
-  residentQuery: "",
-  itemQuery: "",
+  residentId: "",
+  itemName: "",
   fromDate: "",
   toDate: "",
   saleType: "all" as const,
@@ -73,13 +65,13 @@ test("summarizes cash and account sales without voided movements", () => {
   });
 });
 
-test("filters by resident file number and item name", () => {
+test("filters by resident id and by exact item name", () => {
   const invoices = [
     invoice(),
     invoice({
       invoiceNumber: 2,
       residentId: "resident-2",
-      residentName: "نزيل آخر",
+      residentName: "نزيل تجريبي",
       lines: [
         {
           id: 2,
@@ -94,15 +86,72 @@ test("filters by resident file number and item name", () => {
       ],
       total: 20,
     }),
+    invoice({
+      invoiceNumber: 3,
+      lines: [
+        {
+          id: 3,
+          itemName: "أرز مصري",
+          unitPrice: 30,
+          quantity: 1,
+          total: 30,
+          categoryId: null,
+          alternateCategory: "",
+          stockMovementId: null,
+        },
+      ],
+      total: 30,
+    }),
   ];
 
   assert.deepEqual(
-    filterCanteenInvoices(invoices, { ...filters, residentQuery: "1001" }, residents),
+    filterCanteenInvoices(invoices, {
+      ...filters,
+      residentId: "resident-2",
+    }),
+    [invoices[1]],
+  );
+  assert.deepEqual(
+    filterCanteenInvoices(invoices, { ...filters, itemName: "أرز" }),
     [invoices[0]],
   );
   assert.deepEqual(
-    filterCanteenInvoices(invoices, { ...filters, itemQuery: "عدس" }, residents),
+    filterCanteenInvoices(invoices, { ...filters, itemName: "أرز مصري" }),
+    [invoices[2]],
+  );
+  assert.deepEqual(
+    filterCanteenInvoices(invoices, { ...filters, itemName: "عدس" }),
     [invoices[1]],
+  );
+});
+
+test("filters invoices that are not linked to a resident", () => {
+  const invoices = [
+    invoice(),
+    invoice({ invoiceNumber: 2, residentId: null, residentName: "" }),
+  ];
+
+  assert.deepEqual(
+    filterCanteenInvoices(invoices, {
+      ...filters,
+      residentId: UNLINKED_RESIDENT_FILTER,
+    }),
+    [invoices[1]],
+  );
+});
+
+test("returns matching invoices oldest first", () => {
+  const invoices = [
+    invoice({ invoiceNumber: 30, invoiceDate: "2026-11-10" }),
+    invoice({ invoiceNumber: 10, invoiceDate: "2026-11-01" }),
+    invoice({ invoiceNumber: 20, invoiceDate: "2026-11-05" }),
+  ];
+
+  assert.deepEqual(
+    filterCanteenInvoices(invoices, filters).map(
+      (entry) => entry.invoiceNumber,
+    ),
+    [10, 20, 30],
   );
 });
 
@@ -114,19 +163,15 @@ test("filters by date range and sale type", () => {
   ];
 
   assert.deepEqual(
-    filterCanteenInvoices(
-      invoices,
-      { ...filters, fromDate: "2026-11-02", toDate: "2026-11-06" },
-      residents,
-    ),
+    filterCanteenInvoices(invoices, {
+      ...filters,
+      fromDate: "2026-11-02",
+      toDate: "2026-11-06",
+    }),
     [invoices[1]],
   );
   assert.deepEqual(
-    filterCanteenInvoices(
-      invoices,
-      { ...filters, saleType: "cash" },
-      residents,
-    ),
+    filterCanteenInvoices(invoices, { ...filters, saleType: "cash" }),
     [invoices[0], invoices[2]],
   );
 });

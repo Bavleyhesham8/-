@@ -3,6 +3,7 @@ export type CanteenProduct = {
   name: string;
   price: number;
   itemNumber: number;
+  balance?: number;
   needsReview?: boolean;
 };
 

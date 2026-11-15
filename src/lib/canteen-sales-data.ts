@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   canteenProducts,
@@ -66,7 +66,7 @@ export async function listCanteenSalesForAdministrator(): Promise<CanteenSalesBu
         residentInvoiceVoids,
         eq(residentInvoiceVoids.invoiceNumber, residentInvoices.invoiceNumber),
       )
-      .orderBy(desc(residentInvoices.invoiceNumber)),
+      .orderBy(asc(residentInvoices.invoiceDate), asc(residentInvoices.invoiceNumber)),
   ]);
 
   if (!invoiceRows.length) return { items, categories, invoices: [] };

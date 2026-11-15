@@ -8,6 +8,8 @@ import {
   firstAccessibleScreen,
   hasScreenAccess,
   hasStaffWritePermission,
+  PERMISSION_SCREENS,
+  withRequiredScreens,
 } from "./access-control";
 
 test("viewer roles never receive staff write permissions", () => {
@@ -73,4 +75,34 @@ test("birth dates are visible to read-only viewers with the assigned report scre
   assert.equal(canViewResidentBirthDate("admin"), true);
   assert.equal(canViewResidentBirthDate("staff"), false);
   assert.equal(canViewResidentBirthDate("viewer"), true);
+});
+
+test("operational permissions automatically add their required screens", () => {
+  assert.equal(PERMISSION_SCREENS.canIssueInvoices, "sales");
+  assert.equal(PERMISSION_SCREENS.canManageWarehouse, "inventory");
+  assert.equal(PERMISSION_SCREENS.canManageCanteen, "canteen");
+
+  assert.deepEqual(
+    withRequiredScreens(["overview"], {
+      canIssueInvoices: true,
+      canManageWarehouse: true,
+      canManageCustody: false,
+    }).sort(),
+    ["inventory", "overview", "sales"],
+  );
+
+  assert.deepEqual(
+    withRequiredScreens(["sales"], { canIssueInvoices: true }),
+    ["sales"],
+  );
+  assert.deepEqual(withRequiredScreens([], {}), []);
+});
+
+test("every operational permission maps to a real dashboard screen", () => {
+  for (const screen of Object.values(PERMISSION_SCREENS)) {
+    assert.ok(
+      (DASHBOARD_SCREENS as readonly string[]).includes(screen),
+      `${screen} must be a dashboard screen`,
+    );
+  }
 });

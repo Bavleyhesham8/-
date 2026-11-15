@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, ne, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, ne, notInArray } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   residents,
@@ -117,7 +117,7 @@ export async function listResidentsForCurrentUser() {
     database
       .select()
       .from(residents)
-      .orderBy(desc(residents.createdAt), desc(residents.name)),
+      .orderBy(asc(residents.createdAt), asc(residents.name)),
     database
       .selectDistinctOn([residentStays.residentId])
       .from(residentStays)

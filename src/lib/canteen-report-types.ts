@@ -28,8 +28,11 @@ export type CanteenReportMovement = {
   date: string;
   direction: "in" | "out";
   quantity: number;
+  price: number;
+  value: number;
   balanceAfter: number;
   recipient: string;
+  issueCategory: string;
   voucherId: number | null;
   voided: boolean;
   voidReason: string;

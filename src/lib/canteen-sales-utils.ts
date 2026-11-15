@@ -1,18 +1,13 @@
 import type { ResidentInvoice } from "@/lib/canteen-sales-types";
 
+export const UNLINKED_RESIDENT_FILTER = "__unlinked__";
+
 export type CanteenHistoryFilters = {
-  residentQuery: string;
-  itemQuery: string;
+  residentId: string;
+  itemName: string;
   fromDate: string;
   toDate: string;
   saleType: "all" | "cash" | "resident";
-};
-
-export type ResidentSearchEntry = {
-  id: string;
-  name?: string;
-  fileNumber?: string;
-  residentNumber?: string;
 };
 
 export type CanteenSalesSummary = {
@@ -26,44 +21,43 @@ export type CanteenSalesSummary = {
 export function filterCanteenInvoices(
   invoices: ResidentInvoice[],
   filters: CanteenHistoryFilters,
-  residents: ResidentSearchEntry[],
 ): ResidentInvoice[] {
-  const residentQuery = filters.residentQuery.trim().toLowerCase();
-  const itemQuery = filters.itemQuery.trim().toLowerCase();
+  const itemName = filters.itemName.trim().normalize("NFC");
 
-  return invoices.filter((invoice) => {
-    if (filters.saleType !== "all" && invoice.saleType !== filters.saleType) {
-      return false;
-    }
-    if (filters.fromDate && invoice.invoiceDate < filters.fromDate) {
-      return false;
-    }
-    if (filters.toDate && invoice.invoiceDate > filters.toDate) {
-      return false;
-    }
-    if (residentQuery) {
-      const resident = residents.find((entry) => entry.id === invoice.residentId);
-      const haystack = [
-        invoice.residentName,
-        resident?.name,
-        resident?.fileNumber,
-        resident?.residentNumber,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      if (!haystack.includes(residentQuery)) return false;
-    }
-    if (
-      itemQuery &&
-      !invoice.lines.some((line) =>
-        line.itemName.toLowerCase().includes(itemQuery),
-      )
-    ) {
-      return false;
-    }
-    return true;
-  });
+  return invoices
+    .filter((invoice) => {
+      if (filters.saleType !== "all" && invoice.saleType !== filters.saleType) {
+        return false;
+      }
+      if (filters.fromDate && invoice.invoiceDate < filters.fromDate) {
+        return false;
+      }
+      if (filters.toDate && invoice.invoiceDate > filters.toDate) {
+        return false;
+      }
+      if (filters.residentId === UNLINKED_RESIDENT_FILTER) {
+        if (invoice.residentId !== null) return false;
+      } else if (
+        filters.residentId &&
+        invoice.residentId !== filters.residentId
+      ) {
+        return false;
+      }
+      if (
+        itemName &&
+        !invoice.lines.some(
+          (line) => line.itemName.trim().normalize("NFC") === itemName,
+        )
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .sort(
+      (left, right) =>
+        left.invoiceDate.localeCompare(right.invoiceDate) ||
+        left.invoiceNumber - right.invoiceNumber,
+    );
 }
 
 export function summarizeCanteenInvoices(

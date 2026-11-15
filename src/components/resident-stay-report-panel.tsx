@@ -50,7 +50,14 @@ function demoRows(): ResidentStayReportRow[] {
       villa: resident.villa,
       room: resident.room,
       archived: resident.archived,
-    }));
+    }))
+    .sort(
+      (left, right) =>
+        left.admissionDate.localeCompare(right.admissionDate) ||
+        left.fileNumber.localeCompare(right.fileNumber, "en", {
+          numeric: true,
+        }),
+    );
 }
 
 function formatDate(value: string) {

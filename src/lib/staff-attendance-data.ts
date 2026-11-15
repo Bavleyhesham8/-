@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import { staffAccountLinks, staffAttendance, staffEmployees } from "@/db/schema";
 import { requireScreenAccess } from "@/lib/auth-session";
@@ -35,7 +35,7 @@ export async function listStaffAttendanceForCurrentUser(): Promise<StaffAttendan
           staffEmployees,
           eq(staffEmployees.employeeNumber, staffAttendance.employeeNumber),
         )
-        .orderBy(desc(staffAttendance.clockInAt))
+        .orderBy(asc(staffAttendance.clockInAt))
         .limit(100),
     ]);
 
@@ -70,7 +70,7 @@ export async function listStaffAttendanceForCurrentUser(): Promise<StaffAttendan
       eq(staffEmployees.employeeNumber, staffAttendance.employeeNumber),
     )
     .where(eq(staffAttendance.employeeNumber, link.employeeNumber))
-    .orderBy(desc(staffAttendance.clockInAt))
+    .orderBy(asc(staffAttendance.clockInAt))
     .limit(100);
 
   return {

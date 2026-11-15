@@ -1130,7 +1130,7 @@ export default function LookupManagerPanel({
             {referenceTab === "resident" && (
               <section className="lookup-report-section">
                 <h3>تقرير شخص واحد</h3>
-                <p>ابحث بالاسم أو رقم الملف واختر النزيل لعرض بياناته المرجعية.</p>
+                <p>ابحث باسم النزيل واختره لعرض بياناته المرجعية.</p>
                 <label className="form-field">
                   النزيل
                   <ResidentPicker
@@ -1140,7 +1140,7 @@ export default function LookupManagerPanel({
                       setResidentQuery(value);
                       setSelectedResident(resident);
                     }}
-                    placeholder="اكتب الاسم أو رقم الملف ثم اختر من القائمة"
+                    placeholder="اكتب اسم النزيل ثم اختره من القائمة"
                   />
                 </label>
                 {selectedResident ? (

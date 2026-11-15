@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, inArray, or } from "drizzle-orm";
+import { asc, eq, inArray, or } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   custodyDetails,
@@ -56,7 +56,7 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
     ? await database
         .select()
         .from(custodyHeaders)
-        .orderBy(desc(custodyHeaders.custodyNumber))
+        .orderBy(asc(custodyHeaders.custodyNumber))
     : [];
   const initialHeaderNumbers = isAdministrator
     ? []
@@ -131,7 +131,7 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
         .select()
         .from(custodyHeaders)
         .where(inArray(custodyHeaders.custodyNumber, [...custodyNumbers]))
-        .orderBy(desc(custodyHeaders.custodyNumber));
+        .orderBy(asc(custodyHeaders.custodyNumber));
   const numbers = headerRows.map((header) => header.custodyNumber);
 
   const detailRows = numbers.length

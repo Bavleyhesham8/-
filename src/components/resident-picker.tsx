@@ -14,14 +14,15 @@ type Props = {
 };
 
 function optionLabel(resident: Resident) {
-  return `${resident.name} — ${resident.fileNumber}`;
+  // يظهر الاسم فقط في قائمة الاختيار، مع بقاء الربط بسجل النزيل الكامل.
+  return resident.name;
 }
 
 export default function ResidentPicker({
   residents,
   value,
   onChange,
-  placeholder = "ابحث بالاسم أو رقم الملف...",
+  placeholder = "ابحث باسم النزيل...",
   required,
   disabled,
   className,

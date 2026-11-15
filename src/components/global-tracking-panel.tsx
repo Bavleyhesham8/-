@@ -555,8 +555,8 @@ export default function GlobalTrackingPanel({
       })
       .sort(
         (left, right) =>
-          right.date.localeCompare(left.date) ||
-          right.id.localeCompare(left.id, "en", { numeric: true }),
+          left.date.localeCompare(right.date) ||
+          left.id.localeCompare(right.id, "en", { numeric: true }),
       );
   }, [appliedFilters, events]);
 
@@ -631,7 +631,7 @@ export default function GlobalTrackingPanel({
     };
   }, [filteredEvents]);
 
-  const visibleEvents = filteredEvents.slice(0, 500);
+  const visibleEvents = filteredEvents.slice(-500);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

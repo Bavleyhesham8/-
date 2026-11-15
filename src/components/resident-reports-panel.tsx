@@ -264,7 +264,7 @@ export default function ResidentReportsPanel({
       }
     }
 
-    return rows.sort((a, b) => b.treatmentDate.localeCompare(a.treatmentDate));
+    return rows.sort((a, b) => a.treatmentDate.localeCompare(b.treatmentDate));
   }, [filtered, treatment]);
 
   const diagnosisSummary = useMemo(() => {
@@ -372,11 +372,11 @@ export default function ResidentReportsPanel({
 
       <form className="resident-report-filters" onSubmit={applyFilters}>
         <label>
-          بحث بالاسم أو الملف أو الهاتف
+          بحث بالاسم أو الهاتف
           <ResidentPicker
             residents={residents}
             value={filters.search}
-            placeholder="ابحث بالاسم أو رقم الملف..."
+            placeholder="ابحث باسم النزيل..."
             onChange={(value) =>
               setFilters((current) => ({
                 ...current,
@@ -594,7 +594,7 @@ export default function ResidentReportsPanel({
                 <strong>{numberFormatter.format(diagnosisSummary.billed)}</strong>
               </article>
             </div>
-            <div className="table-wrap resident-report-details">
+            <div className="table-wrap resident-report-details report-detail">
               <table className="resident-table">
                 <thead>
                   <tr>
@@ -653,8 +653,9 @@ export default function ResidentReportsPanel({
                     return (
                       <tr key={governorate}>
                         <td>
+                          <span>{governorate}</span>
                           <button
-                            className="table-action"
+                            className="table-action no-print"
                             type="button"
                             aria-pressed={selectedGovernorate === governorate}
                             onClick={() =>
@@ -665,7 +666,9 @@ export default function ResidentReportsPanel({
                               )
                             }
                           >
-                            {governorate}
+                            {selectedGovernorate === governorate
+                              ? "إلغاء التصفية"
+                              : "تصفية"}
                           </button>
                         </td>
                         <td>{numberFormatter.format(rows.length)}</td>

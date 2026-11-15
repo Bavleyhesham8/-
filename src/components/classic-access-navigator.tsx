@@ -76,16 +76,20 @@ const classicColumns: MenuColumn[] = [
     ],
   },
   {
-    title: "المخزن",
+    title: "المخزن والعهد",
     headerColor: "green",
     items: [
       { label: "مخزن الأغذية", targetView: "inventory", itemColor: "green" },
+      { label: "عهد الموظفين", targetView: "custody", targetTab: "custody", itemColor: "green" },
+      { label: "عهدة المركز", targetView: "custody", targetTab: "center", itemColor: "green" },
     ],
   },
   {
     title: "الكانتين",
     headerColor: "green",
     items: [
+      { label: "مخزون الكانتين", targetView: "canteen", itemColor: "green" },
+      { label: "سجل حركات الكانتين", targetView: "canteen-reports", itemColor: "green" },
       {
         label: "تسجيل حركة بيع",
         targetView: "sales",
@@ -93,9 +97,7 @@ const classicColumns: MenuColumn[] = [
         itemColor: "green",
         requiredCapability: "issue-invoices",
       },
-      { label: "سجل حركات البيع", targetView: "sales", targetTab: "history", itemColor: "green" },
-      { label: "مخزون الكانتين", targetView: "canteen", itemColor: "green" },
-      { label: "تقرير حركات الكانتين", targetView: "canteen", targetTab: "report", itemColor: "green" },
+      { label: "سجل مبيعات الكانتين", targetView: "sales", targetTab: "history", itemColor: "green" },
       { label: "مشتريات النزلاء", targetView: "invoice-reports", itemColor: "green" },
     ],
   },
@@ -120,6 +122,7 @@ const classicColumns: MenuColumn[] = [
     items: [
       { label: "حسابات النزلاء", targetView: "resident-finance", itemColor: "green" },
       { label: "التتبع العام", targetView: "tracking", itemColor: "green" },
+      { label: "العلاج", targetView: "treatment", itemColor: "green" },
     ],
   },
   {
@@ -183,7 +186,7 @@ export default function ClassicAccessNavigator({
 
   return (
     <section
-      className="mb-6 rounded-2xl border border-white/70 bg-white/90 p-3 shadow-lg backdrop-blur-xl sm:p-4"
+      className="no-print mb-6 rounded-2xl border border-white/70 bg-white/90 p-3 shadow-lg backdrop-blur-xl sm:p-4"
       dir="rtl"
     >
       <div className="flex items-center justify-between gap-3">

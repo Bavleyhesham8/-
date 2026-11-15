@@ -21,7 +21,10 @@ import { getAuth } from "@/lib/auth";
 import { recordAuditEvent } from "@/lib/audit-log";
 import { getResidentRecord } from "@/lib/resident-data";
 import type { DemoUser, Resident } from "@/lib/demo-data";
-import { DASHBOARD_SCREENS } from "@/lib/access-control";
+import {
+  DASHBOARD_SCREENS,
+  withRequiredScreens,
+} from "@/lib/access-control";
 
 const dateValue = z
   .string()
@@ -558,6 +561,10 @@ export async function updateUserRoleAndPermissionsAction(
       : perms;
   const safeInventoryCategoryIds =
     role === "viewer" ? [] : inventoryCategoryIds;
+  const safeAllowedScreens =
+    role === "staff"
+      ? withRequiredScreens(allowedScreens, safePermissions)
+      : allowedScreens;
   const database = getDatabase();
   const updated = await database.transaction(async (transaction) => {
     const [targetUser] = await transaction
@@ -612,7 +619,7 @@ export async function updateUserRoleAndPermissionsAction(
       .set({
         role,
         ...safePermissions,
-        allowedScreens: allowedScreens.join(","),
+        allowedScreens: safeAllowedScreens.join(","),
         updatedAt: new Date(),
       })
       .where(eq(user.id, userId))
@@ -647,7 +654,11 @@ export async function updateUserRoleAndPermissionsAction(
       );
     }
 
-    if (role === "staff" && safePermissions.canManageCanteen) {
+    if (
+      role === "staff" &&
+      (safePermissions.canManageCanteen ||
+        safeAllowedScreens.includes("canteen"))
+    ) {
       await transaction
         .insert(userCanteenAccess)
         .values({ userId, grantedBy: currentSession.user.id })

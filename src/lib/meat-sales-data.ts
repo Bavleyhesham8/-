@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   meatSalePayments,
@@ -71,7 +71,12 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
           refrigeratorStockLedger.id,
         ),
       )
-      .orderBy(desc(refrigeratorStockLedger.id)),
+      .orderBy(
+        asc(
+          sql`coalesce(${refrigeratorStockLedger.receivedDate}, ${refrigeratorStockLedger.outgoingDate})`,
+        ),
+        asc(refrigeratorStockLedger.id),
+      ),
     database
       .select({
         invoiceNumber: meatSalesInvoices.invoiceNumber,
@@ -86,7 +91,10 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
         meatSaleVoids,
         eq(meatSaleVoids.invoiceNumber, meatSalesInvoices.invoiceNumber),
       )
-      .orderBy(desc(meatSalesInvoices.invoiceNumber)),
+      .orderBy(
+        asc(meatSalesInvoices.saleDate),
+        asc(meatSalesInvoices.invoiceNumber),
+      ),
     database
       .select({ count: sql<number>`count(*)::int` })
       .from(refrigeratorStockLedger)

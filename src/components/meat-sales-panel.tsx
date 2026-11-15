@@ -1277,7 +1277,7 @@ export default function MeatSalesPanel({
       )}
 
       {section === "report" && (
-        <div className="report-detail">
+        <div>
           <PrintBrand
             title="تقرير الثلاجة"
             subtitle="الوارد والمنصرف والرصيد المتبقي وحركة الفواتير خلال الفترة المحددة"
@@ -1598,7 +1598,7 @@ export default function MeatSalesPanel({
       )}
 
       {section === "balances" && (
-        <div className="report-detail">
+        <div>
           <PrintBrand
             title="أرصدة الثلاجة"
             subtitle="الرصيد الحالي لكل صنف وقيمة الوارد والمنصرف والمتبقي"

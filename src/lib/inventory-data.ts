@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   inventoryCategories,
@@ -105,8 +105,8 @@ export async function listInventoryForCurrentUser(): Promise<InventoryBundle> {
       )
       .where(inArray(inventoryItems.categoryId, categoryIds))
       .orderBy(
-        desc(inventoryMovements.movementDate),
-        desc(inventoryMovements.createdAt),
+        asc(inventoryMovements.movementDate),
+        asc(inventoryMovements.createdAt),
       );
 
   return { categories, items, movements };

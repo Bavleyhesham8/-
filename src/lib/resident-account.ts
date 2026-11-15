@@ -119,7 +119,7 @@ export function buildResidentAccount(
     });
   }
 
-  entries.sort((left, right) => right.date.localeCompare(left.date));
+  entries.sort((left, right) => left.date.localeCompare(right.date));
 
   const deposits = sum(entries, "deposit", "credit");
   const canteenPurchases = sum(entries, "canteen-purchase", "debit");

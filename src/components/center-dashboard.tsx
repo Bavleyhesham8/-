@@ -172,8 +172,8 @@ const navItems: NavItem[] = [
   { id: "food-store", key: "inventory", label: "مخزن الأغذية", icon: "box", group: "المخزن" },
 
   { id: "canteen", key: "canteen", label: "مخزون الكانتين", icon: "box", group: "الكانتين" },
+  { id: "canteen-report", key: "canteen-reports", label: "سجل حركات الكانتين", icon: "search", group: "الكانتين" },
   { id: "canteen-sales", key: "sales", label: "حركات ومبيعات الكانتين", icon: "box", group: "الكانتين", tab: "history" },
-  { id: "canteen-report", key: "canteen", label: "تقرير حركات الكانتين", icon: "search", group: "الكانتين", tab: "report" },
   { id: "resident-purchases", key: "invoice-reports", label: "مشتريات النزلاء", icon: "search", group: "الكانتين" },
 
   { id: "refrigerator", key: "meat-sales", label: "مبيعات الثلاجة", icon: "box", group: "الثلاجة", tab: "sale" },
@@ -963,16 +963,6 @@ export default function CenterDashboard({
       linkedEmployeeNumber: currentEmployeeNumber,
     };
   }, [activeUser, currentEmployeeNumber, custody, persistent]);
-  function removeCategoryGrants(categoryId: string) {
-    setUsers((current) =>
-      current.map((staff) => ({
-        ...staff,
-        inventoryCategoryIds: (staff.inventoryCategoryIds ?? []).filter(
-          (id) => id !== categoryId,
-        ),
-      })),
-    );
-  }
   const canEdit =
     activeUser.role === "admin" ||
     (activeUser.role === "staff" && Boolean(activeUser.canEdit));
@@ -993,8 +983,7 @@ export default function CenterDashboard({
     (activeUser.role === "staff" && Boolean(activeUser.canManageMeatSales));
   const canManageCanteen =
     activeUser.role === "admin" ||
-    (activeUser.role === "staff" &&
-      Boolean(activeUser.canManageCanteen || activeUser.canteenAccess));
+    (activeUser.role === "staff" && Boolean(activeUser.canManageCanteen));
 
   // الشاشة لا تُعرض إلا إذا كانت هناك بيانات وصلاحية فعلية لعرضها،
   // حتى لا يصل المستخدم إلى تبويب فارغ.
@@ -1360,7 +1349,7 @@ export default function CenterDashboard({
     custody: "عهد الموظفين",
     "resident-finance": "حسابات النزلاء",
     canteen: "الكانتين",
-    "canteen-reports": "أرصدة الكانتين والمنصرف",
+    "canteen-reports": "سجل حركات الكانتين",
     sales: "حركات ومبيعات الكانتين",
     "invoice-reports": "مشتريات النزلاء",
     "resident-stay-reports": "الفترة الزمنية",
@@ -1393,9 +1382,7 @@ export default function CenterDashboard({
 
         <nav className="nav-list" aria-label="القائمة الرئيسية">
           {navItems
-            .filter((item) => item.id === "canteen-report"
-              ? isScreenAllowed("canteen") || isScreenAllowed("canteen-reports")
-              : isScreenAllowed(item.key))
+            .filter((item) => isScreenAllowed(item.key))
             .map((item, index, visibleItems) => {
               const previousGroup =
                 index > 0 ? visibleItems[index - 1].group : null;
@@ -1528,7 +1515,7 @@ export default function CenterDashboard({
                       : "بيانات مخزون وهمية لاختبار العرض والصلاحيات."
                   : view === "canteen"
                     ? persistent
-                      ? "أصناف الكانتين وحركات الوارد والمنصرف."
+                      ? "أرصدة أصناف الكانتين وقيمة المخزون، والتعديل المباشر للأصناف والأرصدة."
                       : "بيانات كانتين وهمية لاختبار المخزون والصلاحيات."
                   : view === "sales"
                     ? persistent
@@ -1560,7 +1547,7 @@ export default function CenterDashboard({
                 إضافة نزيل
               </button>
             )}
-            <PrintToolbar />
+            <PrintToolbar key={view} />
           </div>
 
           {view === "no-access" && (
@@ -1618,12 +1605,12 @@ export default function CenterDashboard({
               <div className="list-toolbar">
                 <label className="search-box">
                   <Icon name="search" size={17} />
-                  <span className="sr-only">ابحث بالاسم أو رقم الملف</span>
+                  <span className="sr-only">ابحث باسم النزيل</span>
                   <ResidentPicker
                     residents={residents}
                     value={search}
                     onChange={(value) => setSearch(value)}
-                    placeholder="ابحث بالاسم أو رقم الملف..."
+                    placeholder="ابحث باسم النزيل..."
                   />
                 </label>
                 <div className="filter-list" aria-label="تصفية حسب الحالة">
@@ -1818,7 +1805,6 @@ export default function CenterDashboard({
               persistent={persistent}
               canManage={canManageWarehouse}
               onInventoryChange={setInventory}
-              onCategoryDeactivated={removeCategoryGrants}
             />
           )}
 
@@ -1850,21 +1836,25 @@ export default function CenterDashboard({
             />
           )}
 
-          {view === "canteen" && (isScreenAllowed("canteen") || (viewTab === "report" && isScreenAllowed("canteen-reports"))) && (
+          {view === "canteen" && isScreenAllowed("canteen") && (
             <CanteenPanel
-              key={viewTab ?? "stock"}
               canteen={canteen}
               persistent={persistent}
               canManage={canManageCanteen}
-              canVoid={activeUser.role === "admin"}
-              canViewReport={isScreenAllowed("canteen-reports")}
-              initialReport={viewTab === "report"}
               onCanteenChange={setCanteen}
+              onOpenMovementLog={
+                isScreenAllowed("canteen-reports")
+                  ? () => openView("canteen-reports")
+                  : undefined
+              }
             />
           )}
 
           {view === "canteen-reports" && isScreenAllowed("canteen-reports") && (
-            <CanteenReportPanel persistent={persistent} />
+            <CanteenReportPanel
+              persistent={persistent}
+              canManage={canManageCanteen && isScreenAllowed("canteen")}
+            />
           )}
 
           {view === "sales" && isScreenAllowed("sales") && (

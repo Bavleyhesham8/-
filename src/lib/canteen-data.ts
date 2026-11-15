@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, sql } from "drizzle-orm";
+import { asc, eq, isNull, sql } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   canteenIssueVouchers,
@@ -110,7 +110,10 @@ export async function listCanteenForCurrentUser(): Promise<{
         eq(canteenStockVoids.movementId, canteenStockLedger.id),
       )
       .orderBy(
-        desc(canteenStockLedger.id),
+        asc(
+          sql`coalesce(${canteenStockLedger.incomingDate}, ${canteenStockLedger.outgoingDate})`,
+        ),
+        asc(canteenStockLedger.id),
       )
     : database
         .select({
@@ -132,11 +135,30 @@ export async function listCanteenForCurrentUser(): Promise<{
           canteenStockVoids,
           eq(canteenStockVoids.movementId, canteenStockLedger.id),
         )
-        .orderBy(desc(canteenStockLedger.id));
-  const [products, movementRows] = await Promise.all([
+        .orderBy(asc(canteenStockLedger.id));
+  const [products, movementRows, balanceRows] = await Promise.all([
     productsPromise,
     movementsPromise,
+    database
+      .select({
+        itemNumber: canteenProducts.itemNumber,
+        balance: sql<string>`coalesce(sum(coalesce(${canteenStockLedger.incoming}, 0) - coalesce(${canteenStockLedger.outgoing}, 0)), 0)`,
+      })
+      .from(canteenProducts)
+      .leftJoin(
+        canteenStockLedger,
+        eq(canteenStockLedger.itemNumber, canteenProducts.itemNumber),
+      )
+      .leftJoin(
+        canteenStockVoids,
+        eq(canteenStockVoids.movementId, canteenStockLedger.id),
+      )
+      .where(isNull(canteenStockVoids.movementId))
+      .groupBy(canteenProducts.itemNumber),
   ]);
+  const balanceByItem = new Map(
+    balanceRows.map((row) => [row.itemNumber, Number(row.balance)]),
+  );
   const movements: CanteenMovement[] = movementRows.map((movement) => ({
     id: movement.id,
     itemNumber: movement.itemNumber,
@@ -184,7 +206,13 @@ export async function listCanteenForCurrentUser(): Promise<{
     needsReview: movement.needsReview,
   }));
   return {
-    bundle: { products, movements },
+    bundle: {
+      products: products.map((product) => ({
+        ...product,
+        balance: balanceByItem.get(product.itemNumber) ?? 0,
+      })),
+      movements,
+    },
     hasAccess: hasFullAccess && session.user.role !== "viewer",
   };
 }

@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation";
 import type { DemoUser } from "@/lib/demo-data";
 import type { InventoryBundle } from "@/lib/inventory-types";
 import { updateUserRoleAndPermissionsAction } from "@/app/actions/residents";
-import { DASHBOARD_SCREENS } from "@/lib/access-control";
+import {
+  DASHBOARD_SCREENS,
+  withRequiredScreens,
+} from "@/lib/access-control";
 import AuditLogPanel from "@/components/audit-log-panel";
 import type { AuditLogEntry } from "@/lib/audit-log-types";
 
@@ -22,20 +25,20 @@ type Props = {
 const AVAILABLE_SCREENS = [
   { id: "overview", label: "الرئيسية" },
   { id: "residents", label: "النزلاء" },
-  { id: "resident-reports", label: "تقرير النزلاء" },
-  { id: "resident-stay-reports", label: "الفترة الزمنية" },
+  { id: "resident-reports", label: "تقارير النزلاء" },
+  { id: "resident-stay-reports", label: "تقارير الإقامة" },
   { id: "resident-search", label: "بحث النزلاء" },
   { id: "rooms", label: "السكن والغرف" },
   { id: "treatment", label: "العلاج" },
-  { id: "canteen", label: "الكانتين" },
-  { id: "sales", label: "حركات بيع الكانتين" },
-  { id: "custody", label: "عهد الموظفين" },
-  { id: "meat-sales", label: "الثلاجة" },
-  { id: "inventory", label: "مخزن الأغذية" },
-  { id: "resident-finance", label: "حسابات النزلاء" },
-  { id: "canteen-reports", label: "تقارير الكانتين" },
+  { id: "canteen", label: "مخزون الكانتين" },
+  { id: "canteen-reports", label: "سجل حركات الكانتين" },
+  { id: "sales", label: "حركات ومبيعات الكانتين" },
   { id: "invoice-reports", label: "مشتريات النزلاء" },
-  { id: "tracking", label: "دفتر اليومية والحركات" },
+  { id: "meat-sales", label: "مبيعات الثلاجة" },
+  { id: "inventory", label: "مخزن الأغذية" },
+  { id: "custody", label: "العهد (الموظفون والمركز)" },
+  { id: "resident-finance", label: "حسابات النزلاء" },
+  { id: "tracking", label: "التتبع العام" },
   { id: "staff", label: "الموظفون" },
   { id: "staff-attendance", label: "الحضور والانصراف" },
   { id: "lookups", label: "البيانات المرجعية" },
@@ -55,7 +58,23 @@ export default function AccessManagerPanel({
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
   async function handleUpdateUser(userToUpdate: DemoUser, updates: Partial<DemoUser>) {
-    const updated: DemoUser = { ...userToUpdate, ...updates };
+    const merged: DemoUser = { ...userToUpdate, ...updates };
+    // كل صلاحية تشغيلية تضيف شاشتها تلقائيًا حتى لا تُحفظ صلاحية لا تعمل.
+    const updated: DemoUser = {
+      ...merged,
+      allowedScreens:
+        merged.role === "staff"
+          ? withRequiredScreens(merged.allowedScreens ?? [], {
+              canEditResidents: merged.canEdit,
+              canAccessClinic: merged.canAccessClinic,
+              canManageCanteen: merged.canManageCanteen,
+              canIssueInvoices: merged.canIssueInvoices,
+              canManageWarehouse: merged.canManageWarehouse,
+              canManageCustody: merged.canManageCustody,
+              canManageMeatSales: merged.canManageMeatSales,
+            })
+          : merged.allowedScreens,
+    };
     const previousUsers = users;
 
     // تحديث فوري بالواجهة
@@ -296,7 +315,7 @@ export default function AccessManagerPanel({
                         onChange={(e) => handleUpdateUser(user, { canManageWarehouse: e.target.checked })}
                         className="h-4 w-4 rounded-sm text-teal-600 focus:ring-teal-500"
                       />
-                      <span>إدارة مخزن الأدوات والأصول</span>
+                      <span>إدارة مخزن الأغذية وعهدة المركز</span>
                     </label>
 
                     <label className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 text-xs font-semibold text-slate-800 hover:bg-slate-100/70 cursor-pointer">
@@ -320,42 +339,55 @@ export default function AccessManagerPanel({
                     </label>
                   </div>
 
-                  {inventory.categories.length > 0 && (
-                    <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3">
-                      <p className="mb-2 text-xs font-bold text-slate-700">
-                        فئات المخزون المسموح بها:
-                      </p>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                        {inventory.categories.map((category) => {
-                          const granted = (user.inventoryCategoryIds ?? []).includes(
-                            category.id,
-                          );
-                          return (
-                            <label
-                              key={category.id}
-                              className="flex items-center gap-2 text-xs font-medium text-slate-700"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={granted}
-                                onChange={(e) => {
-                                  const current = user.inventoryCategoryIds ?? [];
-                                  const next = e.target.checked
-                                    ? [...current, category.id]
-                                    : current.filter((id) => id !== category.id);
-                                  void handleUpdateUser(user, {
-                                    inventoryCategoryIds: next,
-                                  });
-                                }}
-                                className="h-3.5 w-3.5 rounded-sm text-teal-600 focus:ring-teal-500"
-                              />
-                              <span>{category.name}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                  <p className="rounded-xl border border-teal-100 bg-teal-50/60 p-2.5 text-[11px] font-medium text-teal-900">
+                    تفعيل أي صلاحية يضيف شاشتها المطلوبة تلقائيًا، مثل: مبيعات
+                    الكانتين ← «حركات ومبيعات الكانتين»، ومخزن الأغذية ←
+                    «مخزن الأغذية».
+                  </p>
+
+                  {inventory.categories.some((category) => category.active) &&
+                    (() => {
+                      const activeCategoryIds = inventory.categories
+                        .filter((category) => category.active)
+                        .map((category) => category.id);
+                      const grantedCategoryIds = user.inventoryCategoryIds ?? [];
+                      const hasFullStore =
+                        activeCategoryIds.length > 0 &&
+                        activeCategoryIds.every((id) =>
+                          grantedCategoryIds.includes(id),
+                        );
+                      return (
+                        <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3">
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={hasFullStore}
+                              onChange={(e) => {
+                                const next = e.target.checked
+                                  ? [
+                                      ...new Set([
+                                        ...grantedCategoryIds,
+                                        ...activeCategoryIds,
+                                      ]),
+                                    ]
+                                  : grantedCategoryIds.filter(
+                                      (id) => !activeCategoryIds.includes(id),
+                                    );
+                                void handleUpdateUser(user, {
+                                  inventoryCategoryIds: next,
+                                });
+                              }}
+                              className="h-3.5 w-3.5 rounded-sm text-teal-600 focus:ring-teal-500"
+                            />
+                            <span>الوصول إلى مخزن الأغذية كاملًا</span>
+                          </label>
+                          <p className="mt-1.5 text-[11px] text-slate-500">
+                            مخزن الأغذية مخزن واحد بلا فئات ظاهرة. بدون هذا
+                            الاختيار يظل الموظف محتاجًا إلى منح وصول منفصل.
+                          </p>
+                        </div>
+                      );
+                    })()}
                 </div>
               ) : (
                 /* صلاحيات زائر ومستعرض البيانات (قراءة وتصدير فقط) */

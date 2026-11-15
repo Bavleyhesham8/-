@@ -256,11 +256,11 @@ export default function ResidentSearchPanel({ residents, persistent }: Props) {
 
       <form className="resident-report-filters" onSubmit={applyFilters}>
         <label>
-          بحث بالاسم أو الملف أو الهاتف
+          بحث بالاسم أو الهاتف
           <ResidentPicker
             residents={residents}
             value={filters.search}
-            placeholder="ابحث بالاسم أو رقم الملف..."
+            placeholder="ابحث باسم النزيل..."
             onChange={(value) =>
               setFilters((current) => ({
                 ...current,
