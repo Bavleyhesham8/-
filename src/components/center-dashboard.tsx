@@ -1853,6 +1853,7 @@ export default function CenterDashboard({
           {view === "canteen-reports" && isScreenAllowed("canteen-reports") && (
             <CanteenReportPanel
               persistent={persistent}
+              residents={residents}
               canManage={canManageCanteen && isScreenAllowed("canteen")}
             />
           )}

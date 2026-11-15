@@ -518,7 +518,7 @@ export default function ExecutiveOverview({
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm backdrop-blur-md lg:col-span-5">
+        <div className="rounded-3xl border border-white/60 bg-white/95 p-6 shadow-sm backdrop-blur-md lg:col-span-12">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
             <div>
               <h3 className="text-base font-bold text-slate-900">اتجاهات النشاط المالي</h3>
@@ -631,7 +631,7 @@ export default function ExecutiveOverview({
             </div>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-right text-xs"><thead className="text-slate-500"><tr><th className="py-2">التصنيف</th><th>الأصناف</th><th>القيمة التقديرية</th></tr></thead><tbody>
-                {inventoryStats.slice(0, 8).map((item) => <tr key={item.name} className="border-t border-slate-100"><td className="py-2.5 font-semibold text-slate-800">{item.name}</td><td>{numberFormatter.format(item.count)}</td><td className="font-bold text-teal-800">{currencyFormatter.format(item.value)} ج.م</td></tr>)}
+                {inventoryStats.slice(0, 5).map((item) => <tr key={item.name} className="border-t border-slate-100"><td className="py-2.5 font-semibold text-slate-800">{item.name}</td><td>{numberFormatter.format(item.count)}</td><td className="font-bold text-teal-800">{currencyFormatter.format(item.value)} ج.م</td></tr>)}
                 {!inventoryStats.length && <tr><td colSpan={3} className="py-8 text-center text-slate-400">لا توجد بيانات مخزون متاحة.</td></tr>}
               </tbody></table>
             </div>

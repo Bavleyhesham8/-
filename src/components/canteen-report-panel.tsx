@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { getCanteenReportAction } from "@/app/actions/canteen-report";
 import { updateCanteenMovementAction } from "@/app/actions/canteen";
 import { getDemoCanteenReport } from "@/lib/canteen-report-demo-data";
@@ -11,6 +11,7 @@ import type {
   CanteenReportFilters,
   CanteenReportMovement,
 } from "@/lib/canteen-report-types";
+import type { Resident } from "@/lib/demo-data";
 
 function localDate(value: Date) {
   const year = value.getFullYear();
@@ -63,10 +64,13 @@ function reportErrorMessage(error: unknown) {
 export default function CanteenReportPanel({
   persistent,
   canManage = false,
+  residents = [],
 }: {
   persistent: boolean;
   canManage?: boolean;
+  residents?: Resident[];
 }) {
+  const residentListId = useId();
   const [filters, setFilters] = useState(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState(initialFilters);
   const [report, setReport] = useState<CanteenReportData | null>(null);
@@ -319,6 +323,7 @@ export default function CanteenReportPanel({
         <label>
           النزيل / المستلم
           <input
+            list={residentListId}
             type="search"
             value={filters.recipient}
             maxLength={160}
@@ -330,6 +335,7 @@ export default function CanteenReportPanel({
               }))
             }
           />
+          <datalist id={residentListId}>{residents.filter((resident) => !resident.archived).map((resident) => <option key={resident.id} value={resident.name} />)}</datalist>
         </label>
         <label className="canteen-report-void-filter">
           <input

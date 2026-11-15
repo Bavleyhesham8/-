@@ -524,15 +524,8 @@ export default function CenterCustodyPanel({
             </button>
           </form>
           <section className="inventory-section-heading">
-            <div>
-              <h4>تجديد العهدة الأسبوعية</h4>
-              <p>
-                التجديد يدوي. يُقترح الفرق إلى المبلغ المستهدف، ويمكنك تعديل
-                المبلغ ورؤية الرصيد الناتج قبل التأكيد.
-              </p>
-            </div>
             <button
-              className="secondary-button no-print"
+              className="secondary-button no-print custody-renewal-button"
               type="button"
               onClick={openRenewal}
             >

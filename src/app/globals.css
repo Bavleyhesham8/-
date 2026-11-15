@@ -4166,3 +4166,25 @@ label.form-field {
     align-self: flex-start;
   }
 }
+.resident-picker-options .resident-picker-option:hover,
+.resident-picker-options .resident-picker-option:focus-visible {
+  background: rgba(255, 255, 255, 0.12) !important;
+  outline: none;
+}
+
+.custody-renewal-button {
+  min-height: 44px;
+  padding: 0 24px;
+  border: 1px solid #b9d4c7;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fff 0%, #edf7f1 100%);
+  color: #14543d;
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(17, 76, 54, 0.1);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.custody-renewal-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 9px 22px rgba(17, 76, 54, 0.16);
+}

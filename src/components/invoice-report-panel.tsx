@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { getInvoiceReportAction } from "@/app/actions/invoice-report";
 import { getDemoInvoiceReport } from "@/lib/invoice-report-demo-data";
 import { summarizeInvoiceReport } from "@/lib/invoice-report-utils";
@@ -75,6 +75,7 @@ export default function InvoiceReportPanel({
   residents?: Resident[];
   onOpenStatement?: (resident: Resident) => void;
 }) {
+  const residentListId = useId();
   const [filters, setFilters] = useState(currentMonthFilters);
   const [appliedFilters, setAppliedFilters] = useState(currentMonthFilters);
   const [report, setReport] = useState<InvoiceReportData | null>(null);
@@ -288,7 +289,8 @@ export default function InvoiceReportPanel({
         </label>
         <label>
           اسم النزيل
-          <input value={filters.residentName} onChange={(event) => setFilters((current) => ({ ...current, residentName: event.target.value }))} maxLength={200} />
+          <input list={residentListId} value={filters.residentName} onChange={(event) => setFilters((current) => ({ ...current, residentName: event.target.value }))} maxLength={200} />
+          <datalist id={residentListId}>{residents.filter((resident) => !resident.archived).map((resident) => <option key={resident.id} value={resident.name} />)}</datalist>
         </label>
         <label>
           الصنف

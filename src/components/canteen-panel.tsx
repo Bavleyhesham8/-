@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
-import { saveCanteenProductAction } from "@/app/actions/canteen";
+import { recordCanteenMovementAction, saveCanteenProductAction } from "@/app/actions/canteen";
 import { localDateValue } from "@/lib/date-format";
 import PrintBrand from "@/components/print-brand";
 import type {
@@ -58,6 +58,12 @@ export default function CanteenPanel({
   const [productBalance, setProductBalance] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showIncomingForm, setShowIncomingForm] = useState(false);
+  const [incomingItemNumber, setIncomingItemNumber] = useState("");
+  const [incomingNewName, setIncomingNewName] = useState("");
+  const [incomingQuantity, setIncomingQuantity] = useState("");
+  const [incomingPrice, setIncomingPrice] = useState("");
+  const [incomingDate, setIncomingDate] = useState(localDateValue());
 
   const balances = useMemo(() => {
     const result = new Map<number, number>();
@@ -243,6 +249,70 @@ export default function CanteenPanel({
     }
   }
 
+  async function submitIncoming(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    const quantity = Number(incomingQuantity);
+    const price = Number(incomingPrice);
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price < 0) {
+      setError("أدخل كمية وسعرًا صحيحين للوارد.");
+      return;
+    }
+    const existing = canteen.products.find((item) => item.itemNumber === Number(incomingItemNumber));
+    const name = existing?.name ?? incomingNewName.trim().normalize("NFC");
+    if (!name) {
+      setError("اختر صنفًا أو اكتب اسم الصنف الجديد.");
+      return;
+    }
+    setSaving(true);
+    try {
+      let itemNumber = existing?.itemNumber;
+      if (persistent) {
+        const productResult = await saveCanteenProductAction({
+          itemNumber: existing?.itemNumber ?? null,
+          name,
+          price,
+          ...(existing ? {} : { quantity: 0 }),
+        });
+        if (!productResult.ok) { setError(productResult.error); return; }
+        itemNumber = productResult.product.itemNumber;
+        onCanteenChange((current) => ({
+          ...current,
+          products: existing
+            ? current.products.map((item) => item.itemNumber === itemNumber ? productResult.product : item)
+            : [...current.products, productResult.product],
+        }));
+        const movementResult = await recordCanteenMovementAction({
+          itemNumber, direction: "in", quantity, movementDate: incomingDate,
+          recipient: "", itemCategory: "",
+        });
+        if (!movementResult.ok) { setError(movementResult.error); return; }
+        onCanteenChange((current) => ({ ...current, movements: [...current.movements, movementResult.movement] }));
+      } else {
+        itemNumber ??= Math.max(1000, ...canteen.products.map((item) => item.itemNumber)) + 1;
+        const product: CanteenProduct = existing
+          ? { ...existing, price }
+          : { id: itemNumber, itemNumber, name, price, balance: 0, needsReview: false };
+        const movement: CanteenMovement = {
+          id: Math.min(0, ...canteen.movements.map((item) => item.id)) - 1,
+          itemNumber, itemName: name, balance: (balances.get(itemNumber) ?? 0) + quantity,
+          incoming: quantity, incomingDate, outgoing: null, outgoingDate: null,
+          recipient: "", issueCategory: "", voucherId: null, voided: false, voidReason: "",
+        };
+        onCanteenChange((current) => ({
+          products: existing
+            ? current.products.map((item) => item.itemNumber === itemNumber ? product : item)
+            : [...current.products, product],
+          movements: [...current.movements, movement],
+        }));
+      }
+      setIncomingItemNumber(""); setIncomingNewName(""); setIncomingQuantity("");
+      setIncomingPrice(""); setIncomingDate(localDateValue()); setShowIncomingForm(false);
+    } catch {
+      setError("تعذر تسجيل الوارد. حاول مرة أخرى.");
+    } finally { setSaving(false); }
+  }
+
   return (
     <section className="content-panel inventory-panel canteen-panel">
       <PrintBrand
@@ -259,6 +329,9 @@ export default function CanteenPanel({
           </p>
         </div>
         <div className="action-group">
+          {canManage && <button className="primary-button" type="button" onClick={() => { setShowIncomingForm((value) => !value); setError(""); }}>
+            {showIncomingForm ? "إغلاق تسجيل الوارد" : "تسجيل وارد"}
+          </button>}
           {onOpenMovementLog && (
             <button
               className="secondary-button"
@@ -287,6 +360,24 @@ export default function CanteenPanel({
           )}
         </div>
       </div>
+
+      {canManage && showIncomingForm && (
+        <form className="inventory-form" onSubmit={submitIncoming}>
+          <label className="form-field">الصنف
+            <select value={incomingItemNumber} onChange={(event) => { setIncomingItemNumber(event.target.value); const item = canteen.products.find((product) => product.itemNumber === Number(event.target.value)); setIncomingPrice(item ? String(item.price) : ""); }}>
+              <option value="">صنف جديد</option>
+              {canteen.products.map((item) => <option key={item.itemNumber} value={item.itemNumber}>{item.name}</option>)}
+            </select>
+          </label>
+          {!incomingItemNumber && <label className="form-field">اسم الصنف الجديد
+            <input required maxLength={160} value={incomingNewName} onChange={(event) => setIncomingNewName(event.target.value)} />
+          </label>}
+          <label className="form-field">الكمية الواردة<input type="number" min="0.001" step="any" required value={incomingQuantity} onChange={(event) => setIncomingQuantity(event.target.value)} /></label>
+          <label className="form-field">سعر الصنف (ج.م)<input type="number" min="0" step="0.01" required value={incomingPrice} onChange={(event) => setIncomingPrice(event.target.value)} /></label>
+          <label className="form-field">التاريخ<input type="date" required value={incomingDate} onChange={(event) => setIncomingDate(event.target.value)} /></label>
+          <button className="primary-button" disabled={saving}>{saving ? "جارٍ التسجيل..." : "حفظ الوارد"}</button>
+        </form>
+      )}
 
       {canManage && showProductForm && (
         <form className="inventory-form" onSubmit={submitProduct}>
