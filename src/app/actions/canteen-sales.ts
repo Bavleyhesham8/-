@@ -110,14 +110,27 @@ export async function saveCanteenSalesItemAction(
   if (!category) {
     return { ok: false, error: "اختر فئة صالحة للصنف." };
   }
-  if (parsed.data.canteenItemNumber !== null) {
+  let canteenItemNumber = parsed.data.canteenItemNumber;
+  let price = parsed.data.price;
+  if (canteenItemNumber !== null) {
     const [product] = await database
-      .select({ itemNumber: canteenProducts.itemNumber })
+      .select({ itemNumber: canteenProducts.itemNumber, price: canteenProducts.price })
       .from(canteenProducts)
-      .where(eq(canteenProducts.itemNumber, parsed.data.canteenItemNumber))
+      .where(eq(canteenProducts.itemNumber, canteenItemNumber))
       .limit(1);
     if (!product) {
       return { ok: false, error: "لم يتم العثور على صنف المخزون المحدد." };
+    }
+    if (product.price > 0) price = product.price;
+  } else {
+    const [matched] = await database
+      .select({ itemNumber: canteenProducts.itemNumber, price: canteenProducts.price })
+      .from(canteenProducts)
+      .where(sql`lower(trim(${canteenProducts.name})) = lower(trim(${name}))`)
+      .limit(1);
+    if (matched) {
+      canteenItemNumber = matched.itemNumber;
+      if (matched.price > 0) price = matched.price;
     }
   }
   const id = parsed.data.id ?? null;
@@ -129,13 +142,13 @@ export async function saveCanteenSalesItemAction(
       : and(eq(residentPurchases.itemName, name), ne(residentPurchases.id, id)))
     .limit(1);
   if (duplicate) {
-    return { ok: false, error: "Duplicate item name." };
+    return { ok: false, error: "اسم الصنف مسجل بالفعل." };
   }
   const values = {
     itemName: name,
-    price: parsed.data.price,
+    price,
     addToResidentAccount: parsed.data.addToResidentAccount,
-    canteenItemNumber: parsed.data.canteenItemNumber,
+    canteenItemNumber,
     categoryId: parsed.data.categoryId,
     needsReview: false,
   };
@@ -335,34 +348,36 @@ export async function createResidentInvoiceAction(
       .orderBy(residentPurchases.id)
       .for("update");
 
-    const canteenNums = purchaseRows
-      .map((p) => p.canteenItemNumber)
-      .filter((n): n is number => n !== null);
-    const canteenPriceMap = new Map<number, number>();
-    if (canteenNums.length > 0) {
-      const cProducts = await transaction
-        .select({
-          itemNumber: canteenProducts.itemNumber,
-          price: canteenProducts.price,
-        })
-        .from(canteenProducts)
-        .where(inArray(canteenProducts.itemNumber, canteenNums));
-      for (const cp of cProducts) {
-        canteenPriceMap.set(cp.itemNumber, cp.price);
-      }
-    }
+    const allCanteenProducts = await transaction
+      .select({
+        itemNumber: canteenProducts.itemNumber,
+        name: canteenProducts.name,
+        price: canteenProducts.price,
+      })
+      .from(canteenProducts);
+    const canteenByNumber = new Map(allCanteenProducts.map((p) => [p.itemNumber, p]));
+    const canteenByName = new Map(
+      allCanteenProducts.map((p) => [p.name.trim().toLowerCase(), p]),
+    );
 
-    const catalogRows = purchaseRows.map((p) => ({
-      id: p.id,
-      name: p.name,
-      price:
-        p.price > 0
-          ? p.price
-          : p.canteenItemNumber
-            ? (canteenPriceMap.get(p.canteenItemNumber) ?? p.price)
-            : p.price,
-      canteenItemNumber: p.canteenItemNumber,
-    }));
+    const catalogRows = purchaseRows.map((p) => {
+      const matchedByNumber = p.canteenItemNumber ? canteenByNumber.get(p.canteenItemNumber) : undefined;
+      const matchedByName = canteenByName.get(p.name.trim().toLowerCase());
+      const linkedProduct = matchedByNumber ?? matchedByName;
+
+      const effectivePrice =
+        linkedProduct && linkedProduct.price > 0
+          ? linkedProduct.price
+          : p.price;
+      const effectiveItemNumber = linkedProduct?.itemNumber ?? p.canteenItemNumber;
+
+      return {
+        id: p.id,
+        name: p.name,
+        price: effectivePrice,
+        canteenItemNumber: effectiveItemNumber,
+      };
+    });
     const catalogById = new Map(catalogRows.map((item) => [item.id, item]));
     if (catalogById.size !== new Set(parsed.data.items.map((item) => item.catalogId)).size) {
       return { error: "لم يتم العثور على أحد أصناف الحركة." } as const;

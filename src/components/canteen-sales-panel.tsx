@@ -3,7 +3,7 @@
 import PrintBrand from "@/components/print-brand";
 import { printCurrentView, printSingleRecord } from "@/lib/print";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useId, useMemo, useState, type FormEvent } from "react";
 import {
   createResidentInvoiceAction,
   deleteCanteenSalesItemAction,
@@ -87,6 +87,7 @@ export default function CanteenSalesPanel({
       alternateCategory: "",
     },
   ]);
+  const catalogDatalistId = useId();
   const [itemName, setItemName] = useState("");
   const [itemPrice, setItemPrice] = useState("");
   const [itemStockNumber, setItemStockNumber] = useState("");
@@ -1079,9 +1080,26 @@ export default function CanteenSalesPanel({
               <input
                 required
                 maxLength={160}
+                list={catalogDatalistId}
+                placeholder="اختر من المخزون أو اكتب الصنف..."
                 value={itemName}
-                onChange={(event) => setItemName(event.target.value)}
+                onChange={(event) => {
+                  const val = event.target.value;
+                  setItemName(val);
+                  const matched = canteen.products.find(
+                    (p) => p.name.trim().toLowerCase() === val.trim().toLowerCase(),
+                  );
+                  if (matched) {
+                    setItemStockNumber(String(matched.itemNumber));
+                    setItemPrice(String(matched.price));
+                  }
+                }}
               />
+              <datalist id={catalogDatalistId}>
+                {canteen.products.map((p) => (
+                  <option key={p.itemNumber} value={p.name} />
+                ))}
+              </datalist>
             </label>
             <label className="form-field">
               السعر
@@ -1113,12 +1131,24 @@ export default function CanteenSalesPanel({
               صنف المخزون المرتبط
               <select
                 value={itemStockNumber}
-                onChange={(event) => setItemStockNumber(event.target.value)}
+                onChange={(event) => {
+                  const val = event.target.value;
+                  setItemStockNumber(val);
+                  if (val) {
+                    const matched = canteen.products.find(
+                      (p) => p.itemNumber === Number(val),
+                    );
+                    if (matched) {
+                      if (!itemName) setItemName(matched.name);
+                      setItemPrice(String(matched.price));
+                    }
+                  }
+                }}
               >
                 <option value="">لا يخصم من مخزون الكانتين</option>
                 {canteen.products.map((item) => (
                   <option key={item.itemNumber} value={item.itemNumber}>
-                    {item.name} — {item.itemNumber}
+                    {item.name} — سعر المخزن: {item.price} ج.م (رقم {item.itemNumber})
                   </option>
                 ))}
               </select>

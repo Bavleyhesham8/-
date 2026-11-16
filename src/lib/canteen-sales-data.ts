@@ -30,9 +30,9 @@ export async function listCanteenSalesForAdministrator(): Promise<CanteenSalesBu
       .select({
         id: residentPurchases.id,
         name: residentPurchases.itemName,
-        price: sql<number>`case when ${residentPurchases.price} > 0 then ${residentPurchases.price} else coalesce(${canteenProducts.price}, ${residentPurchases.price}) end`,
+        price: sql<number>`case when ${canteenProducts.price} is not null and ${canteenProducts.price} > 0 then ${canteenProducts.price} else ${residentPurchases.price} end`,
         addToResidentAccount: residentPurchases.addToResidentAccount,
-        canteenItemNumber: residentPurchases.canteenItemNumber,
+        canteenItemNumber: sql<number | null>`coalesce(${residentPurchases.canteenItemNumber}, ${canteenProducts.itemNumber})`,
         categoryId: residentPurchases.categoryId,
         categoryName: sql<string>`coalesce(${invoiceCategories.name}, '')`,
         needsReview: residentPurchases.needsReview,
@@ -40,7 +40,7 @@ export async function listCanteenSalesForAdministrator(): Promise<CanteenSalesBu
       .from(residentPurchases)
       .leftJoin(
         canteenProducts,
-        eq(canteenProducts.itemNumber, residentPurchases.canteenItemNumber),
+        sql`${canteenProducts.itemNumber} = ${residentPurchases.canteenItemNumber} or lower(trim(${canteenProducts.name})) = lower(trim(${residentPurchases.itemName}))`,
       )
       .leftJoin(
         invoiceCategories,
