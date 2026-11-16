@@ -6,7 +6,7 @@ import type {
   ResidentFinanceBundle,
   ResidentFinanceRecord,
 } from "@/lib/resident-finance-types";
-import { findRecordForResident } from "@/lib/resident-matching";
+import { findRecordForResident, residentNameScore } from "@/lib/resident-matching";
 import type { TreatmentBundle } from "@/lib/treatment-types";
 
 export type ResidentAccountEntryKind =
@@ -106,21 +106,32 @@ export function buildResidentAccount(
     }
   }
 
-  const treatmentRecord = treatment
-    ? findRecordForResident(resident, treatment.records)
-    : undefined;
-  for (const entry of treatmentRecord?.entries ?? []) {
-    if (entry.voided) continue;
-    entries.push({
-      id: `treatment-${entry.id}`,
-      date: entry.treatmentDate ?? "",
-      kind: "treatment",
-      typeLabel: "أدوية وعلاج",
-      description: `${entry.medicationName} (كمية: ${entry.quantity} · سعر: ${entry.amount} ج.م${entry.discount > 0 ? ` · خصم: ${entry.discount} ج.م` : ""})`,
-      debit: entry.total,
-      credit: 0,
-      status: "إذن صرف عيادة",
-    });
+  const matchingTreatmentRecords = (treatment?.records ?? []).filter((record) => {
+    if (record.residentId && record.residentId === resident.id) return true;
+    const residentNumbers = [resident.residentNumber, resident.fileNumber]
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean);
+    if (residentNumbers.some((num) => String(record.residentNumber) === num)) return true;
+    const score = residentNameScore(record.residentName, resident.name);
+    return score >= 0.7;
+  });
+
+  const seenTreatmentIds = new Set<number>();
+  for (const record of matchingTreatmentRecords) {
+    for (const entry of record.entries ?? []) {
+      if (entry.voided || seenTreatmentIds.has(entry.id)) continue;
+      seenTreatmentIds.add(entry.id);
+      entries.push({
+        id: `treatment-${entry.id}`,
+        date: entry.treatmentDate ?? "",
+        kind: "treatment",
+        typeLabel: "أدوية وعلاج",
+        description: `${entry.medicationName} (كمية: ${entry.quantity} · سعر: ${entry.amount} ج.م${entry.discount > 0 ? ` · خصم: ${entry.discount} ج.م` : ""})`,
+        debit: entry.total,
+        credit: 0,
+        status: "إذن صرف عيادة",
+      });
+    }
   }
 
   for (const charge of custodyCharges ?? []) {

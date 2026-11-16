@@ -1402,9 +1402,23 @@ export default function MeatSalesPanel({
               <button
                 className="secondary-button"
                 type="button"
-                onClick={printCurrentView}
+                onClick={() => printCurrentView({ section: "both" })}
               >
-                طباعة / حفظ PDF
+                طباعة الكل
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => printCurrentView({ section: "summary" })}
+              >
+                طباعة الملخص فقط
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => printCurrentView({ section: "detail" })}
+              >
+                طباعة الحركات فقط
               </button>
             </div>
           </div>
@@ -1703,9 +1717,23 @@ export default function MeatSalesPanel({
               <button
                 className="secondary-button"
                 type="button"
-                onClick={printCurrentView}
+                onClick={() => printCurrentView({ section: "both" })}
               >
-                طباعة / حفظ PDF
+                طباعة الكل
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => printCurrentView({ section: "summary" })}
+              >
+                طباعة الملخص فقط
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => printCurrentView({ section: "detail" })}
+              >
+                طباعة الحركات فقط
               </button>
             </div>
           </div>

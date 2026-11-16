@@ -102,6 +102,7 @@ export async function recordTreatmentEntryAction(
     .object({
       residentNumber: residentNumberSchema,
       residentName: z.string().trim().max(200).default(""),
+      residentId: z.string().trim().optional().nullable(),
       medicationName: z.string().trim().min(1).max(250),
       amount: z.number().finite().positive().max(1_000_000),
       quantity: z.number().finite().positive().max(10_000).default(1),
@@ -130,13 +131,15 @@ export async function recordTreatmentEntryAction(
       record = {
         residentNumber: parsed.data.residentNumber,
         residentName: parsed.data.residentName,
-        residentId: null,
-        matchScore: null,
+        residentId: parsed.data.residentId ?? null,
+        matchScore: parsed.data.residentId ? 1 : null,
         matchAmbiguous: false,
         entries: [],
         totalBilled: 0,
       };
       demoTreatmentBundle.records.push(record);
+    } else if (parsed.data.residentId && !record.residentId) {
+      record.residentId = parsed.data.residentId;
     }
     const newEntry = {
       id: Date.now(),

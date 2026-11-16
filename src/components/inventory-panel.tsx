@@ -1050,8 +1050,14 @@ export default function InventoryPanel({
               <p>سجل الوارد والمنصرف مع جهة الصرف والمستلم والسعر وقت الحركة.</p>
             </div>
             <div className="action-group no-print">
-              <button className="secondary-button" type="button" onClick={printCurrentView}>
-                طباعة التقرير
+              <button className="secondary-button" type="button" onClick={() => printCurrentView({ section: "both" })}>
+                طباعة الكل
+              </button>
+              <button className="secondary-button" type="button" onClick={() => printCurrentView({ section: "summary" })}>
+                طباعة الملخص فقط
+              </button>
+              <button className="secondary-button" type="button" onClick={() => printCurrentView({ section: "detail" })}>
+                طباعة الحركات فقط
               </button>
             </div>
           </div>

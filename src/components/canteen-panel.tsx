@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useId, useMemo, useState, type FormEvent } from "react";
 import { recordCanteenMovementAction, saveCanteenProductAction } from "@/app/actions/canteen";
 import { localDateValue } from "@/lib/date-format";
 import PrintBrand from "@/components/print-brand";
@@ -48,6 +48,7 @@ export default function CanteenPanel({
   onCanteenChange,
   onOpenMovementLog,
 }: CanteenPanelProps) {
+  const incomingDatalistId = useId();
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProductNumber, setEditingProductNumber] = useState<
     number | null
@@ -258,7 +259,8 @@ export default function CanteenPanel({
       setError("أدخل كمية وسعرًا صحيحين للوارد.");
       return;
     }
-    const existing = canteen.products.find((item) => item.itemNumber === Number(incomingItemNumber));
+    const existing = canteen.products.find((item) => item.itemNumber === Number(incomingItemNumber))
+      ?? canteen.products.find((item) => item.name.trim().toLowerCase() === incomingNewName.trim().toLowerCase());
     const name = existing?.name ?? incomingNewName.trim().normalize("NFC");
     if (!name) {
       setError("اختر صنفًا أو اكتب اسم الصنف الجديد.");
@@ -363,15 +365,34 @@ export default function CanteenPanel({
 
       {canManage && showIncomingForm && (
         <form className="inventory-form" onSubmit={submitIncoming}>
-          <label className="form-field">الصنف
-            <select value={incomingItemNumber} onChange={(event) => { setIncomingItemNumber(event.target.value); const item = canteen.products.find((product) => product.itemNumber === Number(event.target.value)); setIncomingPrice(item ? String(item.price) : ""); }}>
-              <option value="">صنف جديد</option>
-              {canteen.products.map((item) => <option key={item.itemNumber} value={item.itemNumber}>{item.name}</option>)}
-            </select>
+          <label className="form-field">
+            الصنف (اختر أو اكتب)
+            <input
+              list={incomingDatalistId}
+              required
+              maxLength={160}
+              placeholder="اختر صنفاً أو اكتب اسماً جديداً..."
+              value={incomingNewName}
+              onChange={(event) => {
+                const val = event.target.value;
+                setIncomingNewName(val);
+                const matched = canteen.products.find(
+                  (product) => product.name.trim().toLowerCase() === val.trim().toLowerCase()
+                );
+                if (matched) {
+                  setIncomingItemNumber(String(matched.itemNumber));
+                  setIncomingPrice(String(matched.price));
+                } else {
+                  setIncomingItemNumber("");
+                }
+              }}
+            />
+            <datalist id={incomingDatalistId}>
+              {canteen.products.map((item) => (
+                <option key={item.itemNumber} value={item.name} />
+              ))}
+            </datalist>
           </label>
-          {!incomingItemNumber && <label className="form-field">اسم الصنف الجديد
-            <input required maxLength={160} value={incomingNewName} onChange={(event) => setIncomingNewName(event.target.value)} />
-          </label>}
           <label className="form-field">الكمية الواردة<input type="number" min="0.001" step="any" required value={incomingQuantity} onChange={(event) => setIncomingQuantity(event.target.value)} /></label>
           <label className="form-field">سعر الصنف (ج.م)<input type="number" min="0" step="0.01" required value={incomingPrice} onChange={(event) => setIncomingPrice(event.target.value)} /></label>
           <label className="form-field">التاريخ<input type="date" required value={incomingDate} onChange={(event) => setIncomingDate(event.target.value)} /></label>

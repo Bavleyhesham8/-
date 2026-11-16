@@ -200,6 +200,7 @@ export default function TreatmentPanel({
       const result = await recordTreatmentEntryAction({
         residentNumber: parsedNumber,
         residentName: selectedResidentName,
+        residentId: selectedResidentId || undefined,
         medicationName: medicationName.trim(),
         amount: parsedAmount,
         quantity: parsedQuantity,
@@ -367,14 +368,40 @@ export default function TreatmentPanel({
             value={selectedResidentName}
             onChange={(value, resident) => {
               setSelectedResidentName(value);
-              setSelectedResidentNumber(resident?.residentNumber ?? "");
               setSelectedResidentId(resident?.id ?? "");
+              if (resident) {
+                const parsedResNum = Number(resident.residentNumber);
+                if (Number.isInteger(parsedResNum) && parsedResNum > 0) {
+                  setSelectedResidentNumber(String(parsedResNum));
+                  return;
+                }
+                const existingRecord = bundle.records.find(
+                  (r) =>
+                    (resident.id && r.residentId === resident.id) ||
+                    (r.residentName && resident.name && r.residentName.trim() === resident.name.trim()),
+                );
+                if (existingRecord) {
+                  setSelectedResidentNumber(String(existingRecord.residentNumber));
+                  return;
+                }
+                const fileDigits = Number(resident.fileNumber?.replace(/\D/g, ""));
+                if (Number.isInteger(fileDigits) && fileDigits > 0) {
+                  setSelectedResidentNumber(String(fileDigits));
+                  return;
+                }
+                const nextNum = Math.max(100, ...bundle.records.map((r) => r.residentNumber)) + 1;
+                setSelectedResidentNumber(String(nextNum));
+              } else {
+                setSelectedResidentNumber("");
+              }
             }}
             placeholder="ابحث باسم النزيل..."
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
             disabled={saving}
           />
-          {selectedResidentName && !selectedResidentNumber && <p className="form-error">ملف هذا النزيل غير مرتبط برقم سجل علاجي.</p>}
+          {selectedResidentName && selectedResidentNumber && (
+            <p className="mt-1 text-xs text-slate-500">رقم السجل العلاجي: {selectedResidentNumber}</p>
+          )}
           {selectedAccount && (
             <div className="mt-4 space-y-2 rounded-xl border border-teal-200 bg-teal-50/60 p-3 text-sm">
               <div className="flex items-center justify-between gap-3">

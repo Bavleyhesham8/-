@@ -246,10 +246,26 @@ export default function CanteenReportPanel({
           <button
             className="secondary-button"
             type="button"
-            onClick={printCurrentView}
+            onClick={() => printCurrentView({ section: "both" })}
             disabled={!report || loading}
           >
-            طباعة / حفظ PDF
+            طباعة الكل
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => printCurrentView({ section: "summary" })}
+            disabled={!report || loading}
+          >
+            طباعة الملخص فقط
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => printCurrentView({ section: "detail" })}
+            disabled={!report || loading}
+          >
+            طباعة الحركات فقط
           </button>
         </div>
       </div>
