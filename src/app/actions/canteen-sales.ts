@@ -318,18 +318,14 @@ export async function createResidentInvoiceAction(
   const database = getDatabase();
   try {
     const result = await database.transaction(async (transaction) => {
-    const catalogRows = await transaction
+    const purchaseRows = await transaction
       .select({
         id: residentPurchases.id,
         name: residentPurchases.itemName,
-        price: sql<number>`case when ${residentPurchases.price} > 0 then ${residentPurchases.price} else coalesce(${canteenProducts.price}, ${residentPurchases.price}) end`,
+        price: residentPurchases.price,
         canteenItemNumber: residentPurchases.canteenItemNumber,
       })
       .from(residentPurchases)
-      .leftJoin(
-        canteenProducts,
-        eq(canteenProducts.itemNumber, residentPurchases.canteenItemNumber),
-      )
       .where(
         inArray(
           residentPurchases.id,
@@ -338,6 +334,35 @@ export async function createResidentInvoiceAction(
       )
       .orderBy(residentPurchases.id)
       .for("update");
+
+    const canteenNums = purchaseRows
+      .map((p) => p.canteenItemNumber)
+      .filter((n): n is number => n !== null);
+    const canteenPriceMap = new Map<number, number>();
+    if (canteenNums.length > 0) {
+      const cProducts = await transaction
+        .select({
+          itemNumber: canteenProducts.itemNumber,
+          price: canteenProducts.price,
+        })
+        .from(canteenProducts)
+        .where(inArray(canteenProducts.itemNumber, canteenNums));
+      for (const cp of cProducts) {
+        canteenPriceMap.set(cp.itemNumber, cp.price);
+      }
+    }
+
+    const catalogRows = purchaseRows.map((p) => ({
+      id: p.id,
+      name: p.name,
+      price:
+        p.price > 0
+          ? p.price
+          : p.canteenItemNumber
+            ? (canteenPriceMap.get(p.canteenItemNumber) ?? p.price)
+            : p.price,
+      canteenItemNumber: p.canteenItemNumber,
+    }));
     const catalogById = new Map(catalogRows.map((item) => [item.id, item]));
     if (catalogById.size !== new Set(parsed.data.items.map((item) => item.catalogId)).size) {
       return { error: "لم يتم العثور على أحد أصناف الحركة." } as const;
