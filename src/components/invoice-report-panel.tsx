@@ -7,6 +7,8 @@ import { summarizeInvoiceReport } from "@/lib/invoice-report-utils";
 import PrintBrand from "@/components/print-brand";
 import { printCurrentView } from "@/lib/print";
 import type { Resident } from "@/lib/demo-data";
+import type { CanteenBundle } from "@/lib/canteen-types";
+import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
 import type {
   InvoiceReportData,
   InvoiceReportFilters,
@@ -69,13 +71,18 @@ function reportErrorMessage(error: unknown) {
 export default function InvoiceReportPanel({
   persistent,
   residents = [],
+  canteen,
+  sales,
   onOpenStatement,
 }: {
   persistent: boolean;
   residents?: Resident[];
+  canteen?: CanteenBundle;
+  sales?: CanteenSalesBundle;
   onOpenStatement?: (resident: Resident) => void;
 }) {
   const residentListId = useId();
+  const itemListId = useId();
   const [filters, setFilters] = useState(currentMonthFilters);
   const [appliedFilters, setAppliedFilters] = useState(currentMonthFilters);
   const [report, setReport] = useState<InvoiceReportData | null>(null);
@@ -162,6 +169,14 @@ export default function InvoiceReportPanel({
       .map((entry) => ({ ...entry, count: entry.invoices.size }))
       .sort((left, right) => right.total - left.total);
   }, [rows, residents, onOpenStatement]);
+
+  const availableItems = useMemo(() => {
+    const items = new Set<string>();
+    for (const p of canteen?.products ?? []) if (p.name) items.add(p.name);
+    for (const item of sales?.items ?? []) if (item.name) items.add(item.name);
+    for (const row of report?.rows ?? []) if (row.itemName) items.add(row.itemName);
+    return Array.from(items).filter(Boolean).sort((a, b) => a.localeCompare(b, "ar"));
+  }, [canteen?.products, sales?.items, report?.rows]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -310,7 +325,20 @@ export default function InvoiceReportPanel({
         </label>
         <label>
           الصنف
-          <input value={filters.itemName} onChange={(event) => setFilters((current) => ({ ...current, itemName: event.target.value }))} maxLength={160} />
+          <input
+            list={itemListId}
+            value={filters.itemName}
+            onChange={(event) =>
+              setFilters((current) => ({ ...current, itemName: event.target.value }))
+            }
+            maxLength={160}
+            placeholder="اختر صنفاً أو اكتب..."
+          />
+          <datalist id={itemListId}>
+            {availableItems.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
         </label>
         <label>
           طريقة الدفع

@@ -663,7 +663,13 @@ export async function createResidentInvoiceAction(
     if (error instanceof CanteenSalesActionError) {
       return { ok: false, error: error.message };
     }
-    throw error;
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "تعذر حفظ حركة الكانتين. تحقق من صحة البيانات وصلاحيات الحساب.",
+    };
   }
 }
 
@@ -920,6 +926,12 @@ export async function voidResidentInvoiceAction(
     if (error instanceof CanteenSalesActionError) {
       return { ok: false, error: error.message };
     }
-    throw error;
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "تعذر حفظ حركة الكانتين. تحقق من صحة البيانات وصلاحيات الحساب.",
+    };
   }
 }

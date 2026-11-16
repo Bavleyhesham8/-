@@ -1919,6 +1919,8 @@ export default function CenterDashboard({
             <InvoiceReportPanel
               persistent={persistent}
               residents={residents}
+              canteen={canteen}
+              sales={sales}
               onOpenStatement={setStatementResident}
             />
           )}

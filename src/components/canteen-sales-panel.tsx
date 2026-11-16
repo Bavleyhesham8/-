@@ -426,8 +426,12 @@ export default function CanteenSalesPanel({
       }
       clearDraft();
       setSection("history");
-    } catch {
-      setError("تعذر حفظ الحركة. تحقق من الاتصال وحاول مرة أخرى.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "تعذر حفظ الحركة. تحقق من الاتصال وحاول مرة أخرى.",
+      );
     } finally {
       setSaving(false);
     }
