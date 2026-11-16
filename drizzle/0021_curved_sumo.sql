@@ -1,0 +1,1 @@
+DROP INDEX "refrigerator_item_catalog_name_unique";

@@ -5,10 +5,12 @@ import { getDatabase } from "@/db";
 import {
   legacyTreatmentDetails,
   legacyTreatmentHeaders,
+  residents,
 } from "@/db/schema";
 import { requireScreenAccess } from "@/lib/auth-session";
 import { isDevelopmentDemoMode } from "@/lib/app-config";
 import { demoTreatmentBundle } from "@/lib/treatment-demo-data";
+import { findResidentByName } from "@/lib/resident-matching";
 import type {
   TreatmentBundle,
   TreatmentDetailEntry,
@@ -41,20 +43,30 @@ function mapEntry(
   };
 }
 
-export async function listTreatmentForAdministrator(): Promise<TreatmentBundle> {
+export async function listTreatmentForCurrentUser(): Promise<TreatmentBundle> {
   if (isDevelopmentDemoMode()) {
     return demoTreatmentBundle;
   }
 
   await requireScreenAccess("treatment");
   const database = getDatabase();
-  const headers = await database
-    .select({
-      residentNumber: legacyTreatmentHeaders.residentNumber,
-      residentName: legacyTreatmentHeaders.residentName,
-    })
-    .from(legacyTreatmentHeaders)
-    .orderBy(asc(legacyTreatmentHeaders.residentNumber));
+  const [headers, residentRows] = await Promise.all([
+    database
+      .select({
+        residentNumber: legacyTreatmentHeaders.residentNumber,
+        residentName: legacyTreatmentHeaders.residentName,
+      })
+      .from(legacyTreatmentHeaders)
+      .orderBy(asc(legacyTreatmentHeaders.residentNumber)),
+    database
+      .select({
+        id: residents.id,
+        name: residents.name,
+        residentNumber: residents.residentNumber,
+        fileNumber: residents.fileNumber,
+      })
+      .from(residents),
+  ]);
 
   const residentNumbers = headers.map((header) => header.residentNumber);
   const details = residentNumbers.length
@@ -88,8 +100,16 @@ export async function listTreatmentForAdministrator(): Promise<TreatmentBundle> 
       const totalBilled = entries
         .filter((e) => !e.voided)
         .reduce((sum, e) => sum + e.total, 0);
+      const match = findResidentByName(
+        header.residentName,
+        residentRows,
+        header.residentNumber,
+      );
       return {
         ...header,
+        residentId: match?.resident.id ?? null,
+        matchScore: match?.score ?? null,
+        matchAmbiguous: match?.ambiguous ?? false,
         entries,
         totalBilled,
       };

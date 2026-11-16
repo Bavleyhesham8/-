@@ -8,6 +8,7 @@ function row(overrides: Partial<InvoiceReportRow> = {}): InvoiceReportRow {
     invoiceNumber: 1,
     invoiceDate: "2026-11-01",
     saleType: "resident",
+    residentId: null,
     residentNumber: 10,
     residentName: "نزيل تجريبي",
     balance: 120,

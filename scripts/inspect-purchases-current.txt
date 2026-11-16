@@ -1,0 +1,628 @@
+﻿
+### purchases (77)
+[
+  {
+    "ID": 1,
+    "name": "╪│┘â╪▒",
+    "price": 35,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 2,
+    "name": "╪┤╪º┘ë",
+    "price": 12,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 3,
+    "name": "┘â╪º┘ü┘ë ┘à┘â╪│",
+    "price": 8,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 4,
+    "name": "╪¿┘è╪¿╪│┘ë ┘â╪º┘å╪▓",
+    "price": 17,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 5,
+    "name": "╪│┘ü┘å ┘â╪º┘å╪▓",
+    "price": 17,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 6,
+    "name": "╪¿┘è╪¿╪│┘ë 1.5",
+    "price": 40,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 7,
+    "name": "╪│╪¼╪º╪ª╪▒ ╪¿┘ê┘â╪│",
+    "price": 55,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 8,
+    "name": "╪│╪¼╪º╪ª╪▒ ┘â╪º╪▒┘è┘ä╪º",
+    "price": 45,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 9,
+    "name": "╪│╪¼╪º╪ª╪▒ LM",
+    "price": 95,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 10,
+    "name": "╪│╪¼╪º╪ª╪▒ ┘à┘è╪▒┘è╪¬",
+    "price": 120,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 11,
+    "name": "╪│╪¼╪º╪ª╪▒ ┘à╪º┘å╪┤╪│╪¬╪▒",
+    "price": 35,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 12,
+    "name": " ╪│╪¼╪º╪ª╪▒ ┘à╪º╪▒┘ä╪¿┘ê╪▒┘ê",
+    "price": 110,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 13,
+    "name": "╪│╪¼╪º╪ª╪▒ ┘â╪º┘à┘è┘ä",
+    "price": 95,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 14,
+    "name": "╪º╪»┘ê┘è╪⌐",
+    "price": 0,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": true
+  },
+  {
+    "ID": 15,
+    "name": "┘à╪╡╪º╪▒┘è┘ü",
+    "price": 0,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": true
+  },
+  {
+    "ID": 16,
+    "name": "╪¿┘å ╪║╪º┘à┘é 100 ╪¼╪▒╪º┘à",
+    "price": 75,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 17,
+    "name": "┘å╪│┘â╪º┘ü┘è╪⌐ ╪¿┘ä╪º┘â",
+    "price": 5,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 18,
+    "name": "┘å╪│┘â╪º┘ü┘è╪⌐ 1 ├ù 3",
+    "price": 8,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 19,
+    "name": "┘â╪º┘ü┘ë ┘à┘â╪│",
+    "price": 8,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 20,
+    "name": "╪│┘ü┘å ┘â╪º┘å╪▓",
+    "price": 17,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 21,
+    "name": "╪│┘ü┘å 1.5 ┘ä╪¬╪▒",
+    "price": 40,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 22,
+    "name": "┘à┘è╪▒┘å╪»╪º 1.5 ┘ä╪¬╪▒",
+    "price": 40,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 23,
+    "name": "╪¬┘ê┘è╪│╪¬ ┘à╪┤╪▒┘ê╪¿╪╖╪º┘é╪⌐",
+    "price": 20,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 24,
+    "name": "┘ü┘è┘ê╪▒┘ë ┘à╪┤╪▒┘ê╪¿ ╪╖╪º┘é╪⌐",
+    "price": 20,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 25,
+    "name": "╪╣╪╡┘è╪▒╪¿┘è╪¬┘ë",
+    "price": 12,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 26,
+    "name": "╪┤┘è╪¿╪│┘ë ┘â╪¿┘è╪▒",
+    "price": 12,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 27,
+    "name": "╪┤┘è╪¿╪│┘ë ╪╡╪║┘è╪▒",
+    "price": 7,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 28,
+    "name": "┘à┘ê┘ä╪¬┘ê┘à┘å╪¼┘à",
+    "price": 17,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 29,
+    "name": "┘à┘ê┘ä╪¬┘ê ╪º┘â╪│ ╪º┘â╪│ ╪º┘ä",
+    "price": 12,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 30,
+    "name": "┘à┘ê┘ä╪¬┘ê┘à┘è┘å┘ë",
+    "price": 7,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 31,
+    "name": "┘â┘è┘â╪⌐ ╪¼┘ê╪▒╪»┘è┘å╪º",
+    "price": 7,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 32,
+    "name": "╪¿╪│┘â┘ê╪¬ ╪│╪º╪»╪⌐",
+    "price": 7,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 33,
+    "name": "╪¿╪│┘â┘ê╪¬ ╪º┘ç┘ä╪º┘ê┘ë ╪│╪º╪»╪⌐",
+    "price": 7,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 34,
+    "name": "┘à┘è╪º┘ç ┘à╪╣╪»┘å┘è╪⌐",
+    "price": 6,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 35,
+    "name": "╪¼╪¿┘å╪⌐ 1 / 8",
+    "price": 12,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 36,
+    "name": "╪╕╪▒┘ü ┘â╪º╪¬╪┤╪¿",
+    "price": 3,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 37,
+    "name": "╪╕╪▒┘ü ┘à╪º┘è┘ê┘å┘è╪▓",
+    "price": 3,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 38,
+    "name": "┘à┘å╪º╪»┘è┘ä ╪¼┘è╪¿",
+    "price": 3,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 39,
+    "name": "╪╡╪º╪¿┘ê┘å╪⌐ ╪│╪º┘ü╪º┘å╪º",
+    "price": 25,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 40,
+    "name": "┘à╪╣╪¼┘ê┘å ╪º╪│┘å╪º┘å",
+    "price": 20,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 41,
+    "name": "┘ü╪▒╪┤╪⌐ ╪º╪│┘å╪º┘å",
+    "price": 20,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 42,
+    "name": "┘à╪º┘â┘å╪⌐ ╪¡┘ä╪º┘é╪⌐",
+    "price": 10,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 43,
+    "name": "┘é╪╡╪º┘ü╪⌐ ╪º╪╕╪º┘ü╪▒",
+    "price": 25,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 44,
+    "name": "┘ä┘è┘ü╪⌐ ┘â╪¿┘è╪▒╪⌐",
+    "price": 50,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 45,
+    "name": "┘ä┘è┘ü╪⌐ ╪╡╪║┘è╪▒╪⌐",
+    "price": 35,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 46,
+    "name": "╪¼┘è┘ä ╪┤╪╣╪▒",
+    "price": 3,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 47,
+    "name": "╪┤╪º┘à╪¿┘ê",
+    "price": 2,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 48,
+    "name": "┘â╪┤┘â┘ê┘ä ╪╣╪º╪»┘ë",
+    "price": 15,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 49,
+    "name": "┘â╪┤┘â┘ê┘ä ╪│┘ä┘â",
+    "price": 50,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 50,
+    "name": "┘é┘ä┘à ╪¼╪º┘ü",
+    "price": 10,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 51,
+    "name": "┘é┘ä┘à ┘à╪º╪▒┘â╪▒",
+    "price": 20,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 52,
+    "name": "┘ê┘ä╪º╪╣╪⌐",
+    "price": 10,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 53,
+    "name": "┘ä╪¿╪º┘å",
+    "price": 2,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 54,
+    "name": "┘ç┘ê┘ç┘ê╪▓",
+    "price": 7,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 55,
+    "name": "╪¬┘ê┘è┘å┘â╪▒",
+    "price": 7,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 56,
+    "name": "╪¿╪│┘â┘ê╪¬ ┘ä┘à╪¿╪º╪»",
+    "price": 7,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 57,
+    "name": "┘â┘è┘â╪⌐ ╪¬╪º┘ê╪¬╪º┘ê",
+    "price": 7,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 58,
+    "name": "╪╣╪╡┘è╪▒ ╪¬╪º┘å╪¼",
+    "price": 10,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 59,
+    "name": "╪¿┘è╪╢",
+    "price": 5,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 60,
+    "name": "╪▒┘è╪» ┘ä┘ä┘å╪º┘à┘ê╪│",
+    "price": 5,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 61,
+    "name": "╪¿┘è╪¿╪│┘ë ┘â╪º┘å╪▓",
+    "price": 17,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 62,
+    "name": "╪│┘ü┘å ┘â╪º┘å╪▓",
+    "price": 17,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 63,
+    "name": "┘à┘è╪▒┘å╪»╪º ┘â╪º┘å╪▓",
+    "price": 17,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 64,
+    "name": "╪¬┘ê┘å╪⌐",
+    "price": 50,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 65,
+    "name": "╪º┘å╪»┘ê┘à┘ë",
+    "price": 12,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 66,
+    "name": "┘à╪º┘ê┘å╪¬┘å ╪»┘è┘ê",
+    "price": 20,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 67,
+    "name": "╪│╪▒┘ü┘è╪│ ╪¿┘ä╪º╪│╪¬┘è┘â",
+    "price": 50,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 68,
+    "name": "┘â┘ê╪¿╪º┘è┘ç ╪¿┘ä╪º╪│╪¬┘â",
+    "price": 20,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 69,
+    "name": "┘â╪º╪¬╪┤╪¿",
+    "price": 0,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": true
+  },
+  {
+    "ID": 70,
+    "name": "┘à┘è┘ê┘å┘è╪▓",
+    "price": 0,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": true
+  },
+  {
+    "ID": 71,
+    "name": "╪¿╪│┘â┘ê╪¬ ┘à╪¡╪┤┘è",
+    "price": 0,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": true
+  },
+  {
+    "ID": 72,
+    "name": "┘à┘ä╪º┘è╪⌐ ╪│╪▒┘è╪▒",
+    "price": 0,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": true
+  },
+  {
+    "ID": 73,
+    "name": "┘à╪╣┘ä┘é╪⌐ ┘à┘è┘ä╪º┘à┘è┘å",
+    "price": 20,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": false
+  },
+  {
+    "ID": 74,
+    "name": "┘à┘ä╪º╪¡╪⌐ ╪¿┘ä╪º╪│╪¬┘è┘â",
+    "price": 0,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": true
+  },
+  {
+    "ID": 75,
+    "name": "┘à┘ä╪º╪¡╪⌐ ╪º┘â╪▒╪¿┘ä┘â",
+    "price": 0,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": true
+  },
+  {
+    "ID": 76,
+    "name": "┘â┘è╪│ ┘à╪«╪»┘ç",
+    "price": 0,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": true
+  },
+  {
+    "ID": 77,
+    "name": "╪│╪▒┘ü┘è╪│ ╪¡╪»┘è╪»",
+    "price": 0,
+    "add_flag": false,
+    "canteen_item_number": null,
+    "needs_review": true
+  }
+]
+
+### products ERROR relation "canteen_products" does not exist
+
+### invoices ERROR relation "resident_invoices" does not exist
+
+### zeroLines ERROR relation "resident_invoice_lines" does not exist
+
+### fridge ERROR relation "┘à╪┤╪¬╪▒┘è╪º╪¬ ╪º┘ä┘ü╪▒┘å" does not exist

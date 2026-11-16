@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
@@ -70,24 +71,16 @@ export default function SignInForm({ mode = "persistent" }: { mode?: Mode }) {
 
   return (
     <main
-      className="relative flex min-h-screen items-center justify-center p-4"
+      className="sign-in-background relative flex min-h-screen items-center justify-center p-4 sm:p-8"
       dir="rtl"
-      style={{
-        backgroundImage: "url('/images/background.jpg')",
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        backgroundAttachment: "fixed",
-      }}
     >
-      {/* طبقة التعتيم فوق صورة الخلفية */}
+      {/* طبقة تدرج شفافة تبرز مارمرقس في اليمين وتوفر تبايناً للكارد في الشمال */}
       <div
         style={{
           position: "absolute",
           inset: 0,
           background:
-            "linear-gradient(135deg, rgba(5,20,14,0.80) 0%, rgba(5,20,14,0.65) 60%, rgba(140,80,10,0.18) 100%)",
-          backdropFilter: "blur(6px)",
-          WebkitBackdropFilter: "blur(6px)",
+            "linear-gradient(to left, rgba(5,20,14,0.12) 0%, rgba(5,20,14,0.35) 45%, rgba(5,20,14,0.78) 100%)",
         }}
       />
 
@@ -111,21 +104,26 @@ export default function SignInForm({ mode = "persistent" }: { mode?: Mode }) {
         <div style={{ textAlign: "center", marginBottom: "24px" }}>
           <div
             style={{
-              width: "64px",
-              height: "64px",
+              width: "104px",
+              height: "104px",
               margin: "0 auto 14px",
-              borderRadius: "18px",
-              background: "linear-gradient(135deg, #093a28 0%, #12573d 50%, #c97a1a 100%)",
+              borderRadius: "22px",
+              border: "1px solid rgba(9,58,40,0.12)",
+              background: "#fff",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: "26px",
-              fontWeight: 900,
-              color: "#fff",
-              boxShadow: "0 8px 24px rgba(9,58,40,0.35)",
+              boxShadow: "0 8px 24px rgba(9,58,40,0.18)",
             }}
           >
-            ق
+            <Image
+              src="/david-lyre-logo-v2.svg"
+              alt="شعار مركز قيثارة داود"
+              width={88}
+              height={88}
+              priority
+              style={{ width: "88px", height: "88px" }}
+            />
           </div>
           <h1
             style={{

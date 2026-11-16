@@ -1,0 +1,2 @@
+ALTER TABLE "طرف الكانين" ADD COLUMN "needs_review" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE INDEX "canteen_stock_ledger_needs_review_idx" ON "طرف الكانين" USING btree ("needs_review");

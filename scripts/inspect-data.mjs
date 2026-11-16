@@ -1,0 +1,21 @@
+import fs from "node:fs";
+import pg from "pg";
+const env = fs.readFileSync(".env.local", "utf8");
+const url = env.match(/^DATABASE_URL=(.+)$/m)?.[1]?.trim();
+const client = new pg.Client({ connectionString: url });
+await client.connect();
+const q = async (label, sql) => {
+  const res = await client.query(sql);
+  console.log(`\n=== ${label} (${res.rows.length}) ===`);
+  console.table(res.rows);
+};
+await q("resident", `select id, file_number, name, church, confessor, resident_number from residents where name like '%يوسف%' or file_number like '%58-30%'`);
+await q("nam", `select "ID","num","nam","sak","khn","Achesh","Fathr","Num_ROm","mmon","Mon" from nam where "nam" like '%يوسف%'`);
+await q("treatment headers", `select * from "راس العلاج" where "اسم النزيل" like '%يوسف%'`);
+await q("treatment details", `select * from "اطراف العلاج" where "رقم" in (select "رقم النزيل" from "راس العلاج" where "اسم النزيل" like '%يوسف%')`);
+await q("finance header", `select * from "راس النزيل" where "اسم النزيل" like '%يوسف%'`);
+await q("finance details", `select * from "اطراف النزيل" order by "ID" desc limit 10`);
+await q("resident stays", `select s.*, r.name from resident_stays s join residents r on r.id=s.resident_id where r.name like '%يوسف%'`);
+await q("villas", `select * from "رقم الفيلا" order by "ID"`);
+await q("churches", `select * from "الكنيسة التابع لها" order by "ID"`);
+await client.end();

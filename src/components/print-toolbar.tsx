@@ -61,7 +61,7 @@ export default function PrintToolbar() {
         onClick={printCurrentView}
         title="طباعة الشاشة الحالية أو حفظها PDF"
       >
-        <span aria-hidden="true">🖨️</span>
+
         طباعة الشاشة
       </button>
       <button

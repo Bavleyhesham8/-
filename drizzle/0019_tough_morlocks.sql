@@ -1,0 +1,1 @@
+CREATE INDEX "staff_leave_created_by_idx" ON "اطراف الموظفين" USING btree ("created_by");

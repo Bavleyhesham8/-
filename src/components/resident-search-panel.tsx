@@ -5,10 +5,10 @@ import PrintBrand from "@/components/print-brand";
 import { printCurrentView } from "@/lib/print";
 import ResidentPicker from "@/components/resident-picker";
 import type { Resident } from "@/lib/demo-data";
+import { formatVilla, normalizeVillaFilter } from "@/lib/stay-location";
 import {
   formatAgeAtDate,
   formatStayDuration,
-  normalizeResidentStayNumber,
 } from "@/lib/resident-stay-report-utils";
 
 type Props = {
@@ -57,8 +57,8 @@ function haystack(resident: Resident) {
     resident.church,
     resident.confessor,
     resident.villa,
+    formatVilla(resident.villa),
     resident.room,
-    resident.nationalId,
   ]
     .filter(Boolean)
     .join(" ")
@@ -98,9 +98,7 @@ export default function ResidentSearchPanel({ residents, persistent }: Props) {
 
   const filtered = useMemo(() => {
     const search = appliedFilters.search.trim().toLocaleLowerCase();
-    const villa = normalizeResidentStayNumber(
-      appliedFilters.villa.trim(),
-    ).toLocaleLowerCase();
+    const villa = normalizeVillaFilter(appliedFilters.villa).toLocaleLowerCase();
     const hasRange = Boolean(
       appliedFilters.startDate || appliedFilters.endDate,
     );
@@ -143,8 +141,7 @@ export default function ResidentSearchPanel({ residents, persistent }: Props) {
       }
       if (
         villa &&
-        normalizeResidentStayNumber(resident.villa.trim()).toLocaleLowerCase() !==
-          villa
+        normalizeVillaFilter(resident.villa).toLocaleLowerCase() !== villa
       ) {
         return false;
       }
@@ -259,11 +256,11 @@ export default function ResidentSearchPanel({ residents, persistent }: Props) {
 
       <form className="resident-report-filters" onSubmit={applyFilters}>
         <label>
-          بحث بالاسم أو الملف أو الهاتف
+          بحث بالاسم أو الهاتف
           <ResidentPicker
             residents={residents}
             value={filters.search}
-            placeholder="ابحث بالاسم أو رقم الملف..."
+            placeholder="ابحث باسم النزيل..."
             onChange={(value) =>
               setFilters((current) => ({
                 ...current,

@@ -165,12 +165,14 @@ export async function getCanteenReport(
         id: canteenStockLedger.id,
         itemNumber: canteenProducts.itemNumber,
         itemName: canteenProducts.name,
+        price: canteenProducts.price,
         incoming: canteenStockLedger.incoming,
         incomingDate: canteenStockLedger.incomingDate,
         outgoing: canteenStockLedger.outgoing,
         outgoingDate: canteenStockLedger.outgoingDate,
         balance: canteenStockLedger.balance,
         recipient: sql<string>`coalesce(${canteenIssueVouchers.recipient}, '')`,
+        issueCategory: sql<string>`coalesce(${canteenIssueVouchers.itemCategory}, '')`,
         voucherId: canteenStockMovementLinks.voucherId,
         voided: sql<boolean>`${canteenStockVoids.movementId} IS NOT NULL`,
         voidReason: sql<string>`coalesce(${canteenStockVoids.reason}, '')`,
@@ -240,8 +242,13 @@ export async function getCanteenReport(
         direction,
         quantity:
           direction === "in" ? (row.incoming ?? 0) : (row.outgoing ?? 0),
+        price: row.price,
+        value:
+          (direction === "in" ? (row.incoming ?? 0) : (row.outgoing ?? 0)) *
+          row.price,
         balanceAfter: row.balance,
         recipient: row.recipient,
+        issueCategory: row.issueCategory,
         voucherId: row.voucherId,
         voided: row.voided,
         voidReason: row.voidReason,

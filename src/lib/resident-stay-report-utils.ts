@@ -2,6 +2,7 @@ import type {
   ResidentStayReportFilters,
   ResidentStayReportRow,
 } from "@/lib/resident-stay-report-types";
+import { normalizeVillaFilter } from "@/lib/stay-location";
 
 export function normalizeResidentStayNumber(value: string) {
   return value.replace(/[٠-٩۰-۹]/g, (digit) => {
@@ -15,9 +16,7 @@ export function filterResidentStayRows(
   filters: ResidentStayReportFilters,
 ): ResidentStayReportRow[] {
   const search = filters.search.trim().toLocaleLowerCase();
-  const villa = normalizeResidentStayNumber(
-    filters.villa.trim(),
-  ).toLocaleLowerCase();
+  const villa = normalizeVillaFilter(filters.villa).toLocaleLowerCase();
   const room = normalizeResidentStayNumber(
     filters.room.trim(),
   ).toLocaleLowerCase();
@@ -32,8 +31,7 @@ export function filterResidentStayRows(
     if (!filters.includeArchived && row.archived) return false;
     if (
       villa &&
-      normalizeResidentStayNumber(row.villa.trim()).toLocaleLowerCase() !==
-        villa
+      normalizeVillaFilter(row.villa).toLocaleLowerCase() !== villa
     ) {
       return false;
     }

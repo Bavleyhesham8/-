@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   meatSalePayments,
@@ -23,7 +23,8 @@ import type {
 export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> {
   await requireScreenAccess("meat-sales");
   const database = getDatabase();
-  const [catalog, products, movementRows, invoiceRows] = await Promise.all([
+  const [catalog, products, movementRows, invoiceRows, reviewCountRows] =
+    await Promise.all([
     database
       .select({
         id: refrigeratorItemCatalog.id,
@@ -58,6 +59,7 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
         outgoingDate: refrigeratorStockLedger.outgoingDate,
         issuePermitNumber: refrigeratorStockLedger.issuePermitNumber,
         recipient: refrigeratorStockLedger.recipient,
+        needsReview: refrigeratorStockLedger.needsReview,
         voided: refrigeratorStockVoids.movementId,
         voidReason: refrigeratorStockVoids.reason,
       })
@@ -69,14 +71,19 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
           refrigeratorStockLedger.id,
         ),
       )
-      .orderBy(desc(refrigeratorStockLedger.id))
-      .limit(2000),
+      .orderBy(
+        asc(
+          sql`coalesce(${refrigeratorStockLedger.receivedDate}, ${refrigeratorStockLedger.outgoingDate})`,
+        ),
+        asc(refrigeratorStockLedger.id),
+      ),
     database
       .select({
         invoiceNumber: meatSalesInvoices.invoiceNumber,
         saleDate: meatSalesInvoices.saleDate,
         issuePermitNumber: meatSalesInvoices.issuePermitNumber,
         beneficiary: meatSalesInvoices.beneficiary,
+        discount: meatSalesInvoices.discount,
         voided: meatSaleVoids.invoiceNumber,
         voidReason: meatSaleVoids.reason,
       })
@@ -85,16 +92,32 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
         meatSaleVoids,
         eq(meatSaleVoids.invoiceNumber, meatSalesInvoices.invoiceNumber),
       )
-      .orderBy(desc(meatSalesInvoices.invoiceNumber))
-      .limit(100),
+      .orderBy(
+        asc(meatSalesInvoices.saleDate),
+        asc(meatSalesInvoices.invoiceNumber),
+      ),
+    database
+      .select({ count: sql<number>`count(*)::int` })
+      .from(refrigeratorStockLedger)
+      .where(eq(refrigeratorStockLedger.needsReview, true)),
   ]);
-  const movements = movementRows.map((movement) => ({
-    ...movement,
-    voided: movement.voided !== null,
-    voidReason: movement.voidReason ?? "",
-  }));
+  const needsReviewCount = reviewCountRows[0]?.count ?? 0;
+  const productByNumber = new Map(products.map((product) => [product.itemNumber, product]));
+  const catalogById = new Map(catalog.map((item) => [item.id, item]));
+  const movements = movementRows.map((movement) => {
+    const product = productByNumber.get(movement.itemNumber);
+    const catalogItem = product ? catalogById.get(product.catalogId) : undefined;
+    return {
+      ...movement,
+      itemCategory:
+        movement.itemCategory?.trim() || product?.itemCategory || catalogItem?.itemCategory || "صنف غير معروف",
+      needsReview: movement.needsReview,
+      voided: movement.voided !== null,
+      voidReason: movement.voidReason ?? "",
+    };
+  });
   if (!invoiceRows.length) {
-    return { catalog, products, movements, invoices: [] };
+    return { catalog, products, movements, invoices: [], needsReviewCount };
   }
 
   const invoiceNumbers = invoiceRows.map((invoice) => invoice.invoiceNumber);
@@ -162,13 +185,19 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
   const invoices = invoiceRows.map((invoice): MeatSaleInvoice => {
     const lines = linesByInvoice.get(invoice.invoiceNumber) ?? [];
     const payments = paymentsByInvoice.get(invoice.invoiceNumber) ?? [];
+    const subtotal = lines.reduce<number | null>(
+      (sum, line) => (sum === null || line.total === null ? null : sum + line.total),
+      0,
+    );
     return {
       invoiceNumber: invoice.invoiceNumber,
       saleDate: invoice.saleDate,
       issuePermitNumber: invoice.issuePermitNumber,
       beneficiary: invoice.beneficiary,
       lines,
-      total: lines.reduce((sum, line) => sum + line.total, 0),
+      subtotal,
+      discount: invoice.discount,
+      total: subtotal === null ? null : subtotal - invoice.discount,
       paid: payments.reduce(
         (sum, payment) =>
           sum + (payment.kind === "payment" ? payment.amount : -payment.amount),
@@ -185,5 +214,6 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
     products,
     movements,
     invoices,
+    needsReviewCount,
   };
 }

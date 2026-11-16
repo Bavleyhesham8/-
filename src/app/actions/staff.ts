@@ -13,6 +13,7 @@ import {
   user,
 } from "@/db/schema";
 import { requireAdministrator } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import { toStaffProfile } from "@/lib/staff-data";
 import type {
   StaffAccountLink,
@@ -143,33 +144,24 @@ export async function saveStaffProfileAction(
       };
     }
 
-    const currentChurch = existingProfile?.church ?? "";
-    if (profile.church && profile.church !== currentChurch) {
+    const currentGovernorate = existingProfile?.governorate ?? "";
+    const currentDistrict = existingProfile?.district ?? "";
+    const locationUnchanged =
+      profile.governorate === currentGovernorate &&
+      profile.district === currentDistrict;
+
+    if (profile.church) {
       const matchingChurches = await transaction
         .select({ id: churchLookup.id })
         .from(churchLookup)
         .where(eq(churchLookup.name, profile.church))
         .for("update");
       if (!matchingChurches.length) {
-        return {
-          ok: false,
-          error: "اختر كنيسة مسجلة في قائمة البيانات المرجعية.",
-        };
+        await transaction.insert(churchLookup).values({ name: profile.church });
       }
     }
 
-    const currentGovernorate = existingProfile?.governorate ?? "";
-    const currentDistrict = existingProfile?.district ?? "";
-    const locationUnchanged =
-      profile.governorate === currentGovernorate &&
-      profile.district === currentDistrict;
-    if (
-      (profile.governorate || profile.district) &&
-      !locationUnchanged
-    ) {
-      if (!profile.governorate || !profile.district) {
-        return { ok: false, error: "اختر المحافظة والمركز / الحي معًا." };
-      }
+    if (profile.governorate && profile.district) {
       const matchingLocations = await transaction
         .select({ id: governorateLookup.id })
         .from(governorateLookup)
@@ -181,11 +173,19 @@ export async function saveStaffProfileAction(
         )
         .for("update");
       if (!matchingLocations.length) {
-        return {
-          ok: false,
-          error: "اختر محافظة ومركزًا مسجلين في قائمة البيانات المرجعية.",
-        };
+        await transaction.insert(governorateLookup).values({
+          governorate: profile.governorate,
+          district: profile.district,
+        });
       }
+    } else if (
+      !locationUnchanged &&
+      (profile.governorate || profile.district)
+    ) {
+      return {
+        ok: false,
+        error: "أدخل المحافظة والمركز / الحي معًا عند تغيير الموقع.",
+      };
     }
 
     if (profileNumber) {
@@ -224,19 +224,34 @@ export async function saveStaffProfileAction(
     return { ok: true, profile: toStaffProfile(savedProfile) };
   });
 
+  if (result.ok) {
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: profileNumber ? "update" : "create",
+      entity: "staffProfiles",
+      entityId: result.profile.profileNumber,
+      metadata: { fields: "employeeId,profileDetails" },
+    });
+  }
   return result;
 }
 
 export async function saveStaffEmployeeAction(
   input: unknown,
 ): Promise<{ ok: true; employee: StaffEmployee } | { ok: false; error: string }> {
-  await requireAdministrator();
+  const session = await requireAdministrator();
   const parsed = employeeSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "أدخل رقم الموظف واسمه بصورة صحيحة." };
   }
 
-  const [employee] = await getDatabase()
+  const database = getDatabase();
+  const [existing] = await database
+    .select({ id: staffEmployees.id })
+    .from(staffEmployees)
+    .where(eq(staffEmployees.employeeNumber, parsed.data.employeeNumber))
+    .limit(1);
+  const [employee] = await database
     .insert(staffEmployees)
     .values(parsed.data)
     .onConflictDoUpdate({
@@ -247,6 +262,13 @@ export async function saveStaffEmployeeAction(
   if (!employee) {
     return { ok: false, error: "تعذر حفظ سجل الموظف." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: existing || parsed.data.id !== null ? "update" : "create",
+    entity: "staffEmployees",
+    entityId: employee.id,
+    metadata: { fields: "employeeNumber,employeeName" },
+  });
   return { ok: true, employee };
 }
 
@@ -287,6 +309,13 @@ export async function recordStaffLeaveAction(
   if (!entry) {
     return { ok: false, error: "تعذر تسجيل الإجازة." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "staffLeaveEntries",
+    entityId: entry.id,
+    metadata: { fields: "employeeNumber,leaveDate,returnDate,leaveType" },
+  });
   return {
     ok: true,
     leaveEntry: {
@@ -385,5 +414,12 @@ export async function linkStaffAccountAction(
       error: result.error ?? "تعذر ربط الحساب ببيانات الموظف.",
     };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "permission-change",
+    entity: "staffAccountLinks",
+    entityId: result.link.userId,
+    metadata: { fields: "profileNumber,employeeNumber" },
+  });
   return { ok: true, link: result.link };
 }

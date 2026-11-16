@@ -15,6 +15,7 @@ import {
   refrigeratorStockVoids,
 } from "@/db/schema";
 import { requireStaffPermission } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import type {
   MeatSaleInvoice,
   MeatSaleLine,
@@ -52,6 +53,7 @@ const saleSchema = z.object({
   saleDate: dateSchema,
   issuePermitNumber: z.number().finite().positive().nullable(),
   beneficiary: z.string().trim().min(1).max(160),
+  discount: z.number().finite().min(0).max(1_000_000_000).optional().default(0),
   items: z
     .array(
       z.object({
@@ -76,7 +78,7 @@ export async function saveRefrigeratorProductAction(
     }
   | { ok: false; error: string }
 > {
-  await requireStaffPermission("canManageMeatSales");
+  const session = await requireStaffPermission("canManageMeatSales");
   const parsed = productSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "أدخل اسم الصنف والسعر والكمية بصورة صحيحة." };
@@ -125,6 +127,13 @@ export async function saveRefrigeratorProductAction(
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "create",
+      entity: "refrigeratorItemCatalog",
+      entityId: result.catalogItem.id,
+      metadata: { fields: "itemCategory,price,quantity" },
+    });
     return {
       ok: true,
       catalogItem: result.catalogItem,
@@ -197,6 +206,7 @@ export async function recordRefrigeratorReceiptAction(
           outgoingDate: null,
           issuePermitNumber: null,
           recipient: "",
+          needsReview: false,
           voided: false,
           voidReason: "",
         },
@@ -205,6 +215,13 @@ export async function recordRefrigeratorReceiptAction(
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "create",
+      entity: "refrigeratorStockLedger",
+      entityId: result.movement.id,
+      metadata: { fields: "itemNumber,direction,quantity,price,receivedDate" },
+    });
     return { ok: true, movement: result.movement };
   } catch (error) {
     if (error instanceof MeatSalesActionError) {
@@ -254,12 +271,20 @@ export async function createMeatSaleAction(
       const productByNumber = new Map(
         products.map((product) => [product.itemNumber, product]),
       );
-      const total = parsed.data.items.reduce(
+      const subtotal = parsed.data.items.reduce(
         (sum, item) => sum + item.price * item.quantity,
         0,
       );
-      if (!Number.isFinite(total) || total <= 0) {
+      if (!Number.isFinite(subtotal) || subtotal <= 0) {
         return { error: "إجمالي الفاتورة غير صالح." } as const;
+      }
+      const discount = parsed.data.discount;
+      if (discount > subtotal + 1e-9) {
+        return { error: "الخصم أكبر من إجمالي الفاتورة." } as const;
+      }
+      const total = subtotal - discount;
+      if (!Number.isFinite(total) || total <= 0) {
+        return { error: "صافي الفاتورة بعد الخصم غير صالح." } as const;
       }
 
       const ledger = await transaction
@@ -281,6 +306,7 @@ export async function createMeatSaleAction(
           and(
             inArray(refrigeratorStockLedger.itemNumber, itemNumbers),
             isNull(refrigeratorStockVoids.movementId),
+            eq(refrigeratorStockLedger.needsReview, false),
           ),
         );
       const balances = new Map<number, number>();
@@ -313,6 +339,7 @@ export async function createMeatSaleAction(
           saleDate: parsed.data.saleDate,
           issuePermitNumber: parsed.data.issuePermitNumber,
           beneficiary: parsed.data.beneficiary,
+          discount,
           createdBy: session.user.id,
         })
         .returning({ invoiceNumber: meatSalesInvoices.invoiceNumber });
@@ -381,6 +408,7 @@ export async function createMeatSaleAction(
           outgoingDate: parsed.data.saleDate,
           issuePermitNumber: parsed.data.issuePermitNumber,
           recipient: parsed.data.beneficiary,
+          needsReview: false,
           voided: false,
           voidReason: "",
         });
@@ -418,6 +446,8 @@ export async function createMeatSaleAction(
         issuePermitNumber: parsed.data.issuePermitNumber,
         beneficiary: parsed.data.beneficiary,
         lines,
+        subtotal,
+        discount,
         total,
         paid: total,
         voided: false,
@@ -429,6 +459,13 @@ export async function createMeatSaleAction(
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "create",
+      entity: "meatSalesInvoices",
+      entityId: result.invoice.invoiceNumber,
+      metadata: { fields: "saleDate,items,discount" },
+    });
     return {
       ok: true,
       invoice: result.invoice,
@@ -578,6 +615,13 @@ export async function voidMeatSaleAction(
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "delete",
+      entity: "meatSalesInvoices",
+      entityId: invoiceNumber.data,
+      metadata: { fields: "voided,reason" },
+    });
     return {
       ok: true,
       refund: result.refund,

@@ -4,12 +4,14 @@ import { and, asc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import { residents, residentStays } from "@/db/schema";
+import { canViewResidentBirthDate } from "@/lib/access-control";
 import { requireScreenAccess } from "@/lib/auth-session";
 import type {
   ResidentStayReportData,
   ResidentStayReportFilters,
 } from "@/lib/resident-stay-report-types";
 import { normalizeResidentStayNumber } from "@/lib/resident-stay-report-utils";
+import { normalizeVillaFilter } from "@/lib/stay-location";
 
 const dateSchema = z
   .string()
@@ -42,7 +44,7 @@ export function parseResidentStayReportFilters(
   }
   return {
     ...parsed.data,
-    villa: normalizeResidentStayNumber(parsed.data.villa),
+    villa: normalizeVillaFilter(parsed.data.villa),
     room: normalizeResidentStayNumber(parsed.data.room),
   };
 }
@@ -51,7 +53,12 @@ export async function getResidentStayReport(
   input: unknown,
 ): Promise<ResidentStayReportData> {
   const filters = parseResidentStayReportFilters(input);
-  await requireScreenAccess("resident-stay-reports");
+  const session = await requireScreenAccess("resident-stay-reports");
+  const canSeeBirthDate = canViewResidentBirthDate(
+    session.user.role === "admin" || session.user.role === "viewer"
+      ? session.user.role
+      : "staff",
+  );
 
   const conditions = [
     gte(residentStays.admissionDate, filters.startDate),
@@ -63,7 +70,7 @@ export async function getResidentStayReport(
   if (filters.villa) {
     conditions.push(
       eq(
-        sql`translate(${residentStays.villa}, '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789')`,
+        sql`upper(regexp_replace(btrim(${residentStays.villa}), '^فيلا[[:space:]]*', '', 'i'))`,
         filters.villa,
       ),
     );
@@ -110,7 +117,7 @@ export async function getResidentStayReport(
   return {
     rows: rows.map((row) => ({
       ...row,
-      birthDate: row.birthDate ?? "",
+      birthDate: canSeeBirthDate ? row.birthDate ?? "" : "",
       exitDate: row.exitDate ?? "",
     })),
   };

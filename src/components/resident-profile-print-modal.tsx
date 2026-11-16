@@ -89,7 +89,7 @@ export default function ResidentProfilePrintModal({ resident, onClose }: Props) 
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ fontSize: "22px" }}>📄</span>
+
             <div>
               <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 800 }}>
                 استمارة قيد وبيانات نزيل رسمية (جاهزة للطباعة / PDF)
@@ -119,7 +119,7 @@ export default function ResidentProfilePrintModal({ resident, onClose }: Props) 
                 boxShadow: "0 4px 12px rgba(245,158,11,0.3)",
               }}
             >
-              <span>🖨️</span>
+
               <span>طباعة الملف الآن (A4 / PDF)</span>
             </button>
             <button
@@ -201,14 +201,17 @@ export default function ResidentProfilePrintModal({ resident, onClose }: Props) 
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={resident.imagePath}
-                  alt={resident.name}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  alt={`صورة ${resident.name}`}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                  }}
                 />
               ) : (
-                <div style={{ textAlign: "center", color: "#94a3b8" }}>
-                  <span style={{ fontSize: "36px", display: "block" }}>👤</span>
-                  <span style={{ fontSize: "10px", fontWeight: 600 }}>صورة شخصية</span>
-                </div>
+                <span className="person-avatar" aria-hidden="true">
+                  {resident.name.trim().slice(0, 1)}
+                </span>
               )}
             </div>
 
@@ -218,13 +221,6 @@ export default function ResidentProfilePrintModal({ resident, onClose }: Props) 
                 <span style={{ fontSize: "11px", color: "#64748b" }}>الاسم الكامل للنزيل:</span>
                 <div style={{ fontSize: "18px", fontWeight: 900, color: "#0f172a" }}>
                   {resident.name}
-                </div>
-              </div>
-
-              <div>
-                <span style={{ fontSize: "11px", color: "#64748b" }}>الرقم القومي:</span>
-                <div style={{ fontSize: "13px", fontWeight: 700, color: "#0f766e" }}>
-                  {displayValue(resident.nationalId)}
                 </div>
               </div>
 
@@ -363,6 +359,12 @@ export default function ResidentProfilePrintModal({ resident, onClose }: Props) 
                   </tr>
                   <tr style={{ background: "#f8fafc" }}>
                     <th style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
+                      أب الاعتراف
+                    </th>
+                    <td style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
+                      {displayValue(resident.confessor)}
+                    </td>
+                    <th style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
                       جهة اتصال الطوارئ
                     </th>
                     <td style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
@@ -439,80 +441,6 @@ export default function ResidentProfilePrintModal({ resident, onClose }: Props) 
               </table>
             </div>
 
-            {/* 4. المتابعة الطبية والتأهيل والتعافي */}
-            <div>
-              <div
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 800,
-                  color: "#0f766e",
-                  background: "#f0fdfa",
-                  padding: "4px 10px",
-                  borderRight: "4px solid #0f766e",
-                  marginBottom: "6px",
-                }}
-              >
-                رابعاً: المتابعة الطبية وفريق التأهيل والإرشاد
-              </div>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: "11.5px",
-                  textAlign: "right",
-                  border: "1px solid #cbd5e1",
-                }}
-              >
-                <tbody>
-                  <tr style={{ background: "#f8fafc" }}>
-                    <th style={{ padding: "6px 10px", border: "1px solid #cbd5e1", width: "20%" }}>
-                      الطبيب المعالج
-                    </th>
-                    <td style={{ padding: "6px 10px", border: "1px solid #cbd5e1", width: "30%" }}>
-                      {displayValue(resident.treatingDoctorNumber)}
-                    </td>
-                    <th style={{ padding: "6px 10px", border: "1px solid #cbd5e1", width: "20%" }}>
-                      عيادة / عنوان الطبيب
-                    </th>
-                    <td style={{ padding: "6px 10px", border: "1px solid #cbd5e1", width: "30%" }}>
-                      {displayValue(resident.treatingDoctorAddress)}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
-                      فريق التأهيل والإرشاد
-                    </th>
-                    <td style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
-                      {displayValue(resident.rehabilitationTeam)}
-                    </td>
-                    <th style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
-                      مرحلة التعافي الحالية
-                    </th>
-                    <td style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
-                      {displayValue(resident.rehabilitationStage)}
-                    </td>
-                  </tr>
-                  <tr style={{ background: "#f8fafc" }}>
-                    <th style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
-                      المدرب والمشرف
-                    </th>
-                    <td style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
-                      {resident.trainer || resident.supervisor
-                        ? [resident.trainer && `المدرب: ${resident.trainer}`, resident.supervisor && `المشرف: ${resident.supervisor}`]
-                            .filter(Boolean)
-                            .join(" · ")
-                        : "—"}
-                    </td>
-                    <th style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
-                      المحاضر
-                    </th>
-                    <td style={{ padding: "6px 10px", border: "1px solid #cbd5e1" }}>
-                      {displayValue(resident.lecturer)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
           </div>
 
           {/* خانة التوقيعات والختم الرسمي المعتمد */}
@@ -607,4 +535,3 @@ export default function ResidentProfilePrintModal({ resident, onClose }: Props) 
     </div>
   );
 }
-

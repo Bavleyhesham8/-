@@ -8,6 +8,7 @@ import {
   legacyResidentHeaders,
 } from "@/db/schema";
 import { requireAdministrator } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import { listResidentFinanceForAdministrator } from "@/lib/resident-finance-data";
 import type { ResidentFinanceBundle } from "@/lib/resident-finance-types";
 
@@ -57,6 +58,13 @@ export async function createResidentFinanceHeaderAction(
   if (!created) {
     return { ok: false, error: "رقم النزيل مسجل بالفعل." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "legacyResidentHeaders",
+    entityId: created.residentNumber,
+    metadata: { fields: "residentNumber,residentName" },
+  });
 
   return {
     ok: true,
@@ -117,14 +125,64 @@ export async function recordResidentReceiptAction(
     if (!entry) {
       return { ok: false, error: "تعذر تسجيل الإيصال." } as const;
     }
-    return { ok: true } as const;
+    return { ok: true, id: entry.id } as const;
   });
   if (!result.ok) return result;
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "legacyResidentDetails",
+    entityId: result.id,
+    metadata: { fields: "amount,transactionDate,returnDate" },
+  });
 
   return {
     ok: true,
     bundle: await listResidentFinanceForAdministrator(),
   };
+}
+
+export async function editResidentReceiptAction(input: unknown): Promise<ActionResult> {
+  const session = await requireAdministrator();
+  const parsed = z.object({
+    detailId: residentNumberSchema,
+    amount: z.number().finite().positive().max(1_000_000_000),
+    transactionDate: dateSchema,
+    returnDate: z.union([z.literal(""), dateSchema]),
+  }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "أدخل مبلغًا موجبًا وتاريخي الإيصال والتسوية." };
+  if (parsed.data.returnDate && parsed.data.returnDate < parsed.data.transactionDate) {
+    return { ok: false, error: "تاريخ التسوية لا يمكن أن يسبق تاريخ الإيصال." };
+  }
+
+  const updated = await getDatabase().transaction(async (transaction) => {
+    const [entry] = await transaction
+      .select({ id: legacyResidentDetails.id, voided: legacyResidentDetails.voided })
+      .from(legacyResidentDetails)
+      .where(eq(legacyResidentDetails.id, parsed.data.detailId))
+      .limit(1)
+      .for("update");
+    if (!entry || entry.voided) return false;
+    const [row] = await transaction
+      .update(legacyResidentDetails)
+      .set({
+        amount: parsed.data.amount,
+        transactionDate: toDate(parsed.data.transactionDate),
+        returnDate: parsed.data.returnDate ? toDate(parsed.data.returnDate) : null,
+      })
+      .where(eq(legacyResidentDetails.id, entry.id))
+      .returning({ id: legacyResidentDetails.id });
+    return row ?? null;
+  });
+  if (!updated) return { ok: false, error: "الإيصال غير موجود أو ملغى." };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "legacyResidentDetails",
+    entityId: updated.id,
+    metadata: { fields: "amount,transactionDate,returnDate" },
+  });
+  return { ok: true, bundle: await listResidentFinanceForAdministrator() };
 }
 
 export async function voidResidentReceiptAction(
@@ -174,6 +232,13 @@ export async function voidResidentReceiptAction(
     return { ok: true } as const;
   });
   if (!result.ok) return result;
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "delete",
+    entity: "legacyResidentDetails",
+    entityId: parsed.data.detailId,
+    metadata: { fields: "voided,voidReason" },
+  });
 
   return {
     ok: true,

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, inArray, or, sql } from "drizzle-orm";
+import { asc, eq, inArray, or } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   custodyDetails,
@@ -8,9 +8,6 @@ import {
   custodyHeaders,
   staffAccountLinks,
   staffEmployees,
-  warehouseCatalog,
-  warehouseDetails,
-  warehouseHeaders,
 } from "@/db/schema";
 import { requireAnyScreenAccess, requireCurrentSession } from "@/lib/auth-session";
 import type {
@@ -18,13 +15,9 @@ import type {
   CustodyDetail,
   CustodyEvent,
   CustodyRecord,
-  WarehouseItem,
-  WarehouseMovement,
 } from "@/lib/custody-types";
 
 const emptyBundle: CustodyBundle = {
-  items: [],
-  warehouseMovements: [],
   employees: [],
   records: [],
   linkedEmployeeNumber: null,
@@ -38,7 +31,8 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
   const session = await requireCurrentSession();
   await requireAnyScreenAccess("custody", "tracking");
   const database = getDatabase();
-  const isAdministrator = session.user.role === "admin";
+  const isAdministrator =
+    session.user.role === "admin" || session.user.role === "viewer";
   let linkedEmployeeNumber: number | null = null;
 
   if (!isAdministrator) {
@@ -62,7 +56,7 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
     ? await database
         .select()
         .from(custodyHeaders)
-        .orderBy(desc(custodyHeaders.custodyNumber))
+        .orderBy(asc(custodyHeaders.custodyNumber))
     : [];
   const initialHeaderNumbers = isAdministrator
     ? []
@@ -127,7 +121,6 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
   if (!custodyNumbers.size && !isAdministrator) {
     return {
       ...emptyBundle,
-      employees: isAdministrator ? employeeRows : [],
       linkedEmployeeNumber,
     };
   }
@@ -138,52 +131,16 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
         .select()
         .from(custodyHeaders)
         .where(inArray(custodyHeaders.custodyNumber, [...custodyNumbers]))
-        .orderBy(desc(custodyHeaders.custodyNumber));
+        .orderBy(asc(custodyHeaders.custodyNumber));
   const numbers = headerRows.map((header) => header.custodyNumber);
 
-  const [detailRows, itemRows, warehouseMovementRows, balanceRows] =
-    await Promise.all([
-      numbers.length
-        ? database
-            .select()
-            .from(custodyDetails)
-            .where(inArray(custodyDetails.custodyNumber, numbers))
-            .orderBy(custodyDetails.webId)
-        : Promise.resolve([]),
-      isAdministrator
-        ? database
-            .select({
-              catalogId: warehouseCatalog.id,
-              itemNumber: warehouseHeaders.number,
-              itemName: warehouseCatalog.itemName,
-              price: warehouseHeaders.price,
-              responsible: warehouseHeaders.responsible,
-            })
-            .from(warehouseHeaders)
-            .innerJoin(
-              warehouseCatalog,
-              eq(warehouseHeaders.catalogId, warehouseCatalog.id),
-            )
-            .orderBy(warehouseCatalog.itemName)
-        : Promise.resolve([]),
-      isAdministrator
-        ? database
-            .select()
-            .from(warehouseDetails)
-            .orderBy(desc(warehouseDetails.id))
-            .limit(2000)
-        : Promise.resolve([]),
-      isAdministrator
-        ? database
-            .select({
-              itemNumber: warehouseDetails.number,
-              balance: sql<number>`COALESCE(SUM(${warehouseDetails.incoming} - ${warehouseDetails.outgoing}), 0)`,
-            })
-            .from(warehouseDetails)
-            .where(eq(warehouseDetails.deleted, false))
-            .groupBy(warehouseDetails.number)
-        : Promise.resolve([]),
-    ]);
+  const detailRows = numbers.length
+    ? await database
+        .select()
+        .from(custodyDetails)
+        .where(inArray(custodyDetails.custodyNumber, numbers))
+        .orderBy(custodyDetails.webId)
+    : [];
   const detailIds = detailRows.map((detail) => detail.webId);
   const eventRows = detailIds.length
     ? await database
@@ -231,12 +188,10 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
     const items = detailsByHeader.get(detail.custodyNumber) ?? [];
     items.push({
       id: detail.webId,
-      sourceId: detail.id,
-      itemNumber: detail.warehouseNumber,
       itemName: detail.itemCategory,
+      unit: detail.unit,
+      notes: detail.notes,
       quantity: detail.quantity,
-      price: detail.price,
-      total: detail.total,
       issueDate: dateValue(detail.transactionDate) ?? "",
       currentEmployeeNumber,
       currentEmployeeName:
@@ -244,7 +199,10 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
           ? null
           : (employeeNames.get(currentEmployeeNumber) ?? null),
       returnedQuantity,
-      outstandingQuantity: Math.max(0, detail.quantity - returnedQuantity),
+      outstandingQuantity: Math.max(
+        0,
+        (detail.quantity ?? 0) - returnedQuantity,
+      ),
       events,
     });
     detailsByHeader.set(detail.custodyNumber, items);
@@ -252,7 +210,6 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
 
   const records: CustodyRecord[] = headerRows.map((header) => ({
     custodyNumber: header.custodyNumber,
-    sourceId: header.id,
     custodyDate: dateValue(header.custodyDate) ?? "",
     recipientEmployeeNumber: header.recipientEmployeeNumber,
     recipientName: header.custody,
@@ -260,34 +217,8 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
     voidReason: header.voidReason,
     details: detailsByHeader.get(header.custodyNumber) ?? [],
   }));
-  const balances = new Map(
-    balanceRows.map((row) => [row.itemNumber, row.balance]),
-  );
-  const warehouseMovements: WarehouseMovement[] =
-    warehouseMovementRows.map((movement) => {
-      return {
-        id: movement.id,
-        itemNumber: movement.number,
-        balance: movement.balance,
-        incoming: movement.incoming,
-        incomingDate: dateValue(movement.incomingDate),
-        outgoing: movement.outgoing,
-        outgoingDate: dateValue(movement.outgoingDate),
-        remaining: movement.remaining,
-        deleted: movement.deleted,
-        kind: movement.movementKind,
-        custodyDetailId: movement.custodyDetailId,
-      };
-    });
-
-  const items: WarehouseItem[] = itemRows.map((item) => ({
-    ...item,
-    balance: balances.get(item.itemNumber) ?? 0,
-  }));
 
   return {
-    items,
-    warehouseMovements,
     employees: isAdministrator ? employeeRows : [],
     records,
     linkedEmployeeNumber,

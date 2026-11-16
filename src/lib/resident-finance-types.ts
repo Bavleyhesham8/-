@@ -12,6 +12,9 @@ export type ResidentFinanceEntry = {
 export type ResidentFinanceRecord = {
   residentNumber: number;
   residentName: string | null;
+  residentId: string | null;
+  matchScore: number | null;
+  matchAmbiguous: boolean;
   entries: ResidentFinanceEntry[];
 };
 

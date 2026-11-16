@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { getInvoiceReportAction } from "@/app/actions/invoice-report";
 import { getDemoInvoiceReport } from "@/lib/invoice-report-demo-data";
 import { summarizeInvoiceReport } from "@/lib/invoice-report-utils";
 import PrintBrand from "@/components/print-brand";
 import { printCurrentView } from "@/lib/print";
+import type { Resident } from "@/lib/demo-data";
 import type {
   InvoiceReportData,
   InvoiceReportFilters,
@@ -24,6 +25,9 @@ function currentMonthFilters(): InvoiceReportFilters {
     startDate: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`,
     endDate: localDate(today),
     categoryId: null,
+    itemName: "",
+    residentName: "",
+    saleType: "all",
   };
 }
 
@@ -51,7 +55,7 @@ function reportErrorMessage(error: unknown) {
     error instanceof Error &&
     error.message === "Canteen access is required for this report."
   ) {
-    return "ليس لديك صلاحية عرض تقارير الفواتير.";
+    return "ليس لديك صلاحية عرض تقارير مشتريات الكانتين.";
   }
   if (
     error instanceof Error &&
@@ -64,9 +68,14 @@ function reportErrorMessage(error: unknown) {
 
 export default function InvoiceReportPanel({
   persistent,
+  residents = [],
+  onOpenStatement,
 }: {
   persistent: boolean;
+  residents?: Resident[];
+  onOpenStatement?: (resident: Resident) => void;
 }) {
+  const residentListId = useId();
   const [filters, setFilters] = useState(currentMonthFilters);
   const [appliedFilters, setAppliedFilters] = useState(currentMonthFilters);
   const [report, setReport] = useState<InvoiceReportData | null>(null);
@@ -82,17 +91,31 @@ export default function InvoiceReportPanel({
           const result = await getInvoiceReportAction(appliedFilters);
           if (active) setReport(result);
         } else {
-          const demo = getDemoInvoiceReport();
+          const source = getDemoInvoiceReport();
+          const legacyCategories = [...new Set(source.rows
+            .map((row) => row.alternateCategory.trim().normalize("NFC"))
+            .filter((name) => name && !source.categories.some((category) => category.name === name)))];
+          const demo = {
+            ...source,
+            categories: [...source.categories, ...legacyCategories.map((name, index) => ({ id: -(index + 1), name }))],
+          };
+          const selectedCategory = demo.categories.find((category) => category.id === appliedFilters.categoryId);
           const filteredRows = demo.rows.filter(
             (row) =>
               row.invoiceDate >= appliedFilters.startDate &&
               row.invoiceDate <= appliedFilters.endDate &&
               (appliedFilters.categoryId === null ||
-                demo.categories.find(
-                  (category) =>
-                    category.name === row.categoryName &&
-                    category.id === appliedFilters.categoryId,
-                ) !== undefined),
+                (row.categoryId === appliedFilters.categoryId ||
+                  (!!selectedCategory && row.alternateCategory.trim().normalize("NFC") === selectedCategory.name))) &&
+              (!appliedFilters.itemName || row.itemName.toLocaleLowerCase().includes(appliedFilters.itemName.toLocaleLowerCase())) &&
+              (!appliedFilters.residentName || row.residentName.toLocaleLowerCase().includes(appliedFilters.residentName.toLocaleLowerCase())) &&
+              (appliedFilters.saleType === "all" || row.saleType === appliedFilters.saleType),
+          ).sort(
+            (left, right) =>
+              left.invoiceDate.localeCompare(right.invoiceDate) ||
+              left.invoiceNumber - right.invoiceNumber ||
+              left.lineDate.localeCompare(right.lineDate) ||
+              left.itemName.localeCompare(right.itemName, "ar"),
           );
           if (active) setReport({ ...demo, rows: filteredRows });
         }
@@ -112,8 +135,33 @@ export default function InvoiceReportPanel({
     };
   }, [appliedFilters, persistent]);
 
-  const rows = report?.rows ?? [];
+  const rows = useMemo(() => report?.rows ?? [], [report]);
   const summary = summarizeInvoiceReport(rows);
+  const residentAccountTotal = rows.filter((row) => row.saleType === "resident").reduce((sum, row) => sum + row.total, 0);
+  const cashTotal = rows.filter((row) => row.saleType === "cash").reduce((sum, row) => sum + row.total, 0);
+  const residentSummaries = useMemo(() => {
+    if (!onOpenStatement || !residents.length) return [];
+    const summaries = new Map<
+      string,
+      { resident: Resident; total: number; invoices: Set<number> }
+    >();
+    for (const row of rows) {
+      if (row.saleType !== "resident" || !row.residentId) continue;
+      const resident = residents.find((entry) => entry.id === row.residentId);
+      if (!resident) continue;
+      const summaryEntry = summaries.get(resident.id) ?? {
+        resident,
+        total: 0,
+        invoices: new Set<number>(),
+      };
+      summaryEntry.total += row.total;
+      summaryEntry.invoices.add(row.invoiceNumber);
+      summaries.set(resident.id, summaryEntry);
+    }
+    return [...summaries.values()]
+      .map((entry) => ({ ...entry, count: entry.invoices.size }))
+      .sort((left, right) => right.total - left.total);
+  }, [rows, residents, onOpenStatement]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -139,6 +187,9 @@ export default function InvoiceReportPanel({
     if (appliedFilters.categoryId !== null) {
       params.set("categoryId", String(appliedFilters.categoryId));
     }
+    if (appliedFilters.itemName) params.set("itemName", appliedFilters.itemName);
+    if (appliedFilters.residentName) params.set("residentName", appliedFilters.residentName);
+    if (appliedFilters.saleType !== "all") params.set("saleType", appliedFilters.saleType);
     const link = document.createElement("a");
     link.href = `/api/reports/invoices?${params}`;
     document.body.append(link);
@@ -149,18 +200,42 @@ export default function InvoiceReportPanel({
   return (
     <section className="content-panel invoice-report-panel" dir="rtl">
       <PrintBrand
-        title="تقرير الفواتير"
+        title="تقرير مشتريات الكانتين"
         subtitle="بحث حسب التاريخ والفئة مع إجماليات يومية وشهرية"
         meta={[
           {
             label: "الفترة",
             value: `${displayDate(appliedFilters.startDate)} — ${displayDate(appliedFilters.endDate)}`,
           },
+          {
+            label: "النزيل",
+            value: appliedFilters.residentName.trim() || "الكل",
+          },
+          {
+            label: "الصنف",
+            value: appliedFilters.itemName.trim() || "الكل",
+          },
+          {
+            label: "طريقة الدفع",
+            value:
+              appliedFilters.saleType === "cash"
+                ? "بيع نقدي"
+                : appliedFilters.saleType === "resident"
+                  ? "على حساب النزيل"
+                  : "الكل",
+          },
+          {
+            label: "الفئة",
+            value:
+              report?.categories.find(
+                (category) => category.id === appliedFilters.categoryId,
+              )?.name ?? "كل الفئات",
+          },
         ]}
       />
       <div className="panel-heading">
         <div>
-          <h3>تقارير الفواتير</h3>
+          <h3>تقارير مشتريات الكانتين</h3>
           <p>بحث حسب التاريخ والفئة مع إجماليات يومية وشهرية.</p>
         </div>
         <div className="invoice-report-actions">
@@ -213,7 +288,24 @@ export default function InvoiceReportPanel({
           />
         </label>
         <label>
-          الفئة
+          اسم النزيل
+          <input list={residentListId} value={filters.residentName} onChange={(event) => setFilters((current) => ({ ...current, residentName: event.target.value }))} maxLength={200} />
+          <datalist id={residentListId}>{residents.filter((resident) => !resident.archived).map((resident) => <option key={resident.id} value={resident.name} />)}</datalist>
+        </label>
+        <label>
+          الصنف
+          <input value={filters.itemName} onChange={(event) => setFilters((current) => ({ ...current, itemName: event.target.value }))} maxLength={160} />
+        </label>
+        <label>
+          طريقة الدفع
+          <select value={filters.saleType} onChange={(event) => setFilters((current) => ({ ...current, saleType: event.target.value as InvoiceReportFilters["saleType"] }))}>
+            <option value="all">كل المبيعات</option>
+            <option value="resident">خصم من حساب النزيل</option>
+            <option value="cash">بيع نقدي</option>
+          </select>
+        </label>
+        <label>
+          فئة الصنف أو الفئة القديمة
           <select
             value={filters.categoryId ?? ""}
             onChange={(event) =>
@@ -246,12 +338,14 @@ export default function InvoiceReportPanel({
       ) : report ? (
         <>
           <div className="invoice-report-summary report-summary">
+            <article><span>مبيعات على حساب النزلاء</span><strong>{formatNumber(residentAccountTotal)} ج.م</strong></article>
+            <article><span>المبيعات النقدية</span><strong>{formatNumber(cashTotal)} ج.م</strong></article>
             <article>
               <span>إجمالي المبيعات</span>
               <strong>{formatNumber(summary.invoicesTotal)} ج.م</strong>
             </article>
             <article>
-              <span>عدد الفواتير</span>
+              <span>عدد الحركات</span>
               <strong>{formatNumber(summary.invoiceCount)}</strong>
             </article>
             <article>
@@ -263,7 +357,7 @@ export default function InvoiceReportPanel({
               <strong>{formatNumber(summary.remaining)} ج.م</strong>
             </article>
             <article>
-              <span>عدد تفاصيل الفواتير</span>
+              <span>عدد الأصناف المباعة</span>
               <strong>{formatNumber(summary.count)}</strong>
             </article>
             <article>
@@ -280,6 +374,49 @@ export default function InvoiceReportPanel({
               </span>
             </article>
           </div>
+
+          {!!residentSummaries.length && (
+            <section className="invoice-report-residents report-detail">
+              <div className="invoice-report-section-heading">
+                <h4>حسابات النزلاء في نتائج البحث</h4>
+                <span>
+                  تظهر فقط الحركات المسجلة على حساب نزيل المطابق للمرشحات.
+                </span>
+              </div>
+              <div className="table-wrap">
+                <table className="resident-table">
+                  <thead>
+                    <tr>
+                      <th>النزيل</th>
+                      <th>رقم الملف</th>
+                      <th>عدد الحركات</th>
+                      <th>إجمالي المشتريات</th>
+                      <th>كشف الحساب</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {residentSummaries.map((entry) => (
+                      <tr key={entry.resident.id}>
+                        <td>{entry.resident.name}</td>
+                        <td>{entry.resident.fileNumber}</td>
+                        <td>{formatNumber(entry.count)}</td>
+                        <td>{formatNumber(entry.total)} ج.م</td>
+                        <td>
+                          <button
+                            className="table-action"
+                            type="button"
+                            onClick={() => onOpenStatement?.(entry.resident)}
+                          >
+                            كشف الحساب
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           <div className="invoice-report-periods report-detail">
             <section>
@@ -342,15 +479,15 @@ export default function InvoiceReportPanel({
             <table className="resident-table">
               <thead>
                 <tr>
-                  <th>رقم الفاتورة</th>
-                  <th>تاريخ الفاتورة</th>
-                  <th>معرف النزيل (Access)</th>
+                  <th>رقم الحركة</th>
+                  <th>تاريخ الحركة</th>
+                  <th>رقم ملف النزيل</th>
                   <th>اسم النزيل (ويب)</th>
                   <th>نوع البيع (ويب)</th>
                   <th>الرصيد</th>
-                  <th>الفئه</th>
-                  <th>الفئة (رقم)</th>
-                  <th>اسم الفئة (ويب)</th>
+                  <th>الفئة القديمة</th>
+                  <th>رقم الفئة المنظمة</th>
+                  <th>فئة الصنف</th>
                   <th>الصنف</th>
                   <th>السعر</th>
                   <th>الكمية</th>
@@ -392,7 +529,7 @@ export default function InvoiceReportPanel({
               </tbody>
             </table>
             {!rows.length && (
-              <div className="empty-state">لا توجد فواتير في هذا النطاق.</div>
+              <div className="empty-state">لا توجد حركات بيع في هذا النطاق.</div>
             )}
           </div>
         </>

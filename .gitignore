@@ -35,6 +35,7 @@ yarn-error.log*
 !.env.example
 
 # Access database and local data files must never be committed.
+*.csv
 *.accdb
 *.mdb
 *.laccdb
@@ -45,6 +46,10 @@ yarn-error.log*
 
 # Screenshots may contain real resident/financial data; never commit them.
 /screenshots/
+
+# Reports may contain sensitive match details; keep them local.
+/reports/
+/mappings/
 
 # vercel
 .vercel

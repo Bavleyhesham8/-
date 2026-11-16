@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { getCanteenReportAction } from "@/app/actions/canteen-report";
+import { updateCanteenMovementAction } from "@/app/actions/canteen";
 import { getDemoCanteenReport } from "@/lib/canteen-report-demo-data";
 import PrintBrand from "@/components/print-brand";
 import { printCurrentView } from "@/lib/print";
 import type {
   CanteenReportData,
   CanteenReportFilters,
+  CanteenReportMovement,
 } from "@/lib/canteen-report-types";
+import type { Resident } from "@/lib/demo-data";
 
 function localDate(value: Date) {
   const year = value.getFullYear();
@@ -44,31 +47,44 @@ function formatNumber(value: number) {
 }
 
 function reportErrorMessage(error: unknown) {
-  if (
-    error instanceof Error &&
-    error.message === "Canteen access is required for this report."
-  ) {
-    return "يتطلب عرض هذا التقرير صلاحية الكانتين.";
-  }
-  if (
-    error instanceof Error &&
-    error.message === "The canteen report filters are invalid."
-  ) {
-    return "تواريخ أو عوامل التصفية غير صالحة.";
+  if (error instanceof Error) {
+    if (
+      error.message.includes("canteen-reports") ||
+      error.message === "Canteen access is required for this report."
+    ) {
+      return "يتطلب عرض هذا التقرير صلاحية «سجل حركات الكانتين».";
+    }
+    if (error.message === "The canteen report filters are invalid.") {
+      return "تواريخ أو عوامل التصفية غير صالحة.";
+    }
   }
   return "تعذر تحميل التقرير. تحقق من الاتصال ثم أعد المحاولة.";
 }
 
 export default function CanteenReportPanel({
   persistent,
+  canManage = false,
+  residents = [],
 }: {
   persistent: boolean;
+  canManage?: boolean;
+  residents?: Resident[];
 }) {
+  const residentListId = useId();
   const [filters, setFilters] = useState(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState(initialFilters);
   const [report, setReport] = useState<CanteenReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [editingMovement, setEditingMovement] =
+    useState<CanteenReportMovement | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editQuantity, setEditQuantity] = useState("");
+  const [editRecipient, setEditRecipient] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [editError, setEditError] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -92,7 +108,54 @@ export default function CanteenReportPanel({
     return () => {
       active = false;
     };
-  }, [appliedFilters, persistent]);
+  }, [appliedFilters, persistent, reloadKey]);
+
+  function startEditMovement(movement: CanteenReportMovement) {
+    setEditingMovement(movement);
+    setEditDate(movement.date);
+    setEditQuantity(String(movement.quantity));
+    setEditRecipient(movement.recipient);
+    setEditCategory(movement.issueCategory);
+    setEditError("");
+  }
+
+  async function submitMovementEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingMovement) return;
+    const quantity = Number(editQuantity);
+    if (
+      !editDate ||
+      !Number.isFinite(quantity) ||
+      quantity <= 0 ||
+      (editingMovement.direction === "out" && !editRecipient.trim())
+    ) {
+      setEditError("راجع التاريخ والكمية واسم المستلم.");
+      return;
+    }
+    setEditSaving(true);
+    setEditError("");
+    try {
+      if (persistent) {
+        const result = await updateCanteenMovementAction({
+          movementId: editingMovement.id,
+          movementDate: editDate,
+          quantity,
+          recipient: editRecipient.trim(),
+          itemCategory: editCategory.trim(),
+        });
+        if (!result.ok) {
+          setEditError(result.error);
+          return;
+        }
+      }
+      setEditingMovement(null);
+      setReloadKey((key) => key + 1);
+    } catch {
+      setEditError("تعذر تعديل الحركة. حاول مرة أخرى.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -128,27 +191,47 @@ export default function CanteenReportPanel({
     link.remove();
   }
 
-  const balances = report?.balances ?? [];
   const movements = report?.movements ?? [];
   const remainingBalance = report?.totals.remaining ?? 0;
+  const selectedProductName =
+    appliedFilters.itemNumber === null
+      ? "كل الأصناف"
+      : (report?.products.find(
+          (product) => product.itemNumber === appliedFilters.itemNumber,
+        )?.name ?? `صنف ${appliedFilters.itemNumber}`);
 
   return (
     <section className="content-panel canteen-report-panel" dir="rtl">
       <PrintBrand
-        title="تقرير مخزون الكانتين"
-        subtitle="الرصيد الفعال وحركات الوارد والمنصرف"
+        title="سجل حركات الكانتين"
+        subtitle="الوارد والمنصرف والمستلم والرصيد بعد الحركة وقيمة الحركة"
         meta={[
           {
             label: "الفترة",
             value: `${displayDate(appliedFilters.startDate)} — ${displayDate(appliedFilters.endDate)}`,
           },
+          { label: "الصنف", value: selectedProductName },
+          {
+            label: "نوع الحركة",
+            value:
+              appliedFilters.direction === "in"
+                ? "الوارد فقط"
+                : appliedFilters.direction === "out"
+                  ? "المنصرف فقط"
+                  : "الوارد والمنصرف",
+          },
+          {
+            label: "النزيل / المستلم",
+            value: appliedFilters.recipient.trim() || "الكل",
+          },
         ]}
       />
       <div className="panel-heading">
         <div>
-          <h3>تقارير مخزون الكانتين</h3>
+          <h3>سجل حركات الكانتين</h3>
           <p>
-            الأرصدة الفعالة، الوارد والمنصرف، وسندات الصرف ضمن الفترة المحددة.
+            وارد ومنصرف مع المستلم وبند الصرف والسعر والقيمة والرصيد بعد كل
+            حركة، وإمكانية تعديل الحركات.
           </p>
         </div>
         <div className="canteen-report-actions">
@@ -238,11 +321,13 @@ export default function CanteenReportPanel({
           </select>
         </label>
         <label>
-          المستلم
+          النزيل / المستلم
           <input
+            list={residentListId}
             type="search"
             value={filters.recipient}
             maxLength={160}
+            placeholder="اسم النزيل أو المستلم..."
             onChange={(event) =>
               setFilters((current) => ({
                 ...current,
@@ -250,6 +335,7 @@ export default function CanteenReportPanel({
               }))
             }
           />
+          <datalist id={residentListId}>{residents.filter((resident) => !resident.archived).map((resident) => <option key={resident.id} value={resident.name} />)}</datalist>
         </label>
         <label className="canteen-report-void-filter">
           <input
@@ -269,6 +355,84 @@ export default function CanteenReportPanel({
         </button>
       </form>
 
+      {canManage && editingMovement && (
+        <form
+          className="inventory-form canteen-movement-edit-form"
+          onSubmit={submitMovementEdit}
+        >
+          <div className="panel-heading">
+            <div>
+              <h4>
+                تعديل حركة {editingMovement.direction === "in" ? "وارد" : "منصرف"} —{" "}
+                {editingMovement.itemName}
+              </h4>
+              <p>
+                سيُعاد حساب الرصيد بعد الحركة لكل الحركات اللاحقة لنفس الصنف.
+              </p>
+            </div>
+          </div>
+          <label className="form-field">
+            التاريخ
+            <input
+              type="date"
+              required
+              value={editDate}
+              onChange={(event) => setEditDate(event.target.value)}
+            />
+          </label>
+          <label className="form-field">
+            الكمية
+            <input
+              type="number"
+              min="0.01"
+              step="any"
+              required
+              value={editQuantity}
+              onChange={(event) => setEditQuantity(event.target.value)}
+            />
+          </label>
+          {editingMovement.direction === "out" && (
+            <>
+              <label className="form-field">
+                المستلم
+                <input
+                  maxLength={160}
+                  value={editRecipient}
+                  onChange={(event) => setEditRecipient(event.target.value)}
+                  placeholder="اسم المستلم"
+                />
+              </label>
+              <label className="form-field">
+                بند الصرف / الغرض
+                <input
+                  maxLength={160}
+                  value={editCategory}
+                  onChange={(event) => setEditCategory(event.target.value)}
+                />
+              </label>
+            </>
+          )}
+          {editError && (
+            <p className="form-error" role="alert">
+              {editError}
+            </p>
+          )}
+          <div className="action-group">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={editSaving}
+              onClick={() => setEditingMovement(null)}
+            >
+              إلغاء
+            </button>
+            <button className="primary-button" disabled={editSaving}>
+              {editSaving ? "جارٍ الحفظ..." : "حفظ التعديل"}
+            </button>
+          </div>
+        </form>
+      )}
+
       {error && (
         <p className="canteen-report-error" role="alert">
           {error}
@@ -280,40 +444,6 @@ export default function CanteenReportPanel({
         </div>
       ) : report ? (
         <>
-          <section className="canteen-report-section">
-            <div className="canteen-report-section-heading">
-              <h4>الرصيد الفعال الحالي</h4>
-              <span>يُحسب من جميع الحركات غير الملغاة.</span>
-            </div>
-            <div className="table-wrap report-detail">
-              <table className="resident-table">
-                <thead>
-                  <tr>
-                    <th>رقم الصنف</th>
-                    <th>الصنف</th>
-                    <th>السعر</th>
-                    <th>الرصيد الحالي</th>
-                    <th>قيمة الرصيد</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {balances.map((balance) => (
-                    <tr key={balance.itemNumber}>
-                      <td>{formatNumber(balance.itemNumber)}</td>
-                      <td>{balance.itemName}</td>
-                      <td>{formatNumber(balance.price)} ج.م</td>
-                      <td>{formatNumber(balance.balance)}</td>
-                      <td>{formatNumber(balance.value)} ج.م</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!balances.length && (
-                <div className="empty-state">لا توجد أصناف.</div>
-              )}
-            </div>
-          </section>
-
           <div className="canteen-report-summary report-summary">
             <article>
               <span>إجمالي الوارد بالفترة</span>
@@ -360,10 +490,14 @@ export default function CanteenReportPanel({
                     <th>الصنف</th>
                     <th>الحركة</th>
                     <th>الكمية</th>
-                    <th>الرصيد المسجل</th>
+                    <th>السعر</th>
+                    <th>القيمة</th>
+                    <th>الرصيد بعد الحركة</th>
                     <th>المستلم</th>
+                    <th>بند الصرف</th>
                     <th>رقم المستند</th>
                     {appliedFilters.includeVoided && <th>حالة الإلغاء</th>}
+                    {canManage && <th>الإجراءات</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -379,8 +513,11 @@ export default function CanteenReportPanel({
                         {movement.direction === "in" ? "وارد" : "منصرف"}
                       </td>
                       <td>{formatNumber(movement.quantity)}</td>
+                      <td>{formatNumber(movement.price)} ج.م</td>
+                      <td>{formatNumber(movement.value)} ج.م</td>
                       <td>{formatNumber(movement.balanceAfter)}</td>
                       <td>{movement.recipient || "—"}</td>
+                      <td>{movement.issueCategory || "—"}</td>
                       <td>
                         {movement.voucherId === null
                           ? "—"
@@ -391,6 +528,18 @@ export default function CanteenReportPanel({
                           {movement.voided
                             ? `ملغاة: ${movement.voidReason}`
                             : "—"}
+                        </td>
+                      )}
+                      {canManage && (
+                        <td>
+                          <button
+                            className="table-action"
+                            type="button"
+                            disabled={movement.voided || editSaving}
+                            onClick={() => startEditMovement(movement)}
+                          >
+                            تعديل
+                          </button>
                         </td>
                       )}
                     </tr>

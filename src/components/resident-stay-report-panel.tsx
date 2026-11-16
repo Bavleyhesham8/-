@@ -50,7 +50,14 @@ function demoRows(): ResidentStayReportRow[] {
       villa: resident.villa,
       room: resident.room,
       archived: resident.archived,
-    }));
+    }))
+    .sort(
+      (left, right) =>
+        left.admissionDate.localeCompare(right.admissionDate) ||
+        left.fileNumber.localeCompare(right.fileNumber, "en", {
+          numeric: true,
+        }),
+    );
 }
 
 function formatDate(value: string) {
@@ -174,9 +181,7 @@ export default function ResidentStayReportPanel({
         <div>
           <h3>تقارير الإقامة والغرف</h3>
           <p>
-            بديل آمن لتقارير الفيلا والغرفة؛ يعتمد سجلات الإقامة الحالية ويعرض
-            الحقول الأساسية فقط، ولا يقرأ جدول Access «nam». مصدر تقرير «سكن
-            النزلاء - فيلا - غرفة» ما زال قيد التحقق.
+            اعرض سجلات الإقامة والغرف وابحث فيها وصفِّ النتائج حسب الفترة.
           </p>
         </div>
         <div className="resident-report-actions">

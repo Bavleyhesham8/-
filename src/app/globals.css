@@ -27,9 +27,9 @@ body {
   margin: 0;
   background-color: #0c1a16;
   background-image: 
-    radial-gradient(circle at 85% 15%, rgba(245, 158, 11, 0.12) 0%, transparent 40%),
-    linear-gradient(to bottom, rgba(12, 26, 22, 0.72) 0%, rgba(12, 26, 22, 0.86) 100%),
-    url('/images/background.jpg');
+    radial-gradient(circle at 85% 15%, rgba(245, 158, 11, 0.08) 0%, transparent 45%),
+    linear-gradient(to bottom, rgba(12, 26, 22, 0.38) 0%, rgba(12, 26, 22, 0.52) 100%),
+    url('/images/background.webp');
   background-size: cover;
   background-position: center top;
   background-attachment: fixed;
@@ -39,6 +39,13 @@ body {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+}
+
+@media (max-width: 760px) {
+  body {
+    background-attachment: scroll;
+    background-position: center top;
+  }
 }
 
 button,
@@ -60,8 +67,26 @@ select:focus-visible {
 
 .classic-access-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+}
+
+.classic-access-column {
+  min-width: 0;
+}
+
+.classic-access-column-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 96px), 1fr));
+  gap: 8px;
+}
+
+.classic-access-column-items button {
+  min-width: 0;
+  min-height: 48px;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  white-space: normal;
 }
 
 .classic-access-button {
@@ -101,16 +126,13 @@ select:focus-visible {
 }
 
 .brand-mark {
-  display: grid;
-  width: 43px;
-  height: 43px;
+  display: block;
+  width: 48px;
+  height: 48px;
   flex: 0 0 auto;
-  place-items: center;
-  border-radius: 14px;
-  background: var(--green);
-  color: #fff;
-  font-size: 23px;
-  font-weight: 700;
+  border-radius: 0;
+  background: transparent;
+  object-fit: contain;
 }
 
 .brand-name {
@@ -134,7 +156,25 @@ select:focus-visible {
 
 .nav-list {
   display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
   gap: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scroll-padding: 10px;
+  scrollbar-color: rgba(15, 118, 110, 0.55) transparent;
+  scrollbar-width: thin;
+}
+
+.nav-list::-webkit-scrollbar {
+  width: 6px;
+  height: 5px;
+}
+
+.nav-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.55);
 }
 
 .nav-item {
@@ -568,6 +608,38 @@ button:disabled {
   font-size: 12px;
 }
 
+.person-avatar-photo {
+  object-fit: cover;
+  border: 1px solid #dbe7df;
+}
+
+.resident-photo-editor {
+  margin-bottom: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.sales-catalog-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.danger-action {
+  border-color: #fecdd3 !important;
+  background: #fff1f2 !important;
+  color: #be123c !important;
+}
+
+@media (max-width: 760px) {
+  .sales-catalog-filters {
+    grid-template-columns: 1fr;
+  }
+}
+
 .person-info {
   display: grid;
   gap: 4px;
@@ -771,8 +843,34 @@ button:disabled {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: end;
   gap: 12px;
+  border: 1px solid #d8e3dc;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 12px 32px rgba(7, 21, 16, 0.12);
   border-bottom: 1px solid var(--line);
   padding: 16px 18px;
+}
+
+.staff-account-form .form-field {
+  color: #173c2d;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.staff-account-form .form-field input {
+  min-height: 46px;
+  border-color: #b7c9be;
+  color: #071510;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.staff-account-form .access-note {
+  border: 1px solid #d8e3dc;
+  background: #f3f7f4;
+  color: #294638;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .staff-account-form .access-note,
@@ -1057,6 +1155,22 @@ button:disabled {
   width: min(100%, 400px);
 }
 
+.sign-in-background {
+  background-color: #0c1a16;
+  background-image: url('/images/saint-mark-login.webp');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+@media (max-width: 760px) {
+  .sign-in-background {
+    background-image: url('/images/saint-mark-login-mobile.webp');
+    background-position: center;
+    background-attachment: scroll;
+  }
+}
+
 .sign-in-form {
   display: grid;
   gap: 14px;
@@ -1122,10 +1236,9 @@ button:disabled {
   }
 
   .brand-mark {
-    width: 36px;
-    height: 36px;
-    border-radius: 11px;
-    font-size: 19px;
+    width: 42px;
+    height: 42px;
+    border-radius: 0;
   }
 
   .nav-caption,
@@ -1136,8 +1249,9 @@ button:disabled {
   .nav-list {
     display: flex;
     overflow-x: auto;
+    overflow-y: hidden;
     gap: 5px;
-    padding-bottom: 2px;
+    padding-bottom: 6px;
   }
 
   .nav-item {
@@ -1469,6 +1583,39 @@ button:disabled {
   font-size: 11px;
 }
 
+.inventory-linked-sources {
+  margin: 1rem 0 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--border, #d7e4df);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.inventory-linked-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.inventory-linked-card {
+  min-width: 0;
+}
+
+.inventory-linked-card h5 {
+  margin: 0 0 0.65rem;
+  color: #173d32;
+}
+
+.inventory-linked-card .table-wrap {
+  overflow-x: auto;
+}
+
+@media (max-width: 760px) {
+  .inventory-linked-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .inventory-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1645,6 +1792,40 @@ button:disabled {
 
 .sales-invoice-actions {
   justify-content: flex-start;
+}
+
+.sales-history-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sales-history-heading h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.sales-history-heading .access-note {
+  margin: 4px 0 0;
+}
+
+.sales-history-filters {
+  padding: 0;
+}
+
+.sales-history-filter-note {
+  margin: 0;
+  border-radius: 8px;
+  background: #f7f8f7;
+  color: var(--muted);
+  padding: 9px 12px;
+  font-size: 11px;
+}
+
+.sales-history-summary {
+  padding: 0;
 }
 
 .staff-tabs {
@@ -1933,6 +2114,29 @@ button:disabled {
   padding: 0 18px 17px;
 }
 
+.invoice-report-residents {
+  padding: 0 18px 16px;
+}
+
+.invoice-report-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.invoice-report-section-heading h4 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.invoice-report-section-heading span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .invoice-report-periods h4 {
   margin: 0 0 8px;
   font-size: 12px;
@@ -2052,6 +2256,9 @@ button:disabled {
 }
 
 @media print {
+  body.print-single-custody .custody-record:not([data-custody-print-target="true"]) {
+    display: none !important;
+  }
   @page {
     margin: 8mm;
     size: A4 portrait;
@@ -2064,6 +2271,75 @@ button:disabled {
 
   body * {
     visibility: hidden !important;
+  }
+
+  body.print-single-record .dashboard-print-area,
+  body.print-single-record .dashboard-print-area * {
+    visibility: hidden !important;
+  }
+
+  body.print-single-record .print-single-target,
+  body.print-single-record .print-single-target * {
+    visibility: visible !important;
+  }
+
+  body.print-single-record .print-single-target {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 9999 !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #111827 !important;
+  }
+
+  body.print-single-record .print-single-target .print-brand {
+    display: flex !important;
+  }
+
+  body.print-single-record tr.print-single-target {
+    display: block !important;
+  }
+
+  body.print-single-record tr.print-single-target > td:not(:last-child) {
+    display: none !important;
+  }
+
+  body.print-single-record tr.print-single-target > td:last-child {
+    display: block !important;
+    width: 100% !important;
+    border: 0 !important;
+  }
+
+  .print-single-record-document .print-single-row-table {
+    width: 100% !important;
+    border: 0 !important;
+  }
+
+  .print-single-record-document .print-single-row-table > thead {
+    display: none !important;
+  }
+
+  .print-single-record-document
+    .print-single-row-table
+    > tbody
+    > tr
+    > td:not(:last-child) {
+    display: none !important;
+  }
+
+  .print-single-record-document .print-single-row-table > tbody > tr > td:last-child {
+    display: block !important;
+    width: 100% !important;
+    border: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  .print-single-record-document .print-single-row-table .print-brand {
+    display: flex !important;
+    margin: 0 !important;
   }
 
   .dashboard-print-area,
@@ -2093,6 +2369,21 @@ button:disabled {
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
+  }
+
+  body.lookup-report-print .lookup-manager-panel > :not(.lookup-report-print-area) {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body.lookup-report-print .lookup-report-print-area > :not(.print-brand):not(.lookup-report-content) {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body.lookup-report-print .lookup-report-content .no-print,
+  body.lookup-report-print .lookup-report-content .panel-heading {
+    display: none !important;
   }
 
   .dashboard-print-area button {
@@ -2644,6 +2935,14 @@ button:disabled {
 
 .lookup-table {
   min-width: 0;
+  white-space: normal;
+}
+
+.lookup-table th,
+.lookup-table td {
+  padding: 13px 14px;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .lookup-row-actions {
@@ -2671,14 +2970,213 @@ button:disabled {
   font-size: 10px;
 }
 
+.lookup-report-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 18px;
+}
+
+.lookup-report-tabs button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--muted);
+  padding: 7px 13px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lookup-report-tabs button.active {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green-dark);
+}
+
+.lookup-report-content {
+  padding: 18px;
+}
+
+.lookup-report-section {
+  display: grid;
+  gap: 14px;
+}
+
+.lookup-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  align-items: end;
+  gap: 12px;
+  max-width: 920px;
+}
+
+.lookup-governorate-filter {
+  max-width: 420px;
+}
+
+.governorate-report-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.governorate-report-group {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.governorate-report-group > h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #f4f8f6;
+  color: var(--green-dark);
+  font-size: 14px;
+}
+
+.governorate-report-group > h4 span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lookup-settings-explanation {
+  margin: 0;
+  padding: 0 16px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.lookup-report-section > h3,
+.lookup-report-section > h4,
+.lookup-report-section > p {
+  margin: 0;
+}
+
+.lookup-report-section > h3 {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.lookup-report-section > p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.lookup-report-section > .form-field {
+  max-width: 640px;
+}
+
+.lookup-report-content .lookup-form {
+  margin: 0;
+}
+
+.lookup-period-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  border: 0;
+  padding: 0;
+}
+
+.lookup-period-mode legend {
+  font-weight: 700;
+}
+
+.lookup-period-mode label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.lookup-admin-management {
+  margin: 4px 18px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.lookup-admin-management > summary {
+  padding: 14px 16px;
+  color: var(--green-dark);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.lookup-admin-management[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.lookup-admin-management .lookup-tabs {
+  padding-top: 12px;
+}
+
 @media (max-width: 760px) {
   .lookup-form {
     grid-template-columns: 1fr;
+  }
+
+  .lookup-report-content {
+    padding: 14px;
+  }
+
+  .lookup-report-tabs {
+    padding-inline: 14px;
+  }
+
+  .lookup-report-tabs button {
+    flex: 1 1 calc(50% - 8px);
   }
 }
 
 .custody-panel {
   overflow: hidden;
+}
+
+.treatment-panel {
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.treatment-panel h2,
+.treatment-panel h3,
+.treatment-panel h4 {
+  font-weight: 800 !important;
+  color: #172b3d;
+}
+
+.treatment-panel p,
+.treatment-panel label,
+.treatment-panel th,
+.treatment-panel td {
+  font-weight: 600;
+}
+
+.treatment-panel .text-xs {
+  font-size: 0.82rem;
+}
+
+.treatment-panel table {
+  font-size: 13px;
+}
+
+.treatment-panel thead th {
+  color: #334155;
+  font-weight: 800;
+}
+
+.treatment-panel tbody td {
+  color: #27384a;
 }
 
 .custody-tabs {
@@ -2999,6 +3497,129 @@ button:disabled {
   font-size: 12px;
 }
 
+.resident-account-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 18px 16px;
+}
+
+.resident-account-summary article {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fbfcfb;
+  padding: 12px;
+}
+
+.resident-account-summary span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.resident-account-summary strong {
+  font-size: 16px;
+}
+
+.resident-account-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 18px 14px;
+}
+
+.resident-account-toolbar .form-field {
+  flex: 1 1 280px;
+}
+
+.resident-account-toolbar > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.resident-account-negative {
+  color: var(--red);
+}
+
+.resident-account-positive {
+  color: var(--green-dark);
+}
+
+.resident-account-debt,
+.resident-account-flag {
+  display: inline-block;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+}
+
+.resident-account-debt {
+  margin-inline-start: 6px;
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.resident-account-flag {
+  margin-inline-start: 6px;
+  background: #fff4dc;
+  color: #8a5a00;
+}
+
+.resident-account-unmatched {
+  margin: 0 18px 16px;
+  border: 1px solid #f0d7d4;
+  border-radius: 11px;
+  background: #fffafa;
+  padding: 14px;
+}
+
+.resident-account-unmatched h4 {
+  margin: 0 0 4px;
+  color: var(--red);
+  font-size: 13px;
+}
+
+.resident-account-unmatched p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.resident-deposit-section {
+  margin: 0 18px 16px;
+  border: 1px solid #cfe4dc;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f4fbf8 0%, #ffffff 100%);
+  padding: 14px;
+}
+
+.resident-deposit-heading h4 {
+  margin: 0 0 4px;
+  color: var(--green-dark);
+  font-size: 13px;
+}
+
+.resident-deposit-heading p {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.resident-deposit-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  align-items: end;
+  gap: 10px;
+}
+
+.resident-deposit-form .primary-button {
+  justify-self: start;
+}
+
 .resident-finance-forms {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3055,6 +3676,10 @@ button:disabled {
 @media (max-width: 760px) {
   .resident-finance-forms {
     grid-template-columns: 1fr;
+  }
+
+  .resident-account-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -3416,9 +4041,18 @@ label.form-field {
   color: #991b1b;
 }
 
+.tracking-status-needs_review {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .tracking-row-voided {
   opacity: 0.55;
   text-decoration: line-through;
+}
+
+.tracking-row-review {
+  background: #fffbeb;
 }
 
 .tracking-limit-note {
@@ -3438,4 +4072,235 @@ label.form-field {
   .tracking-summary {
     grid-template-columns: 1fr;
   }
+}
+
+.audit-log-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid #d5e1d9;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  padding: clamp(14px, 2vw, 22px);
+  box-shadow: 0 12px 32px rgba(7, 21, 16, 0.12);
+}
+
+.audit-log-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.audit-log-heading h3 {
+  margin: 0;
+  color: #10271c;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.audit-log-heading p {
+  margin: 5px 0 0;
+  color: #405a4a;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+.audit-log-count {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #cfe0d5;
+  border-radius: 999px;
+  background: #f1f7f3;
+  color: #145942;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.audit-log-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(160px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  border: 1px solid #d9e4dd;
+  border-radius: 12px;
+  background: #f7fbf9;
+  padding: 12px;
+}
+
+.audit-log-filters .secondary-button {
+  justify-self: start;
+}
+
+.audit-log-table-wrap {
+  overflow: auto;
+  border: 1px solid #d9e4dd;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.audit-log-table {
+  width: 100%;
+  min-width: 840px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: right;
+}
+
+.audit-log-table th,
+.audit-log-table td {
+  border-bottom: 1px solid #e5ece7;
+  padding: 11px 13px;
+  vertical-align: middle;
+}
+
+.audit-log-table th {
+  background: #f1f6f3;
+  color: #233f30;
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.audit-log-table td {
+  color: #172a20;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.audit-log-table tbody tr:nth-child(even) {
+  background: #f9fbfa;
+}
+
+.audit-log-table tbody tr:hover {
+  background: #edf7f1;
+}
+
+.audit-log-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.audit-log-table th:nth-child(1) { width: 160px; }
+.audit-log-table th:nth-child(2) { width: 145px; }
+.audit-log-table th:nth-child(3) { width: 130px; }
+.audit-log-table th:nth-child(4) { width: 210px; }
+.audit-log-table th:nth-child(5) { width: 220px; }
+
+.audit-log-timestamp {
+  display: grid;
+  gap: 2px;
+  color: #294638;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.audit-log-timestamp span:last-child {
+  color: #607568;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.audit-log-actor {
+  font-weight: 800 !important;
+}
+
+.audit-log-action {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #e7f3eb;
+  color: #145942;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.audit-log-action-delete {
+  background: #fff0ef;
+  color: #a3332a;
+}
+
+.audit-log-action-permission-change,
+.audit-log-action-clock-in,
+.audit-log-action-clock-out {
+  background: #edf2ff;
+  color: #354b86;
+}
+
+.audit-log-id {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #e0e8e3;
+  border-radius: 7px;
+  background: #f5f8f6;
+  color: #314c3e;
+  padding: 4px 7px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-log-empty-id {
+  color: #77877d;
+}
+
+.audit-log-empty {
+  padding: 30px !important;
+  color: #51675a !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .audit-log-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .audit-log-heading .secondary-button {
+    width: 100%;
+  }
+
+  .audit-log-count {
+    align-self: flex-start;
+  }
+
+  .audit-log-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-log-filters .secondary-button {
+    width: 100%;
+  }
+}
+.resident-picker-options .resident-picker-option:hover,
+.resident-picker-options .resident-picker-option:focus-visible {
+  background: rgba(255, 255, 255, 0.12) !important;
+  outline: none;
+}
+
+.custody-renewal-button {
+  min-height: 44px;
+  padding: 0 24px;
+  border: 1px solid #b9d4c7;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fff 0%, #edf7f1 100%);
+  color: #14543d;
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(17, 76, 54, 0.1);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.custody-renewal-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 9px 22px rgba(17, 76, 54, 0.16);
 }

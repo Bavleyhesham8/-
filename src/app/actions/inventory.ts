@@ -7,13 +7,15 @@ import {
   inventoryCategories,
   inventoryItems,
   inventoryMovements,
+  inventoryPriceHistory,
   user,
   userInventoryCategories,
 } from "@/db/schema";
 import {
   requireAdministrator,
-  requireAnyStaffPermission,
+  requireStaffPermission,
 } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import type {
   InventoryCategory,
   InventoryItem,
@@ -21,15 +23,6 @@ import type {
 } from "@/lib/inventory-types";
 
 const idSchema = z.string().uuid();
-const categorySchema = z.object({
-  name: z.string().trim().min(1).max(120),
-});
-const itemSchema = z.object({
-  categoryId: idSchema,
-  name: z.string().trim().min(1).max(160),
-  unit: z.string().trim().min(1).max(40),
-  unitPrice: z.number().finite().min(0).max(1_000_000_000),
-});
 const dateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -40,12 +33,30 @@ const dateSchema = z
       parsed.toISOString().slice(0, 10) === value
     );
   });
+const categorySchema = z.object({
+  name: z.string().trim().min(1).max(120),
+});
+const itemSchema = z.object({
+  categoryId: idSchema.optional(),
+  name: z.string().trim().min(1).max(160),
+  unit: z.string().trim().min(1).max(40),
+  unitPrice: z.number().finite().min(0).max(1_000_000_000),
+  active: z.boolean().optional(),
+  initialQuantity: z.number().finite().nonnegative().max(1_000_000_000).default(0),
+  initialQuantityDate: dateSchema.optional(),
+});
 const movementSchema = z.object({
   itemId: idSchema,
   direction: z.enum(["in", "out"]),
   quantity: z.number().finite().positive().max(1_000_000_000),
   movementDate: dateSchema,
   note: z.string().trim().max(500),
+  destination: z.string().trim().max(160).default(""),
+  recipient: z.string().trim().max(160).default(""),
+});
+const movementUpdateSchema = movementSchema.extend({
+  id: idSchema,
+  unitPrice: z.number().finite().min(0).max(1_000_000_000).optional(),
 });
 
 export async function saveInventoryCategoryAction(
@@ -55,7 +66,7 @@ export async function saveInventoryCategoryAction(
   | { ok: true; category: InventoryCategory }
   | { ok: false; error: string }
 > {
-  await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const parsed = categorySchema.safeParse(input);
   const id = idInput ? idSchema.safeParse(idInput) : null;
   if (!parsed.success || (idInput && !id?.success)) {
@@ -98,6 +109,13 @@ export async function saveInventoryCategoryAction(
         });
 
   if (!category) return { ok: false, error: "لم يتم العثور على الفئة." };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: id?.success ? "update" : "create",
+    entity: "inventoryCategories",
+    entityId: category.id,
+    metadata: { fields: "name" },
+  });
   return { ok: true, category };
 }
 
@@ -108,7 +126,7 @@ export async function setInventoryCategoryActiveAction(
   | { ok: true; category: InventoryCategory }
   | { ok: false; error: string }
 > {
-  await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const id = idSchema.safeParse(idInput);
   const active = z.boolean().safeParse(activeInput);
   if (!id.success || !active.success) {
@@ -143,28 +161,50 @@ export async function setInventoryCategoryActiveAction(
     return updated ?? null;
   });
 
-  return category
-    ? { ok: true, category }
-    : { ok: false, error: "لم يتم العثور على الفئة." };
+  if (!category) return { ok: false, error: "لم يتم العثور على الفئة." };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "inventoryCategories",
+    entityId: category.id,
+    metadata: { fields: "active" },
+  });
+  if (!active.data) {
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "permission-change",
+      entity: "userInventoryCategories",
+      entityId: category.id,
+      metadata: { fields: "categoryId" },
+    });
+  }
+  return { ok: true, category };
 }
 
 export async function saveInventoryItemAction(
   idInput: string | null,
   input: unknown,
 ): Promise<
-  { ok: true; item: InventoryItem } | { ok: false; error: string }
+  | { ok: true; item: InventoryItem; movement?: InventoryMovement }
+  | { ok: false; error: string }
 > {
-  await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const parsed = itemSchema.safeParse(input);
   const id = idInput ? idSchema.safeParse(idInput) : null;
   if (!parsed.success || (idInput && !id?.success)) {
     return { ok: false, error: "راجع بيانات الصنف والسعر والفئة." };
   }
 
-  const draft = {
-    ...parsed.data,
-    name: parsed.data.name.normalize("NFC"),
-    unit: parsed.data.unit.normalize("NFC"),
+  const {
+    initialQuantity,
+    initialQuantityDate,
+    categoryId: requestedCategoryId,
+    ...itemInput
+  } = parsed.data;
+  const itemBase = {
+    ...itemInput,
+    name: itemInput.name.normalize("NFC"),
+    unit: itemInput.unit.normalize("NFC"),
   };
   const database = getDatabase();
   const result = await database.transaction(async (transaction) => {
@@ -173,6 +213,7 @@ export async function saveInventoryItemAction(
           .select({
             id: inventoryItems.id,
             categoryId: inventoryItems.categoryId,
+            unitPrice: inventoryItems.unitPrice,
           })
           .from(inventoryItems)
           .where(eq(inventoryItems.id, id.data))
@@ -183,34 +224,63 @@ export async function saveInventoryItemAction(
       return { error: "لم يتم العثور على الصنف." } as const;
     }
 
+    // الفئات مخفية من واجهة مخزن الأغذية، لكنها تبقى في البيانات.
+    // عند الإنشاء نستخدم فئة «مخزن الأغذية» أو أول فئة نشطة أو ننشئها تلقائيًا،
+    // وعند التعديل نحافظ على فئة الصنف الحالية دون تغيير تاريخه.
+    let categoryId = existing?.categoryId ?? requestedCategoryId ?? null;
+    if (!categoryId) {
+      const [preferred] = await transaction
+        .select({ id: inventoryCategories.id })
+        .from(inventoryCategories)
+        .where(
+          and(
+            eq(inventoryCategories.name, "مخزن الأغذية"),
+            eq(inventoryCategories.active, true),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      if (preferred) {
+        categoryId = preferred.id;
+      } else {
+        const [fallback] = await transaction
+          .select({ id: inventoryCategories.id })
+          .from(inventoryCategories)
+          .where(eq(inventoryCategories.active, true))
+          .limit(1)
+          .for("update");
+        if (fallback) {
+          categoryId = fallback.id;
+        } else {
+          const [createdCategory] = await transaction
+            .insert(inventoryCategories)
+            .values({ name: "مخزن الأغذية" })
+            .returning({ id: inventoryCategories.id });
+          categoryId = createdCategory?.id ?? null;
+        }
+      }
+    }
+    if (!categoryId) {
+      return { error: "تعذر تحديد فئة مخزن الأغذية." } as const;
+    }
+
     const [category] = await transaction
       .select({
         id: inventoryCategories.id,
         active: inventoryCategories.active,
       })
       .from(inventoryCategories)
-      .where(eq(inventoryCategories.id, draft.categoryId))
+      .where(eq(inventoryCategories.id, categoryId))
       .limit(1)
       .for("update");
     if (
       !category ||
-      (!category.active && existing?.categoryId !== draft.categoryId)
+      (!category.active && existing?.categoryId !== categoryId)
     ) {
-      return { error: "اختر فئة مخزون صالحة." } as const;
+      return { error: "تعذر تحديد فئة مخزون صالحة للصنف." } as const;
     }
 
-    if (existing && existing.categoryId !== draft.categoryId) {
-      const [movement] = await transaction
-        .select({ id: inventoryMovements.id })
-        .from(inventoryMovements)
-        .where(eq(inventoryMovements.itemId, existing.id))
-        .limit(1);
-      if (movement) {
-        return {
-          error: "لا يمكن نقل صنف له حركات مسجلة إلى فئة أخرى.",
-        } as const;
-      }
-    }
+    const draft = { ...itemBase, categoryId };
 
     const [duplicate] = await transaction
       .select({ id: inventoryItems.id })
@@ -229,7 +299,7 @@ export async function saveInventoryItemAction(
       )
       .limit(1);
     if (duplicate) {
-      return { error: "يوجد صنف بهذا الاسم في الفئة المحددة." } as const;
+      return { error: "يوجد صنف بهذا الاسم في مخزن الأغذية." } as const;
     }
 
     const [item] = existing
@@ -256,6 +326,57 @@ export async function saveInventoryItemAction(
             unitPrice: inventoryItems.unitPrice,
             active: inventoryItems.active,
           });
+    if (existing && existing.unitPrice !== draft.unitPrice) {
+      await transaction.insert(inventoryPriceHistory).values({
+        itemId: existing.id,
+        oldPrice: existing.unitPrice,
+        newPrice: draft.unitPrice,
+        changedBy: session.user.id,
+      });
+    }
+
+    if (!existing && initialQuantity > 0) {
+      const movementDate =
+        initialQuantityDate ?? new Date().toISOString().slice(0, 10);
+      const [movement] = await transaction
+        .insert(inventoryMovements)
+        .values({
+          itemId: item.id,
+          direction: "in",
+          quantity: initialQuantity,
+          unitPrice: item.unitPrice,
+          movementDate,
+          destination: "",
+          recipient: "",
+          note: "رصيد افتتاحي",
+          createdBy: session.user.id,
+        })
+        .returning({
+          id: inventoryMovements.id,
+          itemId: inventoryMovements.itemId,
+          direction: inventoryMovements.direction,
+          quantity: inventoryMovements.quantity,
+          unitPrice: inventoryMovements.unitPrice,
+          movementDate: inventoryMovements.movementDate,
+          destination: inventoryMovements.destination,
+          recipient: inventoryMovements.recipient,
+          note: inventoryMovements.note,
+          voided: inventoryMovements.voided,
+        });
+      if (!movement) {
+        return { error: "تعذر تسجيل الرصيد الافتتاحي للصنف." } as const;
+      }
+      return {
+        item,
+        movement: {
+          ...movement,
+          itemName: item.name,
+          categoryId: item.categoryId,
+          direction: "in" as const,
+        },
+      } as const;
+    }
+
     return { item } as const;
   });
 
@@ -265,7 +386,23 @@ export async function saveInventoryItemAction(
   if (!("item" in result) || !result.item) {
     return { ok: false, error: "تعذر حفظ الصنف." };
   }
-  return { ok: true, item: result.item };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: id?.success ? "update" : "create",
+    entity: "inventoryItems",
+    entityId: result.item.id,
+    metadata: {
+      fields:
+        initialQuantity > 0
+          ? "categoryId,name,unit,unitPrice,initialQuantity"
+          : "categoryId,name,unit,unitPrice",
+    },
+  });
+  return {
+    ok: true,
+    item: result.item,
+    ...("movement" in result ? { movement: result.movement } : {}),
+  };
 }
 
 export async function setInventoryItemActiveAction(
@@ -274,7 +411,7 @@ export async function setInventoryItemActiveAction(
 ): Promise<
   { ok: true; item: InventoryItem } | { ok: false; error: string }
 > {
-  await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const id = idSchema.safeParse(idInput);
   const active = z.boolean().safeParse(activeInput);
   if (!id.success || !active.success) {
@@ -294,9 +431,15 @@ export async function setInventoryItemActiveAction(
       active: inventoryItems.active,
     });
 
-  return item
-    ? { ok: true, item }
-    : { ok: false, error: "لم يتم العثور على الصنف." };
+  if (!item) return { ok: false, error: "لم يتم العثور على الصنف." };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "inventoryItems",
+    entityId: item.id,
+    metadata: { fields: "active" },
+  });
+  return { ok: true, item };
 }
 
 export async function recordInventoryMovementAction(
@@ -305,7 +448,7 @@ export async function recordInventoryMovementAction(
   { ok: true; movement: InventoryMovement }
   | { ok: false; error: string }
 > {
-  const session = await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const parsed = movementSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "راجع نوع الحركة والكمية والتاريخ." };
@@ -368,6 +511,8 @@ export async function recordInventoryMovementAction(
         quantity: inventoryMovements.quantity,
         unitPrice: inventoryMovements.unitPrice,
         movementDate: inventoryMovements.movementDate,
+        destination: inventoryMovements.destination,
+        recipient: inventoryMovements.recipient,
         note: inventoryMovements.note,
         voided: inventoryMovements.voided,
       });
@@ -387,13 +532,156 @@ export async function recordInventoryMovementAction(
   if (!("movement" in result) || !result.movement) {
     return { ok: false, error: "تعذر تسجيل حركة المخزون." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "inventoryMovements",
+    entityId: result.movement.id,
+    metadata: { fields: "itemId,direction,quantity,movementDate" },
+  });
+  return { ok: true, movement: result.movement };
+}
+
+/**
+ * تعديل أي حركة مخزون مع إعادة التحقق من الرصيد.
+ * الرصيد نفسه محسوب من الحركات، لذلك تعديل الكمية أو النوع أو الصنف
+ * يعيد ضبط رصيد الصنف تلقائيًا دون أي حقل رصيد منفصل.
+ */
+export async function updateInventoryMovementAction(
+  input: unknown,
+): Promise<
+  { ok: true; movement: InventoryMovement } | { ok: false; error: string }
+> {
+  const session = await requireStaffPermission("canManageWarehouse");
+  const parsed = movementUpdateSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "راجع الصنف ونوع الحركة والكمية والتاريخ." };
+  }
+
+  const database = getDatabase();
+  const result = await database.transaction(async (transaction) => {
+    const [movement] = await transaction
+      .select({
+        id: inventoryMovements.id,
+        itemId: inventoryMovements.itemId,
+        unitPrice: inventoryMovements.unitPrice,
+        voided: inventoryMovements.voided,
+      })
+      .from(inventoryMovements)
+      .where(eq(inventoryMovements.id, parsed.data.id))
+      .limit(1)
+      .for("update");
+    if (!movement) {
+      return { error: "لم يتم العثور على حركة المخزون." } as const;
+    }
+    if (movement.voided) {
+      return { error: "لا يمكن تعديل حركة ملغاة." } as const;
+    }
+
+    const itemIds = [...new Set([movement.itemId, parsed.data.itemId])];
+    const itemRows = await transaction
+      .select({
+        id: inventoryItems.id,
+        categoryId: inventoryItems.categoryId,
+        name: inventoryItems.name,
+        active: inventoryItems.active,
+      })
+      .from(inventoryItems)
+      .where(inArray(inventoryItems.id, itemIds))
+      .for("update");
+    const targetItem = itemRows.find((item) => item.id === parsed.data.itemId);
+    if (!targetItem) {
+      return { error: "لم يتم العثور على الصنف." } as const;
+    }
+    if (!targetItem.active && targetItem.id !== movement.itemId) {
+      return { error: "لا يمكن نقل الحركة إلى صنف غير نشط." } as const;
+    }
+
+    const otherMovements = await transaction
+      .select({
+        direction: inventoryMovements.direction,
+        quantity: inventoryMovements.quantity,
+      })
+      .from(inventoryMovements)
+      .where(
+        and(
+          eq(inventoryMovements.itemId, targetItem.id),
+          eq(inventoryMovements.voided, false),
+          ne(inventoryMovements.id, movement.id),
+        ),
+      );
+    const balance = otherMovements.reduce(
+      (total, row) =>
+        total + (row.direction === "in" ? row.quantity : -row.quantity),
+      0,
+    );
+    if (
+      parsed.data.direction === "out" &&
+      parsed.data.quantity > balance + 1e-9
+    ) {
+      return { error: "الكمية المنصرفة أكبر من الرصيد المتاح." } as const;
+    }
+
+    const [updated] = await transaction
+      .update(inventoryMovements)
+      .set({
+        itemId: parsed.data.itemId,
+        direction: parsed.data.direction,
+        quantity: parsed.data.quantity,
+        unitPrice: parsed.data.unitPrice ?? movement.unitPrice,
+        movementDate: parsed.data.movementDate,
+        destination: parsed.data.destination,
+        recipient: parsed.data.recipient,
+        note: parsed.data.note,
+      })
+      .where(eq(inventoryMovements.id, movement.id))
+      .returning({
+        id: inventoryMovements.id,
+        itemId: inventoryMovements.itemId,
+        direction: inventoryMovements.direction,
+        quantity: inventoryMovements.quantity,
+        unitPrice: inventoryMovements.unitPrice,
+        movementDate: inventoryMovements.movementDate,
+        destination: inventoryMovements.destination,
+        recipient: inventoryMovements.recipient,
+        note: inventoryMovements.note,
+        voided: inventoryMovements.voided,
+      });
+    if (!updated) {
+      return { error: "تعذر تعديل حركة المخزون." } as const;
+    }
+    return {
+      movement: {
+        ...updated,
+        itemName: targetItem.name,
+        categoryId: targetItem.categoryId,
+      },
+    } as const;
+  });
+
+  if ("error" in result && result.error) {
+    return { ok: false, error: result.error };
+  }
+  if (!("movement" in result) || !result.movement) {
+    return { ok: false, error: "تعذر تعديل حركة المخزون." };
+  }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "update",
+    entity: "inventoryMovements",
+    entityId: result.movement.id,
+    metadata: {
+      fields:
+        "itemId,direction,quantity,unitPrice,movementDate,destination,recipient,note",
+    },
+  });
   return { ok: true, movement: result.movement };
 }
 
 export async function voidInventoryMovementAction(
   idInput: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const session = await requireAnyStaffPermission("canManageWarehouse", "canManageCustody");
+  const session = await requireStaffPermission("canManageWarehouse");
   const id = idSchema.safeParse(idInput);
   if (!id.success) {
     return { ok: false, error: "معرّف حركة المخزون غير صالح." };
@@ -414,9 +702,17 @@ export async function voidInventoryMovementAction(
     )
     .returning({ id: inventoryMovements.id });
 
-  return movement
-    ? { ok: true }
-    : { ok: false, error: "الحركة غير موجودة أو ملغاة بالفعل." };
+  if (!movement) {
+    return { ok: false, error: "الحركة غير موجودة أو ملغاة بالفعل." };
+  }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "delete",
+    entity: "inventoryMovements",
+    entityId: movement.id,
+    metadata: { fields: "voided,voidedAt,voidedBy" },
+  });
+  return { ok: true };
 }
 
 export async function updateStaffInventoryAccessAction(
@@ -473,7 +769,15 @@ export async function updateStaffInventoryAccessAction(
     return true;
   });
 
-  return result
-    ? { ok: true, categoryIds: uniqueCategoryIds }
-    : { ok: false, error: "لم يتم العثور على الموظف أو إحدى فئات المخزون." };
+  if (!result) {
+    return { ok: false, error: "لم يتم العثور على الموظف أو إحدى فئات المخزون." };
+  }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "permission-change",
+    entity: "userInventoryCategories",
+    entityId: userId.data,
+    metadata: { fields: "categoryIds" },
+  });
+  return { ok: true, categoryIds: uniqueCategoryIds };
 }

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { betterAuth } from "better-auth";
 import { admin } from "better-auth/plugins";
@@ -28,7 +30,7 @@ function createAuth() {
     }),
     emailAndPassword: {
       enabled: true,
-      disableSignUp: false,
+      disableSignUp: true,
     },
     user: {
       additionalFields: {

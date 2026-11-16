@@ -27,29 +27,103 @@ invoice, or other operational records were read or imported.
 | Saved query definitions | 120 | Two named queries (`Q_Report`, `Query1`); some `~sq_` query SQL was inspected, but all 118 generated definitions still need tracing to parent forms/reports |
 | Declared application relationships | 12 | Identified below; Access metadata does not enable referential integrity on these relations |
 
-The current PostgreSQL schema defines 52 tables, including Better Auth,
+The current PostgreSQL schema defines 57 tables, including Better Auth,
 resident/stay and inventory functionality, exact-name Access source tables for
-selected sprints, and web-only workflow/audit tables. This is not yet a complete
+selected sprints, and web-only workflow/audit tables, including staff attendance
+and an actor-attributed audit log. This is not yet a complete
 32-table representation of the Access schema. Existing web names such as
 `residents` and `inventory_items` are not evidence that identically named
 Access fields were covered.
 
 ### Privacy and storage constraints
 
-- Map all source field names now. Resident health, treatment, recovery,
-  national-ID, religious/confessor, and image fields remain excluded from
-  screens and imports by the user's Sprint 8 decision. The user confirmed
-  privacy/hosting approval for staff-profile fields in Sprint 7; staff profile
-  access remains administrator-editable and employee-self-view only. No Access
-  records have been imported.
-- Preserve photo/image path fields as text only. The staff screen does not
-  upload or store image files.
+- **Confirmed display/search decision:** the user explicitly allows resident
+  church, confessor, and priest fields to be displayed and searched. Access is
+  limited to administrators and staff with the existing resident-edit
+  permission and the residents screen. View-only accounts do not gain access
+  to these fields. The same guard is applied to both resident DTOs and church
+  lookup DTOs; users with only the lookups screen do not receive resident rows.
+- Resident birth dates are administrator-only, including stay-report responses.
+- **Decision recorded 2026-11-10:** import all source tables and columns,
+  including sensitive `nam` and treatment data, to the approved `import-test`
+  branch. Keep the existing least-privilege screen DTOs: sensitive resident
+  fields not needed for a screen are administrator-only; national ID, health,
+  treatment, recovery, and image content must not leak to non-admin screens.
+  Import `ImagePath` as text only; do not copy image files.
+- Reference-list creation, editing, and deletion are administrator-only.
+  Deleting a villa is blocked while any current or historical stay references
+  it.
+- The user confirmed privacy/hosting approval for staff-profile fields in
+  Sprint 7; staff profile access remains administrator-editable and
+  employee-self-view only. No Access records have been imported.
 - Access login password values must never be copied as plaintext. Replace the
   old login workflow with Better Auth; staff accounts must be reset/created
   through the secure account workflow.
-- Do not connect this plan or development demo to Access records or production
-  data. Neon migration and production import remain blocked on regional/privacy
-  approval.
+- Never import the legacy program-login CSV or its plaintext passwords.
+- Storage/hosting approval for Neon was confirmed on 2026-11-09. This approval
+  is limited to the configured `import-test` branch for the staged import
+  rehearsal; no production branch or deployment is authorized.
+
+## Import staging decisions (2026-11-10)
+
+- Preserve all source columns and sensitive data in the database; expose
+  sensitive resident data only to administrators unless an existing explicit
+  server-side permission grants the necessary access. Do not weaken existing
+  DTO redaction or screen guards.
+- For warehouse header IDs 73–80, create catalog entries using the exact CSV
+  item text and generated IDs beginning at `MAX(ID) + 1`; do not overwrite
+  existing catalog rows. If an item cannot satisfy the unique catalog link,
+  quarantine that row with a reason.
+- Custody name matching uses normalization followed by exact equality only.
+  Save source-ID-to-target-ID mappings in ignored `mappings/custody.json`;
+  quarantine unmatched or ambiguous rows. Do not use fuzzy or guessed matches.
+- Refrigerator receipt rows with missing dates may be stored only when marked
+  `needs_review`; never derive an unverified date during import.
+- **Decision recorded 2026-11-10:** allow duplicate refrigerator catalog names
+  by dropping `refrigerator_item_catalog_name_unique`; preserve source IDs and
+  the unique catalog link per refrigerator header. This enables importing
+  catalog IDs 10–16, dependent headers 8–14, and review-marked movement ID 17.
+- Warehouse rows with both incoming and outgoing quantities are imported as
+  `receipt` placeholders with `needs_review = true`; all balance calculations
+  must ignore review rows.
+- Rows missing required values or foreign keys are preserved in
+  `import_quarantine` with a reason, without fabricated values. Exclude the
+  refrigerator detail ID 4 and meat-sale detail IDs 5, 10, 16, 17, and 26 from
+  their target tables until reviewed.
+- Every import group is dry-run by default, idempotent, and committed in its
+  own transaction. After each group, verify row accounting, foreign keys,
+  sequences, replacement characters, date ranges, and integer precision using
+  counts and IDs only.
+- Migration and import scripts must connect to `import-test` only. Print the
+  database hostname without credentials before every database write. No
+  deployment or commit is authorized.
+
+## Schema verification on import-test (2026-11-10)
+
+- Applied migrations through `0019_tough_morlocks`; the database migration
+  history contains 20 entries, including `0016_special_richard_fisk`.
+- Compared the Drizzle schema snapshot with PostgreSQL metadata: 57/57 tables,
+  472/472 columns, 6/6 enums, 38/38 expected checks, and 89/89 foreign keys
+  matched. No table/column, type, or nullability differences remain.
+- Added indexes to cover all 89 foreign keys. All 100 declared indexes are
+  present, and no foreign-key child column lacks an index.
+- Corrected 12 nullable columns to match the declared `NOT NULL` schema after
+  confirming the affected tables contained no rows. This changed no records.
+- `drizzle-kit check`, tests, lint, and production build passed. No source
+  records were imported, and no deployment or commit was performed.
+
+### Phase A schema re-verification (2026-11-10)
+
+- Applied migrations through `0021_curved_sumo`; the migration history contains
+  22 entries and no migration is pending.
+- Re-compared the `0021` Drizzle snapshot with PostgreSQL metadata: 57/57
+  tables, 472/472 columns, 89/89 foreign keys (0 missing/extra, 0 action
+  mismatches), 99/99 declared indexes (0 missing/extra, 0 column/unique
+  mismatches), 15/15 unique constraints, 38/38 checks, and 6/6 enums matched.
+- All 89 foreign keys are covered by an index whose leading columns match the
+  foreign-key columns.
+- `drizzle-kit check` and `drizzle-kit migrate` passed; no pending migrations
+  remain.
 
 ## Access tables and every field
 
@@ -373,7 +447,7 @@ Query1
 | Domain | Source objects | Current status | Planned disposition |
 |---|---|---|---|
 | Resident identity and stay | `nam`, `راس النزيل`, `اطراف النزيل`, `رقم الفيلا` | Sprint 8 preserves the separate UUID/legacy-ID bridge with no `nam` synchronization; Sprint 16 adds standalone admin-only receipt records and uses the villa lookup in stay entry. Sensitive fields remain deferred. | Reconcile remaining resident reports/forms and any future `nam` mapping only after an explicit interview and privacy approval |
-| Staff directory and leave | `تحديث البيانات`, `الموظفين`, `اطراف الموظفين`, `الدخول للبرنامج` | Sprint 7 implemented: exact source fields for profile, employee directory, and administrator-entered approved leave; account/profile/employee link is web-only | Access login is replaced by Better Auth; no legacy password migration; reports remain |
+| Staff directory, leave, and attendance | `تحديث البيانات`, `الموظفين`, `اطراف الموظفين`, `الدخول للبرنامج` | Sprint 7 implements the directory and approved leave; web-only `staff_attendance` records clock-in/out linked to the employee account; `audit_logs` records actor and operation metadata without field values | Access login is replaced by Better Auth; no legacy password migration; reports remain |
 | General inventory/warehouse | `الاصناف`, `الاصناف / الفئة`, `الفئة`, `الفئه`, `راس المخزن`, `اطراف المخزن` | Sprint 15 implements and demo-tests the warehouse catalog, receipts, and stock ledger using Sprint 12's exact schemas. `الاصناف / الفئة` and invoice `الفئة` are implemented for fridge/sales workflows; the lookup tables remain distinct. Migration generated, not applied. | Reconcile warehouse reports/forms and complete persistent-database acceptance after approved database configuration. |
 | Canteen stock | `كانتين`, `طرف الكانين`, `راس الكانتين`, `اطراف الكانتين` | Sprint 4 implemented; Sprint 11 adds stock balance/movement report candidate; migration generated, not applied | Catalog, inbound/outbound stock ledger, recipient/voucher trace, explicit per-staff grant; admin-only void with reason |
 | Canteen sales and resident purchases | `مشتريات النزلاء`, `راس الفاتورة`, `اطراف الفاتورة`, `الفئة` | Sprint 5 implemented; demo-tested; migration generated, not applied | Admin-only cash sales and resident invoices, linked stock deduction, partial resident payments, audited cancellation/refund |
@@ -647,23 +721,46 @@ Query1
   fields, and DateTime fields represented as PostgreSQL timestamps. Exact
   related schemas were added for `راس النزيل`, `اطراف النزيل`, and `رقم الفيلا`.
 - `resident_legacy_links` is a web-only crosswalk from the existing UUID
-  `residents.id` to `nam.ID`. Per the user's decision, no synchronization or
-  automatic field mapping is performed; no `nam` rows are created or imported
-  by the current resident screens. The relationship from
+  `residents.id` to `nam.ID`. No synchronization is performed by current
+  resident screens. A one-shot migration script now contains a candidate
+  mapping, runs read-only by default, and has not been run against a database.
+  The relationship from
   `راس الفاتورة.اسم النزيل` to `nam.ID` is represented, but current web invoices
   continue to use their separate nullable UUID `resident_id` until a later
   reconciliation implements that link.
+- Candidate `nam` mapping for review; no database write has been authorized or
+  performed:
+
+  | `nam` source | `residents` / `resident_stays` target |
+  | --- | --- |
+  | `ID` | `resident_legacy_links.legacy_resident_id` |
+  | `num` | `residents.file_number` |
+  | `nam` | `residents.name` |
+  | `Dat_Brth` | `residents.birth_date` |
+  | `Adrres` | `residents.address` |
+  | `tal` | `residents.phone` |
+  | `Con` | `residents.governorate` |
+  | `mar` | `residents.district` |
+  | `Achesh` | `residents.church` |
+  | `Fathr` | `residents.confessor` |
+  | `Dat_Ent` | `resident_stays.admission_date` |
+  | `Dat_AO` | `resident_stays.exit_date` |
+  | `sak` | `resident_stays.villa` |
+  | `Num_ROm` | `resident_stays.room` |
+
+  Unlisted/uncertain columns, including national-ID, treatment, and image
+  fields, are not selected or imported. Obtain approval of this mapping before
+  any `--apply` run.
 - Existing resident screens remain on the UUID resident/stay model. Staff only
   receive file number, name, stay dates, villa, room, and status; staff edits
   require the existing individual resident-edit grant. The server rejects
   extended-field submissions from staff. Administrators may manage the
-  existing non-religious contact fields; religious/confessor fields are not
-  returned to either role and are not writable through this screen.
+  existing non-religious contact fields. Church/confessor fields are returned
+  only to administrators and staff with the resident-edit grant.
 - Sensitive fields in the exact `nam` schema are preserved as nullable schema
-  columns only. Health/recovery, national-ID, religious/confessor, and image
-  fields are not surfaced in forms or imported. This honors the user's choice
-  to defer resident-sensitive data while still accounting for every field in
-  the source inventory.
+  columns only. Health/recovery, national-ID, and image fields are not surfaced
+  in resident forms or imported. Church/confessor fields follow the explicit
+  access decision above.
 - Migrations for the resident schema/bridge and related Access tables are
   generated but have not been applied to any database.
 

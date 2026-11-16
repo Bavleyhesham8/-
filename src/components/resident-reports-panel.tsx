@@ -5,11 +5,12 @@ import PrintBrand from "@/components/print-brand";
 import { printCurrentView } from "@/lib/print";
 import ResidentPicker from "@/components/resident-picker";
 import type { Resident } from "@/lib/demo-data";
+import { formatVilla, normalizeVillaFilter } from "@/lib/stay-location";
 import type { TreatmentBundle } from "@/lib/treatment-types";
+import { findResidentByName } from "@/lib/resident-matching";
 import {
   formatAgeAtDate,
   formatStayDuration,
-  normalizeResidentStayNumber,
 } from "@/lib/resident-stay-report-utils";
 
 type ReportKind = "names" | "diagnosis" | "governorate" | "housing";
@@ -17,6 +18,7 @@ type ReportKind = "names" | "diagnosis" | "governorate" | "housing";
 type Props = {
   residents: Resident[];
   treatment?: TreatmentBundle;
+  canViewTreatment: boolean;
   initialReport?: string | null;
   persistent: boolean;
 };
@@ -61,12 +63,12 @@ function uniqueSorted(values: (string | undefined)[]) {
     .sort((a, b) => a.localeCompare(b, "ar"));
 }
 
-function normalizeReportKind(value?: string | null): ReportKind {
-  return value === "diagnosis" ||
-    value === "governorate" ||
-    value === "housing"
-    ? value
-    : "names";
+function normalizeReportKind(
+  value: string | null | undefined,
+  canViewTreatment: boolean,
+): ReportKind {
+  if (value === "diagnosis" && canViewTreatment) return value;
+  return value === "governorate" || value === "housing" ? value : "names";
 }
 
 function formatDate(value: string) {
@@ -89,6 +91,7 @@ function residentHaystack(resident: Resident) {
     resident.church,
     resident.confessor,
     resident.villa,
+    formatVilla(resident.villa),
     resident.room,
   ]
     .filter(Boolean)
@@ -108,11 +111,12 @@ function groupBy<T>(rows: T[], key: (row: T) => string) {
 export default function ResidentReportsPanel({
   residents,
   treatment,
+  canViewTreatment,
   initialReport,
   persistent,
 }: Props) {
   const [report, setReport] = useState<ReportKind>(() =>
-    normalizeReportKind(initialReport),
+    normalizeReportKind(initialReport, canViewTreatment),
   );
   const [filters, setFilters] = useState<Filters>({
     search: "",
@@ -135,9 +139,7 @@ export default function ResidentReportsPanel({
 
   const filtered = useMemo(() => {
     const search = appliedFilters.search.trim().toLocaleLowerCase();
-    const villa = normalizeResidentStayNumber(
-      appliedFilters.villa.trim(),
-    ).toLocaleLowerCase();
+    const villa = normalizeVillaFilter(appliedFilters.villa).toLocaleLowerCase();
 
     return residents.filter((resident) => {
       if (!appliedFilters.includeArchived && resident.archived) return false;
@@ -161,8 +163,7 @@ export default function ResidentReportsPanel({
       }
       if (
         villa &&
-        normalizeResidentStayNumber(resident.villa.trim()).toLocaleLowerCase() !==
-          villa
+        normalizeVillaFilter(resident.villa).toLocaleLowerCase() !== villa
       ) {
         return false;
       }
@@ -234,17 +235,18 @@ export default function ResidentReportsPanel({
       voided: boolean;
     }[] = [];
 
-    const byResidentNumber = new Map(
-      filtered
-        .filter((resident) => resident.residentNumber)
-        .map((resident) => [resident.residentNumber ?? "", resident]),
+    const byResidentId = new Map(
+      filtered.map((resident) => [resident.id, resident]),
     );
-    const byName = new Map(filtered.map((resident) => [resident.name, resident]));
 
     for (const record of treatment?.records ?? []) {
       const resident =
-        byResidentNumber.get(String(record.residentNumber)) ??
-        byName.get(record.residentName ?? "");
+        (record.residentId ? byResidentId.get(record.residentId) : undefined) ??
+        findResidentByName(
+          record.residentName,
+          filtered,
+          record.residentNumber,
+        )?.resident;
       if (!resident) continue;
       for (const entry of record.entries) {
         rows.push({
@@ -262,25 +264,7 @@ export default function ResidentReportsPanel({
       }
     }
 
-    for (const entry of treatment?.unassignedEntries ?? []) {
-      if (entry.residentNumber === null) continue;
-      const resident = byResidentNumber.get(String(entry.residentNumber));
-      if (!resident) continue;
-      rows.push({
-        key: `unassigned-${entry.id}`,
-        residentName: resident.name,
-        fileNumber: resident.fileNumber,
-        residentNumber: resident.residentNumber ?? String(entry.residentNumber),
-        medicationName: entry.medicationName,
-        amount: entry.amount,
-        quantity: entry.quantity,
-        total: entry.total,
-        treatmentDate: entry.treatmentDate ?? "",
-        voided: entry.voided,
-      });
-    }
-
-    return rows.sort((a, b) => b.treatmentDate.localeCompare(a.treatmentDate));
+    return rows.sort((a, b) => a.treatmentDate.localeCompare(b.treatmentDate));
   }, [filtered, treatment]);
 
   const diagnosisSummary = useMemo(() => {
@@ -330,7 +314,11 @@ export default function ResidentReportsPanel({
     setError("");
   }
 
-  const activeTab = reportTabs.find((tab) => tab.key === report) ?? reportTabs[0];
+  const visibleReportTabs = reportTabs.filter(
+    (tab) => tab.key !== "diagnosis" || canViewTreatment,
+  );
+  const activeTab =
+    visibleReportTabs.find((tab) => tab.key === report) ?? visibleReportTabs[0];
 
   return (
     <section className="content-panel resident-report-panel" dir="rtl">
@@ -368,7 +356,7 @@ export default function ResidentReportsPanel({
       </div>
 
       <div className="lookup-tabs" role="tablist" aria-label="أنواع تقرير النزلاء">
-        {reportTabs.map((tab) => (
+        {visibleReportTabs.map((tab) => (
           <button
             aria-selected={report === tab.key}
             className={report === tab.key ? "active" : ""}
@@ -384,11 +372,11 @@ export default function ResidentReportsPanel({
 
       <form className="resident-report-filters" onSubmit={applyFilters}>
         <label>
-          بحث بالاسم أو الملف أو الهاتف
+          بحث بالاسم أو الهاتف
           <ResidentPicker
             residents={residents}
             value={filters.search}
-            placeholder="ابحث بالاسم أو رقم الملف..."
+            placeholder="ابحث باسم النزيل..."
             onChange={(value) =>
               setFilters((current) => ({
                 ...current,
@@ -606,7 +594,7 @@ export default function ResidentReportsPanel({
                 <strong>{numberFormatter.format(diagnosisSummary.billed)}</strong>
               </article>
             </div>
-            <div className="table-wrap resident-report-details">
+            <div className="table-wrap resident-report-details report-detail">
               <table className="resident-table">
                 <thead>
                   <tr>
@@ -665,8 +653,9 @@ export default function ResidentReportsPanel({
                     return (
                       <tr key={governorate}>
                         <td>
+                          <span>{governorate}</span>
                           <button
-                            className="table-action"
+                            className="table-action no-print"
                             type="button"
                             aria-pressed={selectedGovernorate === governorate}
                             onClick={() =>
@@ -677,7 +666,9 @@ export default function ResidentReportsPanel({
                               )
                             }
                           >
-                            {governorate}
+                            {selectedGovernorate === governorate
+                              ? "إلغاء التصفية"
+                              : "تصفية"}
                           </button>
                         </td>
                         <td>{numberFormatter.format(rows.length)}</td>

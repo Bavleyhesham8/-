@@ -3,19 +3,41 @@ import pg from "pg";
 
 dotenv.config({ path: ".env.local" });
 
-const APPLY = process.argv.includes("--apply");
-const unknownArgs = process.argv.slice(2).filter((arg) => arg !== "--apply");
+const args = process.argv.slice(2);
+const APPLY = args.includes("--apply");
+const unknownArgs = args.filter(
+  (arg) => arg !== "--apply" && arg !== "--confirm-target=import-test",
+);
 if (unknownArgs.length) {
-  console.error("Usage: node scripts/migrate-nam-to-residents.mjs [--apply]");
+  console.error(
+    "Usage: node scripts/migrate-nam-to-residents.mjs --confirm-target=import-test [--apply]",
+  );
   process.exit(2);
 }
-
+if (!args.includes("--confirm-target=import-test")) {
+  console.error("TARGET_REQUIRES_IMPORT_TEST_CONFIRMATION");
+  process.exit(2);
+}
+if (process.env.NEON_BRANCH_NAME !== "import-test") {
+  console.error("TARGET_REQUIRES_NEON_BRANCH_NAME_IMPORT_TEST");
+  process.exit(2);
+}
 const connectionString =
   process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
 if (!connectionString) {
   console.error("DATABASE_URL is not configured.");
   process.exit(2);
 }
+let targetHost;
+try {
+  targetHost = new URL(connectionString).hostname;
+} catch {
+  console.error("DATABASE_URL_INVALID");
+  process.exit(2);
+}
+console.log("TARGET_BRANCH=import-test");
+console.log(`TARGET_HOST=${targetHost}`);
+console.log(`MODE=${APPLY ? "APPLY" : "DRY_RUN"}`);
 
 const client = new pg.Client({
   connectionString,
@@ -35,25 +57,13 @@ const sourceQuery = `
     to_char("Dat_Brth", 'YYYY-MM-DD') AS birth_date,
     "Adrres" AS address,
     "tal" AS phone,
-    "mar" AS marital_status,
-    "Nom" AS national_id,
-    "المؤهل الدراسى" AS qualification,
-    "الخبرات السابقة" AS previous_experience,
-    "اماكن العمل السابقة" AS previous_workplaces,
-    "دخول النزيل" AS resident_entry,
-    "صلة القرابة" AS relationship,
-    "من االدرجة" AS relationship_degree,
-    "ساعة الدخول" AS entry_time,
-    "طريقة الخروج" AS exit_method,
-    "رقم الطبيب المعالج" AS treating_doctor_number,
-    "عنوان الطبيب المعالج" AS treating_doctor_address,
-    "فريق التأهل والارشاد" AS rehabilitation_team,
-    "مرحلة التأهيل والتعافى" AS rehabilitation_stage,
-    "المدرب" AS trainer,
-    "المشرف" AS supervisor,
-    "المحاضر" AS lecturer,
+    "Con" AS governorate,
+    "mar" AS district,
+    "Achesh" AS church,
+    "Fathr" AS confessor,
     to_char("Dat_Ent", 'YYYY-MM-DD') AS admission_date,
     to_char("Dat_AO", 'YYYY-MM-DD') AS exit_date,
+    "sak" AS villa,
     "Num_ROm" AS room
   FROM public."nam"
   ORDER BY "ID"
@@ -97,43 +107,43 @@ const residentColumns = [
 ];
 
 function residentValues(row) {
-  return [
-    text(row.file_number),
-    text(row.name),
-    row.birth_date,
-    text(row.phone),
-    text(row.address),
-    "",
-    "",
-    "",
-    text(row.relationship),
-    "",
-    "",
-    "",
-    // No verified relation connects the resident header number to nam.ID.
-    "",
-    false,
-    false,
-    false,
-    text(row.national_id),
-    text(row.marital_status),
-    text(row.qualification),
-    text(row.previous_experience),
-    text(row.previous_workplaces),
-    text(row.resident_entry),
-    text(row.relationship_degree),
-    text(row.entry_time),
-    text(row.exit_method),
-    text(row.treating_doctor_number),
-    text(row.treating_doctor_address),
-    text(row.rehabilitation_team),
-    text(row.rehabilitation_stage),
-    text(row.trainer),
-    text(row.supervisor),
-    text(row.lecturer),
-    "",
-    false,
-  ];
+  const values = {
+    file_number: text(row.file_number),
+    name: text(row.name),
+    birth_date: row.birth_date,
+    phone: text(row.phone),
+    address: text(row.address),
+    emergency_contact: "",
+    emergency_phone: "",
+    district: text(row.district),
+    relationship: "",
+    church: text(row.church),
+    confessor: text(row.confessor),
+    governorate: text(row.governorate),
+    resident_number: "",
+    incomplete_stay: false,
+    follow_up: false,
+    graduated: false,
+    national_id: "",
+    marital_status: "",
+    qualification: "",
+    previous_experience: "",
+    previous_workplaces: "",
+    resident_entry: "",
+    relationship_degree: "",
+    entry_time: "",
+    exit_method: "",
+    treating_doctor_number: "",
+    treating_doctor_address: "",
+    rehabilitation_team: "",
+    rehabilitation_stage: "",
+    trainer: "",
+    supervisor: "",
+    lecturer: "",
+    image_path: "",
+    archived: false,
+  };
+  return residentColumns.map((column) => values[column]);
 }
 
 try {
@@ -226,7 +236,7 @@ try {
           residentRows[0].id,
           row.admission_date,
           row.exit_date,
-          "",
+          text(row.villa),
           text(row.room),
         ],
       );

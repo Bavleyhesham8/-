@@ -6,7 +6,6 @@ import { printCurrentView } from "@/lib/print";
 import type { Resident } from "@/lib/demo-data";
 import type { CanteenBundle } from "@/lib/canteen-types";
 import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
-import type { CustodyBundle } from "@/lib/custody-types";
 import type { InventoryBundle } from "@/lib/inventory-types";
 import type { MeatSalesBundle } from "@/lib/meat-sales-types";
 import type { ResidentFinanceBundle } from "@/lib/resident-finance-types";
@@ -14,7 +13,6 @@ import type { TreatmentBundle } from "@/lib/treatment-types";
 
 type TrackingModule =
   | "inventory"
-  | "custody"
   | "canteen"
   | "sales"
   | "meat"
@@ -34,6 +32,7 @@ type TrackingEvent = {
   direction: TrackingDirection;
   typeLabel: string;
   title: string;
+  category?: string;
   detail: string;
   quantity: number | null;
   unit: string;
@@ -41,7 +40,7 @@ type TrackingEvent = {
   amountKind: AmountKind | null;
   outstanding: number | null;
   balanceAfter: number | null;
-  status: "active" | "voided";
+  status: "active" | "voided" | "needs_review";
   reference: string;
 };
 
@@ -55,9 +54,8 @@ type TrackingFilters = {
 
 const moduleLabels: Record<TrackingModule, string> = {
   inventory: "المخزون",
-  custody: "العهدة والمخزن",
   canteen: "الكانتين",
-  sales: "فواتير الكانتين",
+  sales: "حركات بيع الكانتين",
   meat: "مبيعات اللحوم",
   finance: "حسابات النزلاء",
   treatment: "العيادة والعلاج",
@@ -66,7 +64,6 @@ const moduleLabels: Record<TrackingModule, string> = {
 
 const moduleOrder: TrackingModule[] = [
   "inventory",
-  "custody",
   "canteen",
   "sales",
   "meat",
@@ -79,13 +76,6 @@ const directionLabels: Record<TrackingDirection, string> = {
   in: "وارد",
   out: "منصرف",
   neutral: "تسوية",
-};
-
-const custodyKindLabels: Record<string, string> = {
-  receipt: "استلام مخزن",
-  custody_issue: "صرف عهدة",
-  custody_return: "مرتجع عهدة",
-  custody_void: "إلغاء حركة عهدة",
 };
 
 const numberFormatter = new Intl.NumberFormat("ar-EG", {
@@ -168,7 +158,6 @@ function runningBalance<T>(
 export default function GlobalTrackingPanel({
   residents,
   inventory,
-  custody,
   canteen,
   sales,
   meatSales,
@@ -178,7 +167,6 @@ export default function GlobalTrackingPanel({
 }: {
   residents: Resident[];
   inventory: InventoryBundle;
-  custody: CustodyBundle;
   canteen: CanteenBundle;
   sales: CanteenSalesBundle;
   meatSales: MeatSalesBundle;
@@ -204,6 +192,12 @@ export default function GlobalTrackingPanel({
     const inventoryUnits = new Map(
       inventory.items.map((item) => [item.id, item.unit]),
     );
+    const inventoryCategories = new Map(
+      inventory.categories.map((category) => [category.id, category.name]),
+    );
+    const inventoryItemCategories = new Map(
+      inventory.items.map((item) => [item.id, inventoryCategories.get(item.categoryId) ?? ""]),
+    );
 
     for (const movement of inventory.movements) {
       result.push({
@@ -215,6 +209,7 @@ export default function GlobalTrackingPanel({
         typeLabel:
           movement.direction === "in" ? "توريد مخزون" : "صرف مخزون",
         title: movement.itemName,
+        category: inventoryItemCategories.get(movement.itemId),
         detail: movement.note,
         quantity: movement.quantity,
         unit: inventoryUnits.get(movement.itemId) ?? "",
@@ -227,40 +222,15 @@ export default function GlobalTrackingPanel({
       });
     }
 
-    const custodyItems = new Map(
-      custody.items.map((item) => [item.itemNumber, item]),
+    const canteenBalances = runningBalance(
+      canteen.movements,
+      (movement) => String(movement.itemNumber),
+      (movement) => String(movement.id),
+      (movement) => movement.incomingDate ?? movement.outgoingDate ?? "",
+      (movement) => movement.incoming ?? 0,
+      (movement) => movement.outgoing ?? 0,
+      (movement) => movement.voided,
     );
-    for (const movement of custody.warehouseMovements) {
-      const item = custodyItems.get(movement.itemNumber);
-      const incoming = movement.incoming ?? 0;
-      const outgoing = movement.outgoing ?? 0;
-      const quantity = incoming || outgoing;
-      const direction: TrackingDirection =
-        movement.kind === "receipt" || movement.kind === "custody_return"
-          ? "in"
-          : movement.kind === "custody_issue"
-            ? "out"
-            : "neutral";
-      result.push({
-        id: `custody-${movement.id}`,
-        date: movement.incomingDate ?? movement.outgoingDate ?? "",
-        module: "custody",
-        moduleLabel: moduleLabels.custody,
-        direction,
-        typeLabel: custodyKindLabels[movement.kind] ?? "حركة عهدة",
-        title: item?.itemName ?? `صنف رقم ${movement.itemNumber}`,
-        detail: item?.responsible ? `المسؤول: ${item.responsible}` : "",
-        quantity,
-        unit: "",
-        amount: quantity * (item?.price ?? 0),
-        amountKind: "stock",
-        outstanding: null,
-        balanceAfter: movement.remaining ?? movement.balance,
-        status: movement.deleted ? "voided" : "active",
-        reference: String(movement.id),
-      });
-    }
-
     const canteenPrices = new Map(
       canteen.products.map((product) => [product.itemNumber, product.price]),
     );
@@ -275,13 +245,13 @@ export default function GlobalTrackingPanel({
         direction: isIncoming ? "in" : "out",
         typeLabel: isIncoming ? "وارد كانتين" : "منصرف كانتين",
         title: movement.itemName,
-        detail: movement.recipient,
+        detail: [movement.recipient, movement.issueCategory].filter(Boolean).join(" · "),
         quantity,
         unit: "",
         amount: quantity * (canteenPrices.get(movement.itemNumber) ?? 0),
         amountKind: "stock",
         outstanding: null,
-        balanceAfter: movement.balance,
+        balanceAfter: canteenBalances.get(String(movement.id)) ?? null,
         status: movement.voided ? "voided" : "active",
         reference: movement.voucherId ? `سند ${movement.voucherId}` : "",
       });
@@ -294,8 +264,8 @@ export default function GlobalTrackingPanel({
         module: "sales",
         moduleLabel: moduleLabels.sales,
         direction: "in",
-        typeLabel: "فاتورة مبيعات كانتين",
-        title: `فاتورة رقم ${invoice.invoiceNumber}`,
+        typeLabel: "حركة بيع كانتين",
+        title: `حركة بيع رقم ${invoice.invoiceNumber}`,
         detail: `${invoice.residentName || "بيع نقدي"} — ${invoice.lines.length} بند`,
         quantity: null,
         unit: "",
@@ -316,7 +286,7 @@ export default function GlobalTrackingPanel({
             direction: payment.kind === "payment" ? "in" : "out",
             typeLabel:
               payment.kind === "payment" ? "تحصيل دفعة" : "مرتجع دفعة",
-            title: `فاتورة رقم ${invoice.invoiceNumber}`,
+            title: `حركة بيع رقم ${invoice.invoiceNumber}`,
             detail: invoice.residentName || "بيع نقدي",
             quantity: null,
             unit: "",
@@ -332,15 +302,14 @@ export default function GlobalTrackingPanel({
     }
 
     const meatBalances = runningBalance(
-      meatSales.movements,
+      meatSales.movements.filter((movement) => !movement.needsReview),
       (movement) => String(movement.itemNumber),
       (movement) => String(movement.id),
       (movement) =>
         movement.receivedDate ?? movement.outgoingDate ?? "",
       (movement) =>
         movement.direction === "in" ? (movement.quantity ?? 0) : 0,
-      (movement) =>
-        movement.direction === "out" ? (movement.quantity ?? 0) : 0,
+      (movement) => movement.direction === "out" ? (movement.outgoing ?? 0) : 0,
       (movement) => movement.voided,
     );
     for (const movement of meatSales.movements) {
@@ -354,13 +323,25 @@ export default function GlobalTrackingPanel({
           movement.direction === "in" ? "وارد ثلاجة" : "صرف ثلاجة",
         title: movement.itemCategory,
         detail: movement.recipient ?? "",
-        quantity: movement.quantity ?? 0,
+        quantity:
+          movement.direction === "in"
+            ? movement.quantity ?? 0
+            : movement.outgoing ?? 0,
         unit: "كجم",
-        amount: movement.total,
+        amount:
+          (movement.direction === "in"
+            ? movement.quantity ?? 0
+            : movement.outgoing ?? 0) * (movement.price ?? 0),
         amountKind: "stock",
         outstanding: null,
-        balanceAfter: meatBalances.get(String(movement.id)) ?? null,
-        status: movement.voided ? "voided" : "active",
+        balanceAfter: movement.needsReview
+          ? null
+          : meatBalances.get(String(movement.id)) ?? null,
+        status: movement.needsReview
+          ? "needs_review"
+          : movement.voided
+            ? "voided"
+            : "active",
         reference:
           movement.issuePermitNumber !== null
             ? `تصريح ${movement.issuePermitNumber}`
@@ -382,7 +363,8 @@ export default function GlobalTrackingPanel({
         unit: "",
         amount: invoice.total,
         amountKind: "revenue",
-        outstanding: invoice.total - invoice.paid,
+        outstanding:
+          invoice.total === null ? null : invoice.total - invoice.paid,
         balanceAfter: null,
         status: invoice.voided ? "voided" : "active",
         reference: String(invoice.invoiceNumber),
@@ -430,7 +412,7 @@ export default function GlobalTrackingPanel({
         module: "finance",
         moduleLabel: moduleLabels.finance,
         direction: "in",
-        typeLabel: "إيداع / أمانة",
+        typeLabel: "إيداع في حساب نزيل",
         title:
           financeNames.get(String(entry.residentNumber)) ||
           (entry.residentNumber
@@ -529,7 +511,7 @@ export default function GlobalTrackingPanel({
     }
 
     return result;
-  }, [canteen, custody, inventory, meatSales, residentFinance, residents, sales, treatment]);
+  }, [canteen, inventory, meatSales, residentFinance, residents, sales, treatment]);
 
   const filteredEvents = useMemo(() => {
     const search = appliedFilters.search.trim().toLocaleLowerCase();
@@ -563,7 +545,7 @@ export default function GlobalTrackingPanel({
         }
         if (
           search &&
-          !`${event.moduleLabel} ${event.typeLabel} ${event.title} ${event.detail} ${event.reference}`
+          !`${event.moduleLabel} ${event.typeLabel} ${event.title} ${event.category ?? ""} ${event.detail} ${event.reference}`
             .toLocaleLowerCase()
             .includes(search)
         ) {
@@ -573,14 +555,14 @@ export default function GlobalTrackingPanel({
       })
       .sort(
         (left, right) =>
-          right.date.localeCompare(left.date) ||
-          right.id.localeCompare(left.id, "en", { numeric: true }),
+          left.date.localeCompare(right.date) ||
+          left.id.localeCompare(right.id, "en", { numeric: true }),
       );
   }, [appliedFilters, events]);
 
   const summary = useMemo(() => {
-    let incomingQuantity = 0;
-    let outgoingQuantity = 0;
+    let incomingMovementCount = 0;
+    let outgoingMovementCount = 0;
     let incomingValue = 0;
     let outgoingValue = 0;
     let revenue = 0;
@@ -590,18 +572,23 @@ export default function GlobalTrackingPanel({
     let charges = 0;
     let refunds = 0;
     let voided = 0;
+    let needsReview = 0;
 
     for (const event of filteredEvents) {
+      if (event.status === "needs_review") {
+        needsReview += 1;
+        continue;
+      }
       if (event.status === "voided") {
         voided += 1;
         continue;
       }
       if (event.quantity !== null) {
         if (event.direction === "in") {
-          incomingQuantity += event.quantity;
+          incomingMovementCount += 1;
           incomingValue += event.amount ?? 0;
         } else if (event.direction === "out") {
-          outgoingQuantity += event.quantity;
+          outgoingMovementCount += 1;
           outgoingValue += event.amount ?? 0;
         }
       }
@@ -629,9 +616,8 @@ export default function GlobalTrackingPanel({
 
     return {
       count: filteredEvents.length,
-      incomingQuantity,
-      outgoingQuantity,
-      netQuantity: incomingQuantity - outgoingQuantity,
+      incomingMovementCount,
+      outgoingMovementCount,
       incomingValue,
       outgoingValue,
       revenue,
@@ -641,10 +627,11 @@ export default function GlobalTrackingPanel({
       charges,
       refunds,
       voided,
+      needsReview,
     };
   }, [filteredEvents]);
 
-  const visibleEvents = filteredEvents.slice(0, 500);
+  const visibleEvents = filteredEvents.slice(-500);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -681,7 +668,9 @@ export default function GlobalTrackingPanel({
       "الوحدة",
       "نوع الحركة",
       "البيان",
+      "الفئة / البند",
       "التفاصيل",
+      "وحدة القياس",
       "الوارد",
       "المنصرف",
       "الرصيد بعد",
@@ -694,7 +683,9 @@ export default function GlobalTrackingPanel({
       event.moduleLabel,
       event.typeLabel,
       event.title,
+      event.category ?? "",
       event.detail,
+      event.unit,
       event.quantity !== null && event.direction === "in"
         ? String(event.quantity)
         : event.quantity === null && event.amount !== null && event.direction === "in"
@@ -855,22 +846,25 @@ export default function GlobalTrackingPanel({
         </button>
       </form>
 
+      {meatSales.needsReviewCount > 0 && (
+        <p className="review-warning" role="status">
+          حركات الثلاجة قيد المراجعة لا تدخل في حسابات الأرصدة:{" "}
+          {numberFormatter.format(meatSales.needsReviewCount)}.
+        </p>
+      )}
+
       <div className="tracking-summary report-summary">
         <article>
           <span>إجمالي الحركات</span>
           <strong>{numberFormatter.format(summary.count)}</strong>
         </article>
         <article>
-          <span>إجمالي الوارد (كميات)</span>
-          <strong>{numberFormatter.format(summary.incomingQuantity)}</strong>
+          <span>عدد حركات المخزون الواردة</span>
+          <strong>{numberFormatter.format(summary.incomingMovementCount)}</strong>
         </article>
         <article>
-          <span>إجمالي المنصرف (كميات)</span>
-          <strong>{numberFormatter.format(summary.outgoingQuantity)}</strong>
-        </article>
-        <article>
-          <span>صافي الحركة (كميات)</span>
-          <strong>{numberFormatter.format(summary.netQuantity)}</strong>
+          <span>عدد حركات المخزون المنصرفة</span>
+          <strong>{numberFormatter.format(summary.outgoingMovementCount)}</strong>
         </article>
         <article>
           <span>قيمة الوارد المخزني</span>
@@ -893,7 +887,7 @@ export default function GlobalTrackingPanel({
           <strong>{formatMoney(summary.outstanding)}</strong>
         </article>
         <article>
-          <span>إيداعات / أمانات</span>
+          <span>إيداعات الحسابات</span>
           <strong>{formatMoney(summary.deposits)}</strong>
         </article>
         <article>
@@ -903,6 +897,10 @@ export default function GlobalTrackingPanel({
         <article>
           <span>مرتجعات</span>
           <strong>{formatMoney(summary.refunds)}</strong>
+        </article>
+        <article>
+          <span>حركات قيد المراجعة</span>
+          <strong>{numberFormatter.format(summary.needsReview)}</strong>
         </article>
       </div>
 
@@ -914,6 +912,7 @@ export default function GlobalTrackingPanel({
               <th>الوحدة</th>
               <th>نوع الحركة</th>
               <th>البيان / الصنف</th>
+              <th>الفئة / البند</th>
               <th>التفاصيل</th>
               <th>الوارد</th>
               <th>المنصرف</th>
@@ -927,7 +926,13 @@ export default function GlobalTrackingPanel({
             {visibleEvents.map((event) => (
               <tr
                 key={event.id}
-                className={event.status === "voided" ? "tracking-row-voided" : ""}
+                className={
+                  event.status === "voided"
+                    ? "tracking-row-voided"
+                    : event.status === "needs_review"
+                      ? "tracking-row-review"
+                      : ""
+                }
               >
                 <td>{displayDate(event.date)}</td>
                 <td>
@@ -942,6 +947,7 @@ export default function GlobalTrackingPanel({
                   <small className="tracking-type-label">{event.typeLabel}</small>
                 </td>
                 <td>{event.title}</td>
+                <td>{event.category || "—"}</td>
                 <td>{event.detail || "—"}</td>
                 <td className="tracking-number">
                   {event.quantity !== null && event.direction === "in"
@@ -975,7 +981,11 @@ export default function GlobalTrackingPanel({
                   <span
                     className={`tracking-status tracking-status-${event.status}`}
                   >
-                    {event.status === "voided" ? "ملغاة" : "نشطة"}
+                    {event.status === "voided"
+                      ? "ملغاة"
+                      : event.status === "needs_review"
+                        ? "قيد المراجعة"
+                        : "نشطة"}
                   </span>
                 </td>
                 <td>{event.reference || "—"}</td>

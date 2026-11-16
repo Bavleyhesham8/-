@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import {
@@ -21,6 +21,7 @@ import {
   residents,
 } from "@/db/schema";
 import { requireStaffPermission } from "@/lib/auth-session";
+import { recordAuditEvent } from "@/lib/audit-log";
 import type { CanteenMovement } from "@/lib/canteen-types";
 import type {
   CanteenSalesItem,
@@ -41,13 +42,16 @@ const dateSchema = z
   });
 
 const purchaseSchema = z.object({
+  id: z.number().int().positive().nullable().optional(),
   name: z.string().trim().min(1).max(160),
   price: z.number().finite().min(0).max(1_000_000_000),
   addToResidentAccount: z.boolean(),
   canteenItemNumber: z.number().int().positive().nullable(),
+  categoryId: z.number().int().positive(),
 });
 
 const categorySchema = z.object({
+  id: z.number().int().positive().nullable().optional(),
   name: z.string().trim().min(1).max(120),
 });
 
@@ -98,6 +102,14 @@ export async function saveCanteenSalesItemAction(
   }
   const name = parsed.data.name.normalize("NFC");
   const database = getDatabase();
+  const [category] = await database
+    .select({ id: invoiceCategories.id, name: invoiceCategories.name })
+    .from(invoiceCategories)
+    .where(eq(invoiceCategories.id, parsed.data.categoryId))
+    .limit(1);
+  if (!category) {
+    return { ok: false, error: "اختر فئة صالحة للصنف." };
+  }
   if (parsed.data.canteenItemNumber !== null) {
     const [product] = await database
       .select({ itemNumber: canteenProducts.itemNumber })
@@ -108,27 +120,99 @@ export async function saveCanteenSalesItemAction(
       return { ok: false, error: "لم يتم العثور على صنف المخزون المحدد." };
     }
   }
-  const [created] = await database
-    .insert(residentPurchases)
-    .values({
-      itemName: name,
-      price: parsed.data.price,
-      addToResidentAccount: parsed.data.addToResidentAccount,
-      canteenItemNumber: parsed.data.canteenItemNumber,
-      createdBy: session.user.id,
-    })
-    .onConflictDoNothing()
-    .returning({
-      id: residentPurchases.id,
-      name: residentPurchases.itemName,
-      price: residentPurchases.price,
-      addToResidentAccount: residentPurchases.addToResidentAccount,
-      canteenItemNumber: residentPurchases.canteenItemNumber,
-    });
-  if (!created) {
+  const id = parsed.data.id ?? null;
+  const [duplicate] = await database
+    .select({ id: residentPurchases.id })
+    .from(residentPurchases)
+    .where(id === null
+      ? eq(residentPurchases.itemName, name)
+      : and(eq(residentPurchases.itemName, name), ne(residentPurchases.id, id)))
+    .limit(1);
+  if (duplicate) {
+    return { ok: false, error: "Duplicate item name." };
+  }
+  const values = {
+    itemName: name,
+    price: parsed.data.price,
+    addToResidentAccount: parsed.data.addToResidentAccount,
+    canteenItemNumber: parsed.data.canteenItemNumber,
+    categoryId: parsed.data.categoryId,
+    needsReview: false,
+  };
+  const [saved] = id === null
+    ? await database.insert(residentPurchases)
+        .values({ ...values, createdBy: session.user.id })
+        .returning({
+          id: residentPurchases.id,
+          name: residentPurchases.itemName,
+          price: residentPurchases.price,
+          addToResidentAccount: residentPurchases.addToResidentAccount,
+          canteenItemNumber: residentPurchases.canteenItemNumber,
+          categoryId: residentPurchases.categoryId,
+          needsReview: residentPurchases.needsReview,
+        })
+    : await database.update(residentPurchases)
+        .set(values)
+        .where(eq(residentPurchases.id, id))
+        .returning({
+          id: residentPurchases.id,
+          name: residentPurchases.itemName,
+          price: residentPurchases.price,
+          addToResidentAccount: residentPurchases.addToResidentAccount,
+          canteenItemNumber: residentPurchases.canteenItemNumber,
+          categoryId: residentPurchases.categoryId,
+          needsReview: residentPurchases.needsReview,
+        });
+  if (!saved) {
     return { ok: false, error: "اسم الصنف مستخدم بالفعل." };
   }
-  return { ok: true, item: created };
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: id === null ? "create" : "update",
+    entity: "residentPurchases",
+    entityId: saved.id,
+    metadata: {
+      fields:
+        "itemName,price,addToResidentAccount,canteenItemNumber,categoryId",
+    },
+  });
+  return { ok: true, item: { ...saved, categoryName: category.name } };
+}
+
+export async function deleteCanteenSalesItemAction(
+  idInput: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireStaffPermission("canIssueInvoices");
+  const id = z.number().int().positive().safeParse(idInput);
+  if (!id.success) return { ok: false, error: "معرّف الصنف غير صالح." };
+
+  const database = getDatabase();
+  const [reference] = await database
+    .select({ id: residentInvoiceLines.id })
+    .from(residentInvoiceLines)
+    .where(eq(residentInvoiceLines.purchaseId, id.data))
+    .limit(1);
+  if (reference) {
+    return {
+      ok: false,
+      error: "لا يمكن حذف الصنف لارتباطه بحركات بيع مسجلة.",
+    };
+  }
+
+  const [deleted] = await database
+    .delete(residentPurchases)
+    .where(eq(residentPurchases.id, id.data))
+    .returning({ id: residentPurchases.id });
+  if (!deleted) return { ok: false, error: "لم يتم العثور على الصنف." };
+
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "delete",
+    entity: "residentPurchases",
+    entityId: deleted.id,
+    metadata: { fields: "itemName" },
+  });
+  return { ok: true };
 }
 
 export async function saveInvoiceCategoryAction(
@@ -137,22 +221,80 @@ export async function saveInvoiceCategoryAction(
   { ok: true; category: InvoiceCategory }
   | { ok: false; error: string }
 > {
-  await requireStaffPermission("canIssueInvoices");
+  const session = await requireStaffPermission("canIssueInvoices");
   const parsed = categorySchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "أدخل اسمًا صحيحًا للفئة." };
   }
   const name = parsed.data.name.normalize("NFC");
   const database = getDatabase();
-  const [created] = await database
+  const id = parsed.data.id ?? null;
+  const [created] = id === null ? await database
     .insert(invoiceCategories)
     .values({ name })
     .onConflictDoNothing()
-    .returning({ id: invoiceCategories.id, name: invoiceCategories.name });
+    .returning({ id: invoiceCategories.id, name: invoiceCategories.name })
+    : await database.update(invoiceCategories).set({ name })
+      .where(eq(invoiceCategories.id, id))
+      .returning({ id: invoiceCategories.id, name: invoiceCategories.name });
   if (!created) {
     return { ok: false, error: "اسم الفئة مستخدم بالفعل." };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: id === null ? "create" : "update",
+    entity: "invoiceCategories",
+    entityId: created.id,
+    metadata: { fields: "name" },
+  });
   return { ok: true, category: created };
+}
+
+export async function deleteInvoiceCategoryAction(
+  idInput: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireStaffPermission("canIssueInvoices");
+  const id = z.number().int().positive().safeParse(idInput);
+  if (!id.success) return { ok: false, error: "معرّف الفئة غير صالح." };
+
+  const database = getDatabase();
+  const [itemReference] = await database
+    .select({ id: residentPurchases.id })
+    .from(residentPurchases)
+    .where(eq(residentPurchases.categoryId, id.data))
+    .limit(1);
+  if (itemReference) {
+    return {
+      ok: false,
+      error: "لا يمكن حذف الفئة لارتباطها بأصناف بيع.",
+    };
+  }
+  const [lineReference] = await database
+    .select({ id: residentInvoiceLines.id })
+    .from(residentInvoiceLines)
+    .where(eq(residentInvoiceLines.categoryId, id.data))
+    .limit(1);
+  if (lineReference) {
+    return {
+      ok: false,
+      error: "لا يمكن حذف الفئة لارتباطها بحركات بيع مسجلة.",
+    };
+  }
+
+  const [deleted] = await database
+    .delete(invoiceCategories)
+    .where(eq(invoiceCategories.id, id.data))
+    .returning({ id: invoiceCategories.id });
+  if (!deleted) return { ok: false, error: "لم يتم العثور على الفئة." };
+
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "delete",
+    entity: "invoiceCategories",
+    entityId: deleted.id,
+    metadata: { fields: "name" },
+  });
+  return { ok: true };
 }
 
 export async function createResidentInvoiceAction(
@@ -164,13 +306,13 @@ export async function createResidentInvoiceAction(
   const session = await requireStaffPermission("canIssueInvoices");
   const parsed = invoiceSchema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, error: "راجع نوع الفاتورة والتاريخ والأصناف." };
+    return { ok: false, error: "راجع نوع الحركة والتاريخ والأصناف." };
   }
   if (
     (parsed.data.saleType === "resident" && !parsed.data.residentId) ||
     (parsed.data.saleType === "cash" && parsed.data.residentId)
   ) {
-    return { ok: false, error: "اختيار النزيل لا يطابق نوع الفاتورة." };
+    return { ok: false, error: "اختيار النزيل لا يطابق نوع الحركة." };
   }
 
   const database = getDatabase();
@@ -180,10 +322,14 @@ export async function createResidentInvoiceAction(
       .select({
         id: residentPurchases.id,
         name: residentPurchases.itemName,
-        price: residentPurchases.price,
+        price: sql<number>`case when ${residentPurchases.price} > 0 then ${residentPurchases.price} else coalesce(${canteenProducts.price}, ${residentPurchases.price}) end`,
         canteenItemNumber: residentPurchases.canteenItemNumber,
       })
       .from(residentPurchases)
+      .leftJoin(
+        canteenProducts,
+        eq(canteenProducts.itemNumber, residentPurchases.canteenItemNumber),
+      )
       .where(
         inArray(
           residentPurchases.id,
@@ -194,7 +340,7 @@ export async function createResidentInvoiceAction(
       .for("update");
     const catalogById = new Map(catalogRows.map((item) => [item.id, item]));
     if (catalogById.size !== new Set(parsed.data.items.map((item) => item.catalogId)).size) {
-      return { error: "لم يتم العثور على أحد أصناف الفاتورة." } as const;
+      return { error: "لم يتم العثور على أحد أصناف الحركة." } as const;
     }
 
     const items = parsed.data.items.map((inputItem) => {
@@ -222,13 +368,13 @@ export async function createResidentInvoiceAction(
     }
     const total = items.reduce((sum, item) => sum + item.total, 0);
     if (parsed.data.initialPayment > total) {
-      return { error: "الدفعة الأولى أكبر من إجمالي الفاتورة." } as const;
+      return { error: "الدفعة الأولى أكبر من إجمالي الحركة." } as const;
     }
     if (
       parsed.data.saleType === "cash" &&
       parsed.data.initialPayment !== total
     ) {
-      return { error: "يجب تسجيل قيمة الفاتورة النقدية كاملة عند البيع." } as const;
+      return { error: "يجب تسجيل قيمة الحركة النقدية كاملة عند البيع." } as const;
     }
 
     let residentName = "";
@@ -253,7 +399,7 @@ export async function createResidentInvoiceAction(
         .from(invoiceCategories)
         .where(inArray(invoiceCategories.id, categoryIds));
       if (foundCategories.length !== categoryIds.length) {
-        return { error: "تعذر العثور على فئة أحد بنود الفاتورة." } as const;
+        return { error: "تعذر العثور على فئة أحد بنود الحركة." } as const;
       }
     }
 
@@ -357,7 +503,7 @@ export async function createResidentInvoiceAction(
         createdBy: session.user.id,
       })
       .returning({ invoiceNumber: residentInvoices.invoiceNumber });
-    if (!header) throw new CanteenSalesActionError("تعذر إنشاء الفاتورة.");
+    if (!header) throw new CanteenSalesActionError("تعذر إنشاء الحركة.");
 
     const dateLabels = dayAndMonth(parsed.data.invoiceDate);
     const outstanding = total - parsed.data.initialPayment;
@@ -381,7 +527,7 @@ export async function createResidentInvoiceAction(
           purchaseId: item.catalogId,
         })
         .returning({ id: residentInvoiceLines.id });
-      if (!line) throw new CanteenSalesActionError("تعذر حفظ أحد بنود الفاتورة.");
+      if (!line) throw new CanteenSalesActionError("تعذر حفظ أحد بنود الحركة.");
       let stockMovementId: number | null = null;
       if (item.canteenItemNumber !== null) {
         const balanceAfter =
@@ -499,8 +645,15 @@ export async function createResidentInvoiceAction(
       return { ok: false, error: result.error };
     }
     if (!("invoice" in result)) {
-      return { ok: false, error: "تعذر إنشاء الفاتورة." };
+      return { ok: false, error: "تعذر إنشاء الحركة." };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "create",
+      entity: "residentInvoices",
+      entityId: result.invoice.invoiceNumber,
+      metadata: { fields: "saleType,invoiceDate,items,initialPayment" },
+    });
     return {
       ok: true,
       invoice: result.invoice,
@@ -527,7 +680,7 @@ export async function recordInvoicePaymentAction(
   const amount = z.number().int().positive().safeParse(amountInput);
   const paymentDate = dateSchema.safeParse(paymentDateInput);
   if (!invoiceNumber.success || !amount.success || !paymentDate.success) {
-    return { ok: false, error: "أدخل رقم فاتورة ومبلغًا وتاريخًا صحيحًا." };
+    return { ok: false, error: "أدخل رقم حركة ومبلغًا وتاريخًا صحيحًا." };
   }
 
   const database = getDatabase();
@@ -539,14 +692,14 @@ export async function recordInvoicePaymentAction(
       .where(eq(residentInvoices.invoiceNumber, invoiceNumber.data))
       .limit(1)
       .for("update");
-    if (!invoice) return { error: "لم يتم العثور على الفاتورة." } as const;
+    if (!invoice) return { error: "لم يتم العثور على الحركة." } as const;
 
     const [voided] = await transaction
       .select({ invoiceNumber: residentInvoiceVoids.invoiceNumber })
       .from(residentInvoiceVoids)
       .where(eq(residentInvoiceVoids.invoiceNumber, invoice.invoiceNumber))
       .limit(1);
-    if (voided) return { error: "لا يمكن السداد على فاتورة ملغاة." } as const;
+    if (voided) return { error: "لا يمكن السداد على حركة ملغاة." } as const;
 
     const lines = await transaction
       .select({ total: residentInvoiceLines.total })
@@ -554,7 +707,7 @@ export async function recordInvoicePaymentAction(
       .where(eq(residentInvoiceLines.invoiceNumber, invoice.invoiceNumber));
     const invoiceTotal = lines.reduce((sum, line) => sum + line.total, 0);
     if (!lines.length || invoiceTotal <= 0) {
-      return { error: "الفاتورة لا تحتوي على بنود قابلة للسداد." } as const;
+      return { error: "الحركة لا تحتوي على بنود قابلة للسداد." } as const;
     }
     const payments = await transaction
       .select({
@@ -600,6 +753,13 @@ export async function recordInvoicePaymentAction(
   if ("error" in result && typeof result.error === "string") {
     return { ok: false, error: result.error };
   }
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "create",
+    entity: "residentInvoicePayments",
+    entityId: result.payment.id,
+    metadata: { fields: "invoiceNumber,amount,paymentDate" },
+  });
   return { ok: true, payment: result.payment, balance: result.balance };
   } catch (error) {
   if (error instanceof CanteenSalesActionError) {
@@ -634,14 +794,14 @@ export async function voidResidentInvoiceAction(
       .where(eq(residentInvoices.invoiceNumber, invoiceNumber.data))
       .limit(1)
       .for("update");
-    if (!invoice) return { error: "لم يتم العثور على الفاتورة." } as const;
+    if (!invoice) return { error: "لم يتم العثور على الحركة." } as const;
 
     const [existingVoid] = await transaction
       .select({ invoiceNumber: residentInvoiceVoids.invoiceNumber })
       .from(residentInvoiceVoids)
       .where(eq(residentInvoiceVoids.invoiceNumber, invoice.invoiceNumber))
       .limit(1);
-    if (existingVoid) return { error: "تم إلغاء هذه الفاتورة بالفعل." } as const;
+    if (existingVoid) return { error: "تم إلغاء هذه الحركة بالفعل." } as const;
 
     const payments = await transaction
       .select({
@@ -657,7 +817,7 @@ export async function voidResidentInvoiceAction(
     );
     if (netPaid > 0 && !confirmRefund.data) {
       return {
-        error: "أكد رد المبالغ المسددة قبل إلغاء الفاتورة.",
+        error: "أكد رد المبالغ المسددة قبل إلغاء الحركة.",
       } as const;
     }
 
@@ -687,7 +847,7 @@ export async function voidResidentInvoiceAction(
         .orderBy(canteenProducts.itemNumber)
         .for("update");
       if (lockedProducts.length !== itemNumbers.length) {
-        return { error: "تعذر قفل أصناف المخزون المرتبطة بالفاتورة." } as const;
+        return { error: "تعذر قفل أصناف المخزون المرتبطة بالحركة." } as const;
       }
     }
 
@@ -744,6 +904,13 @@ export async function voidResidentInvoiceAction(
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
     }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "delete",
+      entity: "residentInvoices",
+      entityId: invoiceNumber.data,
+      metadata: { fields: "voided,reason" },
+    });
     return {
       ok: true,
       refund: result.refund,

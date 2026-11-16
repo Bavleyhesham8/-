@@ -1,0 +1,611 @@
+{
+  "invoices": [
+    {
+      "رقم الفاتورة": 1,
+      "تاريخ الفاتورة": "2026-07-29T21:00:00.000Z",
+      "اسم النزيل": 9,
+      "resident_id": "eca36775-07d4-4ed4-bf62-a1c380e7478e",
+      "sale_type": "resident"
+    },
+    {
+      "رقم الفاتورة": 2,
+      "تاريخ الفاتورة": "2026-11-09T22:00:00.000Z",
+      "اسم النزيل": null,
+      "resident_id": "3472aadc-a7e5-4c08-b524-1061d9903ca1",
+      "sale_type": "resident"
+    }
+  ],
+  "lines": [
+    {
+      "ID": 110,
+      "الصنف": "سجائر كاريلا",
+      "السعر": "45",
+      "الكمية": "1",
+      "الاجمالى": 45,
+      "رقم": 1,
+      "purchase_id": null,
+      "الفئه": "سجائر"
+    },
+    {
+      "ID": 111,
+      "الصنف": "سجائر كاريلا",
+      "السعر": "45",
+      "الكمية": "2",
+      "الاجمالى": 90,
+      "رقم": 1,
+      "purchase_id": null,
+      "الفئه": "سجائر"
+    },
+    {
+      "ID": 119,
+      "الصنف": "سجائر كاريلا",
+      "السعر": "45",
+      "الكمية": "2",
+      "الاجمالى": 90,
+      "رقم": 1,
+      "purchase_id": null,
+      "الفئه": "سجائر"
+    },
+    {
+      "ID": 120,
+      "الصنف": "سكر",
+      "السعر": "35",
+      "الكمية": "1",
+      "الاجمالى": 35,
+      "رقم": 1,
+      "purchase_id": null,
+      "الفئه": ""
+    },
+    {
+      "ID": 1,
+      "الصنف": "مناديل جيب",
+      "السعر": "3",
+      "الكمية": "1",
+      "الاجمالى": 3,
+      "رقم": 2,
+      "purchase_id": 38,
+      "الفئه": ""
+    }
+  ],
+  "purchases": [
+    {
+      "ID": 1,
+      "الصنف": "سكر",
+      "السعر": 35,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 2,
+      "الصنف": "شاى",
+      "السعر": 12,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 3,
+      "الصنف": "كافى مكس",
+      "السعر": 8,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 4,
+      "الصنف": "بيبسى كانز",
+      "السعر": 17,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 5,
+      "الصنف": "سفن كانز",
+      "السعر": 17,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 6,
+      "الصنف": "بيبسى 1.5",
+      "السعر": 40,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 7,
+      "الصنف": "سجائر بوكس",
+      "السعر": 55,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 8,
+      "الصنف": "سجائر كاريلا",
+      "السعر": 45,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 9,
+      "الصنف": "سجائر LM",
+      "السعر": 95,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 10,
+      "الصنف": "سجائر ميريت",
+      "السعر": 120,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 11,
+      "الصنف": "سجائر مانشستر",
+      "السعر": 35,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 12,
+      "الصنف": " سجائر مارلبورو",
+      "السعر": 110,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 13,
+      "الصنف": "سجائر كاميل",
+      "السعر": 95,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 14,
+      "الصنف": "ادوية",
+      "السعر": 0,
+      "canteen_item_number": null,
+      "needs_review": true
+    },
+    {
+      "ID": 15,
+      "الصنف": "مصاريف",
+      "السعر": 0,
+      "canteen_item_number": null,
+      "needs_review": true
+    },
+    {
+      "ID": 16,
+      "الصنف": "بن غامق 100 جرام",
+      "السعر": 75,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 17,
+      "الصنف": "نسكافية بلاك",
+      "السعر": 5,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 18,
+      "الصنف": "نسكافية 1 × 3",
+      "السعر": 8,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 19,
+      "الصنف": "كافى مكس",
+      "السعر": 8,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 20,
+      "الصنف": "سفن كانز",
+      "السعر": 17,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 21,
+      "الصنف": "سفن 1.5 لتر",
+      "السعر": 40,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 22,
+      "الصنف": "ميرندا 1.5 لتر",
+      "السعر": 40,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 23,
+      "الصنف": "تويست مشروبطاقة",
+      "السعر": 20,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 24,
+      "الصنف": "فيورى مشروب طاقة",
+      "السعر": 20,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 25,
+      "الصنف": "عصيربيتى",
+      "السعر": 12,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 26,
+      "الصنف": "شيبسى كبير",
+      "السعر": 12,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 27,
+      "الصنف": "شيبسى صغير",
+      "السعر": 7,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 28,
+      "الصنف": "مولتومنجم",
+      "السعر": 17,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 29,
+      "الصنف": "مولتو اكس اكس ال",
+      "السعر": 12,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 30,
+      "الصنف": "مولتومينى",
+      "السعر": 7,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 31,
+      "الصنف": "كيكة جوردينا",
+      "السعر": 7,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 32,
+      "الصنف": "بسكوت سادة",
+      "السعر": 7,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 33,
+      "الصنف": "بسكوت اهلاوى سادة",
+      "السعر": 7,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 34,
+      "الصنف": "مياه معدنية",
+      "السعر": 6,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 35,
+      "الصنف": "جبنة 1 / 8",
+      "السعر": 12,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 36,
+      "الصنف": "ظرف كاتشب",
+      "السعر": 3,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 37,
+      "الصنف": "ظرف مايونيز",
+      "السعر": 3,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 38,
+      "الصنف": "مناديل جيب",
+      "السعر": 3,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 39,
+      "الصنف": "صابونة سافانا",
+      "السعر": 25,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 40,
+      "الصنف": "معجون اسنان",
+      "السعر": 20,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 41,
+      "الصنف": "فرشة اسنان",
+      "السعر": 20,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 42,
+      "الصنف": "ماكنة حلاقة",
+      "السعر": 10,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 43,
+      "الصنف": "قصافة اظافر",
+      "السعر": 25,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 44,
+      "الصنف": "ليفة كبيرة",
+      "السعر": 50,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 45,
+      "الصنف": "ليفة صغيرة",
+      "السعر": 35,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 46,
+      "الصنف": "جيل شعر",
+      "السعر": 3,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 47,
+      "الصنف": "شامبو",
+      "السعر": 2,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 48,
+      "الصنف": "كشكول عادى",
+      "السعر": 15,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 49,
+      "الصنف": "كشكول سلك",
+      "السعر": 50,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 50,
+      "الصنف": "قلم جاف",
+      "السعر": 10,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 51,
+      "الصنف": "قلم ماركر",
+      "السعر": 20,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 52,
+      "الصنف": "ولاعة",
+      "السعر": 10,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 53,
+      "الصنف": "لبان",
+      "السعر": 2,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 54,
+      "الصنف": "هوهوز",
+      "السعر": 7,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 55,
+      "الصنف": "توينكر",
+      "السعر": 7,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 56,
+      "الصنف": "بسكوت لمباد",
+      "السعر": 7,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 57,
+      "الصنف": "كيكة تاوتاو",
+      "السعر": 7,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 58,
+      "الصنف": "عصير تانج",
+      "السعر": 10,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 59,
+      "الصنف": "بيض",
+      "السعر": 5,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 60,
+      "الصنف": "ريد للناموس",
+      "السعر": 5,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 61,
+      "الصنف": "بيبسى كانز",
+      "السعر": 17,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 62,
+      "الصنف": "سفن كانز",
+      "السعر": 17,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 63,
+      "الصنف": "ميرندا كانز",
+      "السعر": 17,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 64,
+      "الصنف": "تونة",
+      "السعر": 50,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 65,
+      "الصنف": "اندومى",
+      "السعر": 12,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 66,
+      "الصنف": "ماونتن ديو",
+      "السعر": 20,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 67,
+      "الصنف": "سرفيس بلاستيك",
+      "السعر": 50,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 68,
+      "الصنف": "كوبايه بلاستك",
+      "السعر": 20,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 69,
+      "الصنف": "كاتشب",
+      "السعر": 0,
+      "canteen_item_number": null,
+      "needs_review": true
+    },
+    {
+      "ID": 70,
+      "الصنف": "ميونيز",
+      "السعر": 0,
+      "canteen_item_number": null,
+      "needs_review": true
+    },
+    {
+      "ID": 71,
+      "الصنف": "بسكوت محشي",
+      "السعر": 0,
+      "canteen_item_number": null,
+      "needs_review": true
+    },
+    {
+      "ID": 72,
+      "الصنف": "ملاية سرير",
+      "السعر": 0,
+      "canteen_item_number": null,
+      "needs_review": true
+    },
+    {
+      "ID": 73,
+      "الصنف": "معلقة ميلامين",
+      "السعر": 20,
+      "canteen_item_number": null,
+      "needs_review": false
+    },
+    {
+      "ID": 74,
+      "الصنف": "ملاحة بلاستيك",
+      "السعر": 0,
+      "canteen_item_number": null,
+      "needs_review": true
+    },
+    {
+      "ID": 75,
+      "الصنف": "ملاحة اكربلك",
+      "السعر": 0,
+      "canteen_item_number": null,
+      "needs_review": true
+    },
+    {
+      "ID": 76,
+      "الصنف": "كيس مخده",
+      "السعر": 0,
+      "canteen_item_number": null,
+      "needs_review": true
+    },
+    {
+      "ID": 77,
+      "الصنف": "سرفيس حديد",
+      "السعر": 0,
+      "canteen_item_number": null,
+      "needs_review": true
+    }
+  ]
+}

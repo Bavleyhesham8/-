@@ -1,0 +1,21 @@
+import fs from "node:fs";
+import pg from "pg";
+const env = fs.readFileSync(".env.local", "utf8");
+const url = env.match(/^DATABASE_URL=(.+)$/m)?.[1]?.trim();
+const client = new pg.Client({ connectionString: url });
+await client.connect();
+const q = async (label, sql) => {
+  const res = await client.query(sql);
+  console.log(`\n=== ${label} (${res.rows.length}) ===`);
+  console.table(res.rows);
+};
+await q("church lookup distinct", `select "ID","num","nam","Achesh","Fathr" from "الكنيسة التابع لها" order by "ID"`);
+await q("residents church/confessor", `select church, confessor, count(*) from residents group by 1,2 order by 3 desc`);
+await q("nam residents church", `select "Achesh","Fathr",count(*) from nam group by 1,2`);
+await q("governorate lookup", `select * from "المحافظة" order by "ID" limit 40`);
+await q("days", `select * from "اليوم"`);
+await q("canteen products sample", `select * from "كانتين" order by "رقم الصنف" limit 15`);
+await q("resident purchases sample", `select * from "مشتريات النزلاء" order by "ID" limit 20`);
+await q("invoice lines", `select * from "اطراف الفاتورة" order by "ID"`);
+await q("invoices", `select * from "راس الفاتورة" order by "رقم الفاتورة"`);
+await client.end();

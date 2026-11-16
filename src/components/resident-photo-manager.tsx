@@ -75,7 +75,7 @@ export default function ResidentPhotoManager({
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
-          const maxDim = 480;
+          const maxDim = 360;
           let width = img.width;
           let height = img.height;
           if (width > height) {
@@ -94,11 +94,17 @@ export default function ResidentPhotoManager({
           canvas.height = height;
           const ctx = canvas.getContext("2d");
           if (!ctx) {
-            resolve(e.target?.result as string);
+            reject(new Error("Image compression is unavailable."));
             return;
           }
           ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL("image/jpeg", 0.85));
+          let quality = 0.78;
+          let compressed = canvas.toDataURL("image/jpeg", quality);
+          while (compressed.length * 0.75 > 120 * 1024 && quality > 0.5) {
+            quality -= 0.07;
+            compressed = canvas.toDataURL("image/jpeg", quality);
+          }
+          resolve(compressed);
         };
         img.onerror = reject;
         img.src = e.target?.result as string;
@@ -128,17 +134,17 @@ export default function ResidentPhotoManager({
     const video = videoRef.current;
     const canvas = document.createElement("canvas");
     const size = Math.min(video.videoWidth, video.videoHeight) || 400;
-    canvas.width = 400;
-    canvas.height = 400;
+    canvas.width = 360;
+    canvas.height = 360;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     // اقتصاص مربع في المنتصف
     const startX = (video.videoWidth - size) / 2;
     const startY = (video.videoHeight - size) / 2;
-    ctx.drawImage(video, startX, startY, size, size, 0, 0, 400, 400);
+    ctx.drawImage(video, startX, startY, size, size, 0, 0, 360, 360);
 
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
     setCapturedPreview(dataUrl);
   }
 
@@ -188,7 +194,7 @@ export default function ResidentPhotoManager({
           />
         ) : (
           <div style={{ textAlign: "center", color: "#0f766e", padding: "8px" }}>
-            <span style={{ fontSize: "28px", display: "block" }}>👤</span>
+
             <span style={{ fontSize: "10px", fontWeight: 700 }}>لا توجد صورة</span>
           </div>
         )}
@@ -220,7 +226,7 @@ export default function ResidentPhotoManager({
                 cursor: "pointer",
               }}
             >
-              <span>📁</span>
+
               <span>رفع من الجهاز</span>
             </button>
             <input
@@ -249,7 +255,7 @@ export default function ResidentPhotoManager({
                 cursor: "pointer",
               }}
             >
-              <span>📷</span>
+
               <span>التقاط بالكاميرا الآن</span>
             </button>
 
@@ -272,7 +278,7 @@ export default function ResidentPhotoManager({
                   cursor: "pointer",
                 }}
               >
-                <span>✕</span>
+
                 <span>حذف الصورة</span>
               </button>
             )}
@@ -322,7 +328,7 @@ export default function ResidentPhotoManager({
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ fontSize: "20px" }}>📷</span>
+
                 <span style={{ fontWeight: 800, fontSize: "14px" }}>
                   التقاط صورة شخصية مباشرة
                 </span>
@@ -516,7 +522,7 @@ export default function ResidentPhotoManager({
                     gap: "6px",
                   }}
                 >
-                  <span>📸</span>
+
                   <span>التقاط الصورة الآن</span>
                 </button>
               )}

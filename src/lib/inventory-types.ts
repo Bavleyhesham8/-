@@ -24,6 +24,8 @@ export type InventoryMovement = {
   quantity: number;
   unitPrice: number;
   movementDate: string;
+  destination: string;
+  recipient: string;
   note: string;
   voided: boolean;
 };

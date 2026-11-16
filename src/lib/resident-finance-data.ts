@@ -5,8 +5,10 @@ import { getDatabase } from "@/db";
 import {
   legacyResidentDetails,
   legacyResidentHeaders,
+  residents,
 } from "@/db/schema";
 import { requireScreenAccess } from "@/lib/auth-session";
+import { findResidentByName } from "@/lib/resident-matching";
 import type {
   ResidentFinanceBundle,
   ResidentFinanceEntry,
@@ -34,13 +36,23 @@ function mapEntry(
 export async function listResidentFinanceForAdministrator(): Promise<ResidentFinanceBundle> {
   await requireScreenAccess("resident-finance");
   const database = getDatabase();
-  const headers = await database
-    .select({
-      residentNumber: legacyResidentHeaders.residentNumber,
-      residentName: legacyResidentHeaders.residentName,
-    })
-    .from(legacyResidentHeaders)
-    .orderBy(asc(legacyResidentHeaders.residentNumber));
+  const [headers, residentRows] = await Promise.all([
+    database
+      .select({
+        residentNumber: legacyResidentHeaders.residentNumber,
+        residentName: legacyResidentHeaders.residentName,
+      })
+      .from(legacyResidentHeaders)
+      .orderBy(asc(legacyResidentHeaders.residentNumber)),
+    database
+      .select({
+        id: residents.id,
+        name: residents.name,
+        residentNumber: residents.residentNumber,
+        fileNumber: residents.fileNumber,
+      })
+      .from(residents),
+  ]);
   const residentNumbers = headers.map((header) => header.residentNumber);
   const details = residentNumbers.length
     ? await database
@@ -68,10 +80,20 @@ export async function listResidentFinanceForAdministrator(): Promise<ResidentFin
   }
 
   return {
-    records: headers.map((header) => ({
-      ...header,
-      entries: entriesByResident.get(header.residentNumber) ?? [],
-    })),
+    records: headers.map((header) => {
+      const match = findResidentByName(
+        header.residentName,
+        residentRows,
+        header.residentNumber,
+      );
+      return {
+        ...header,
+        residentId: match?.resident.id ?? null,
+        matchScore: match?.score ?? null,
+        matchAmbiguous: match?.ambiguous ?? false,
+        entries: entriesByResident.get(header.residentNumber) ?? [],
+      };
+    }),
     unassignedEntries: unassignedRows.map(mapEntry),
   };
 }

@@ -17,6 +17,7 @@ import type {
   StaffProfile,
 } from "@/lib/staff-types";
 import type { LookupData } from "@/lib/lookup-types";
+import { mergeStaffProfileLookups } from "@/lib/staff-lookup-utils";
 
 type Props = {
   bundle: StaffBundle;
@@ -25,6 +26,7 @@ type Props = {
   persistent: boolean;
   lookups: LookupData;
   onBundleChange: (update: (current: StaffBundle) => StaffBundle) => void;
+  onLookupsChange: (update: (current: LookupData) => LookupData) => void;
 };
 
 type ProfileDraft = Omit<StaffProfile, "profileNumber">;
@@ -68,7 +70,7 @@ const profileFields: {
   { key: "nationalId", label: "الرقم القومى" },
   { key: "address", label: "العنوان" },
   { key: "governorate", label: "المحافظة" },
-  { key: "district", label: "المركز / الحى" },
+  { key: "district", label: "المركز / الحي" },
   { key: "birthDate", label: "تاريخ الميلاد", type: "date" },
   { key: "maritalStatus", label: "الحالة الاجتماعية" },
   { key: "qualification", label: "الموهل الدراسى" },
@@ -128,29 +130,29 @@ function StaffProfileFields({
           ) : field.key === "governorate" ||
             field.key === "district" ||
             field.key === "church" ? (
-            <select
-              value={value[field.key]}
-              disabled={disabled}
-              onChange={(event) => {
-                const nextValue = event.target.value;
-                onChange?.(field.key, nextValue);
-                if (
-                  field.key === "governorate" &&
-                  !lookups.governorates.some(
-                    (entry) =>
-                      entry.governorate === nextValue &&
-                      entry.district === value.district,
-                  )
-                ) {
-                  onChange?.("district", "");
-                }
-              }}
-            >
-              <option value="">
-                {field.key === "district" && !value.governorate
-                  ? "اختر المحافظة أولًا"
-                  : "اختر"}
-              </option>
+            <>
+              <input
+                list={`staff-${field.key}-options`}
+                autoComplete="off"
+                value={value[field.key]}
+                disabled={disabled}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  onChange?.(field.key, nextValue);
+                  if (
+                    field.key === "governorate" &&
+                    nextValue !== value.governorate &&
+                    !lookups.governorates.some(
+                      (entry) =>
+                        entry.governorate === nextValue &&
+                        entry.district === value.district,
+                    )
+                  ) {
+                    onChange?.("district", "");
+                  }
+                }}
+              />
+              <datalist id={`staff-${field.key}-options`}>
               {(() => {
                 const choices =
                   field.key === "governorate"
@@ -180,21 +182,10 @@ function StaffProfileFields({
                               .filter((entry): entry is string => !!entry),
                           ),
                         ];
-                const currentValue = value[field.key];
-                const options =
-                  currentValue && !choices.includes(currentValue)
-                    ? [currentValue, ...choices]
-                    : choices;
-                return options.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                    {option === currentValue && !choices.includes(option)
-                      ? " — قيمة محفوظة"
-                      : ""}
-                  </option>
-                ));
+                return choices.map((option) => <option key={option} value={option} />);
               })()}
-            </select>
+              </datalist>
+            </>
           ) : (
             <input
               type={field.type ?? "text"}
@@ -205,6 +196,12 @@ function StaffProfileFields({
           )}
         </label>
       ))}
+      {!disabled && (
+        <p className="form-hint full">
+          يمكنك اختيار المحافظة أو المركز أو الكنيسة من الاقتراحات، أو كتابة
+          قيمة جديدة. تُضاف القيم الجديدة إلى القوائم بعد حفظ الملف.
+        </p>
+      )}
       <p className="form-hint full">
         حقلا «صورة» و«ImagePath» يحفظان مسارًا نصيًا فقط؛ لا يتم رفع ملفات أو
         صور إلى التطبيق.
@@ -220,8 +217,10 @@ export default function StaffPanel({
   persistent,
   lookups,
   onBundleChange,
+  onLookupsChange,
 }: Props) {
   const isAdministrator = currentUser.role === "admin";
+  const canViewAllStaff = isAdministrator || currentUser.role === "viewer";
   const [section, setSection] = useState<Section>("profile");
   const [editingProfileNumber, setEditingProfileNumber] = useState<
     number | null
@@ -260,7 +259,7 @@ export default function StaffPanel({
     (profile) => profile.profileNumber === activeLink?.profileNumber,
   );
   const ownEmployeeNumber = activeLink?.employeeNumber;
-  const visibleLeaves = isAdministrator
+  const visibleLeaves = canViewAllStaff
     ? bundle.leaveEntries
     : bundle.leaveEntries.filter(
         (entry) => entry.employeeNumber === ownEmployeeNumber,
@@ -320,6 +319,9 @@ export default function StaffPanel({
             )
           : [...current.profiles, savedProfile],
       }));
+      onLookupsChange((current) =>
+        mergeStaffProfileLookups(current, savedProfile),
+      );
       setEditingProfileNumber(null);
       setProfileDraft(emptyProfile);
       setMessage("تم حفظ ملف الموظف.");
@@ -521,7 +523,7 @@ export default function StaffPanel({
           <article className="staff-record" key={entry.id}>
             <div>
               <strong>{entry.leaveType}</strong>
-              {isAdministrator && <span>{entry.employeeName}</span>}
+              {canViewAllStaff && <span>{entry.employeeName}</span>}
             </div>
             <div className="staff-record-meta">
               <span>
@@ -545,13 +547,13 @@ export default function StaffPanel({
         <div>
           <h3>ملفات الموظفين والإجازات</h3>
           <p>
-            {isAdministrator
-              ? "إدارة حقول Access وربط كل حساب بملف الموظف وسجل إجازاته."
+            {canViewAllStaff
+              ? "إدارة ملفات الموظفين وربط الحسابات وسجل الإجازات."
               : "عرض ملفك الشخصي وسجل إجازاتك فقط."}
           </p>
         </div>
         <span className="status-pill current">
-          {isAdministrator ? "إدارة المسؤول" : "عرض شخصي"}
+          {isAdministrator ? "إدارة المسؤول" : canViewAllStaff ? "عرض فقط" : "عرض شخصي"}
         </span>
       </div>
 
@@ -561,9 +563,9 @@ export default function StaffPanel({
           className={section === "profile" ? "active" : ""}
           onClick={() => setSection("profile")}
         >
-          {isAdministrator ? "الملفات الشخصية" : "ملفي الشخصي"}
+          {canViewAllStaff ? "الملفات الشخصية" : "ملفي الشخصي"}
         </button>
-        {isAdministrator && (
+        {canViewAllStaff && (
           <button
             type="button"
             className={section === "employees" ? "active" : ""}
@@ -593,12 +595,12 @@ export default function StaffPanel({
       {error && <p className="form-error staff-panel-message">{error}</p>}
       {message && <p className="staff-panel-success">{message}</p>}
 
-      {section === "profile" && isAdministrator && (
+      {section === "profile" && canViewAllStaff && (
         <div className="staff-section">
-          <div className="staff-section-heading">
+          {isAdministrator && <div className="staff-section-heading">
             <div>
               <h4>{editingProfileNumber ? "تعديل ملف موظف" : "إضافة ملف موظف"}</h4>
-              <p>تُحفظ كل حقول جدول «تحديث البيانات» بأسمائها الأصلية.</p>
+              <p>أدخل بيانات الموظف الأساسية وبيانات التواصل.</p>
             </div>
             {editingProfileNumber && (
               <button
@@ -609,8 +611,8 @@ export default function StaffPanel({
                 إلغاء التعديل
               </button>
             )}
-          </div>
-          <form className="staff-profile-form" onSubmit={saveProfile}>
+          </div>}
+          {isAdministrator && <form className="staff-profile-form" onSubmit={saveProfile}>
             <StaffProfileFields
               value={profileDraft}
               onChange={updateProfileDraft}
@@ -619,7 +621,7 @@ export default function StaffPanel({
             <button className="primary-button" disabled={saving} type="submit">
               {saving ? "جارٍ الحفظ..." : "حفظ ملف الموظف"}
             </button>
-          </form>
+          </form>}
           <div className="staff-record-list">
             {bundle.profiles.map((profile) => (
               <article className="staff-record" key={profile.profileNumber}>
@@ -630,20 +632,20 @@ export default function StaffPanel({
                     {profile.employeeId ? ` · ID: ${profile.employeeId}` : ""}
                   </span>
                 </div>
-                <button
+                {isAdministrator && <button
                   className="secondary-button"
                   type="button"
                   onClick={() => startEditingProfile(profile)}
                 >
                   تعديل
-                </button>
+                </button>}
               </article>
             ))}
           </div>
         </div>
       )}
 
-      {section === "profile" && !isAdministrator && (
+      {section === "profile" && !canViewAllStaff && (
         ownProfile ? (
           <div className="staff-section">
             <div className="staff-section-heading">
@@ -661,15 +663,15 @@ export default function StaffPanel({
         )
       )}
 
-      {section === "employees" && isAdministrator && (
+      {section === "employees" && canViewAllStaff && (
         <div className="staff-section">
           <div className="staff-section-heading">
             <div>
               <h4>دليل الموظفين</h4>
-              <p>المعرف «رقم الموظف» هو المفتاح الأصلي الذي ترتبط به الإجازات.</p>
+              <p>يرتبط سجل الإجازة بالموظف المسجل في هذا الدليل.</p>
             </div>
           </div>
-          <form className="form-grid staff-inline-form" onSubmit={saveEmployee}>
+          {isAdministrator && <form className="form-grid staff-inline-form" onSubmit={saveEmployee}>
             <label className="form-field">
               ID (اختياري)
               <input
@@ -700,7 +702,7 @@ export default function StaffPanel({
             <button className="primary-button" disabled={saving} type="submit">
               حفظ الموظف
             </button>
-          </form>
+          </form>}
           <div className="staff-record-list">
             {bundle.employees.map((employee) => (
               <article className="staff-record" key={employee.employeeNumber}>
@@ -711,6 +713,20 @@ export default function StaffPanel({
                     {employee.employeeNumber}
                   </span>
                 </div>
+                {isAdministrator && (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => {
+                      setEmployeeId(employee.id === null ? "" : String(employee.id));
+                      setEmployeeNumber(String(employee.employeeNumber));
+                      setEmployeeName(employee.employeeName);
+                      setSection("employees");
+                    }}
+                  >
+                    تعديل
+                  </button>
+                )}
               </article>
             ))}
           </div>
@@ -725,7 +741,7 @@ export default function StaffPanel({
                 <div>
                   <h4>تسجيل إجازة معتمدة</h4>
                   <p>
-                    الإدخال للمسؤول فقط؛ نوع الإجازة نص حر كما في Access، ولا
+                    الإدخال للمسؤول فقط؛ نوع الإجازة نص حر، ولا
                     توجد حالة طلب أو موافقة منفصلة.
                   </p>
                 </div>
@@ -810,10 +826,9 @@ export default function StaffPanel({
         <div className="staff-section">
           <div className="staff-section-heading">
             <div>
-              <h4>ربط الحساب ببيانات Access</h4>
+              <h4>ربط الحساب بملف الموظف</h4>
               <p>
-                جداول «تحديث البيانات» و«الموظفين» مستقلة في Access؛ اختر
-                الربطين يدويًا ولا يُفترض أن المعرفين متساويان.
+                اربط حساب المستخدم بملف الموظف ورقم الموظف المناسبين لعرض الإجازات.
               </p>
             </div>
           </div>
