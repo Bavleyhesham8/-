@@ -83,6 +83,7 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
         saleDate: meatSalesInvoices.saleDate,
         issuePermitNumber: meatSalesInvoices.issuePermitNumber,
         beneficiary: meatSalesInvoices.beneficiary,
+        discount: meatSalesInvoices.discount,
         voided: meatSaleVoids.invoiceNumber,
         voidReason: meatSaleVoids.reason,
       })
@@ -184,17 +185,19 @@ export async function listMeatSalesForAdministrator(): Promise<MeatSalesBundle> 
   const invoices = invoiceRows.map((invoice): MeatSaleInvoice => {
     const lines = linesByInvoice.get(invoice.invoiceNumber) ?? [];
     const payments = paymentsByInvoice.get(invoice.invoiceNumber) ?? [];
+    const subtotal = lines.reduce<number | null>(
+      (sum, line) => (sum === null || line.total === null ? null : sum + line.total),
+      0,
+    );
     return {
       invoiceNumber: invoice.invoiceNumber,
       saleDate: invoice.saleDate,
       issuePermitNumber: invoice.issuePermitNumber,
       beneficiary: invoice.beneficiary,
       lines,
-      total: lines.reduce<number | null>(
-        (sum, line) =>
-          sum === null || line.total === null ? null : sum + line.total,
-        0,
-      ),
+      subtotal,
+      discount: invoice.discount,
+      total: subtotal === null ? null : subtotal - invoice.discount,
       paid: payments.reduce(
         (sum, payment) =>
           sum + (payment.kind === "payment" ? payment.amount : -payment.amount),

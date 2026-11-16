@@ -79,7 +79,9 @@ function toResident(
     trainer: "",
     supervisor: "",
     lecturer: "",
-    imagePath: "",
+    imagePath: row.imagePath
+      ? `/api/residents/${row.id}/photo?v=${row.updatedAt.getTime()}`
+      : "",
   };
   return resident;
 }

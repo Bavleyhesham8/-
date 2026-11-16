@@ -8,6 +8,8 @@ export const demoCanteenSales: CanteenSalesBundle = {
       price: 5,
       addToResidentAccount: true,
       canteenItemNumber: 1001,
+      categoryId: 1,
+      categoryName: "مشتريات النزيل",
     },
     {
       id: 2,
@@ -15,6 +17,8 @@ export const demoCanteenSales: CanteenSalesBundle = {
       price: 20,
       addToResidentAccount: false,
       canteenItemNumber: 1002,
+      categoryId: 1,
+      categoryName: "مشتريات النزيل",
     },
     {
       id: 3,
@@ -22,6 +26,8 @@ export const demoCanteenSales: CanteenSalesBundle = {
       price: 25,
       addToResidentAccount: true,
       canteenItemNumber: null,
+      categoryId: 2,
+      categoryName: "مبيعات الكانتين",
     },
   ],
   categories: [

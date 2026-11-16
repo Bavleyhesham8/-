@@ -70,6 +70,7 @@ export type RefrigeratorReportSummary = {
   remainingValue: number | null;
   invoiceCount: number;
   invoiceTotal: number | null;
+  invoiceDiscount: number;
   invoicePaid: number;
   invoiceOutstanding: number | null;
 };
@@ -114,14 +115,26 @@ export function summarizeRefrigeratorReport(
   }
 
   const activeInvoices = scopedInvoices.filter((invoice) => !invoice.voided);
-  const selectedTotal = (invoice: MeatSaleInvoice) =>
+  const invoiceGross = (invoice: MeatSaleInvoice) =>
+    invoice.subtotal ??
+    invoice.lines.reduce((sum, line) => sum + meatSaleLineTotal(line), 0);
+  const selectedGross = (invoice: MeatSaleInvoice) =>
     itemNumber === "all"
-      ? invoice.total
+      ? invoiceGross(invoice)
       : invoice.lines
           .filter(
             (line) => String(line.refrigeratorItemNumber) === itemNumber,
           )
           .reduce((sum, line) => sum + meatSaleLineTotal(line), 0);
+  const selectedDiscount = (invoice: MeatSaleInvoice) => {
+    if (itemNumber === "all") return invoice.discount;
+    const gross = invoiceGross(invoice);
+    return gross > 0 ? invoice.discount * (selectedGross(invoice) / gross) : 0;
+  };
+  const selectedTotal = (invoice: MeatSaleInvoice) =>
+    itemNumber === "all"
+      ? invoice.total
+      : selectedGross(invoice) - selectedDiscount(invoice);
 
   const totalComplete = activeInvoices.every(
     (invoice) => selectedTotal(invoice) !== null,
@@ -132,6 +145,10 @@ export function summarizeRefrigeratorReport(
         0,
       )
     : null;
+  const invoiceDiscount = activeInvoices.reduce(
+    (sum, invoice) => sum + selectedDiscount(invoice),
+    0,
+  );
 
   const invoicePaid = activeInvoices.reduce((sum, invoice) => {
     if (itemNumber === "all") return sum + invoice.paid;
@@ -165,6 +182,7 @@ export function summarizeRefrigeratorReport(
         : null,
     invoiceCount: activeInvoices.length,
     invoiceTotal,
+    invoiceDiscount,
     invoicePaid,
     invoiceOutstanding,
   };

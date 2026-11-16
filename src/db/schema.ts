@@ -615,6 +615,9 @@ export const centerCustodyTransactions = pgTable(
     quantity: doublePrecision("quantity").notNull().default(0),
     unitPrice: doublePrecision("unit_price").notNull().default(0),
     amount: doublePrecision("amount").notNull(),
+    residentId: uuid("resident_id").references(() => residents.id, {
+      onDelete: "restrict",
+    }),
     targetBalance: doublePrecision("target_balance").notNull().default(15000),
     balanceAfter: doublePrecision("balance_after").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -622,6 +625,7 @@ export const centerCustodyTransactions = pgTable(
   },
   (table) => [
     index("center_custody_transactions_date_idx").on(table.transactionDate),
+    index("center_custody_transactions_resident_id_idx").on(table.residentId),
     check("center_custody_transactions_kind_check", sql`${table.kind} IN ('expense', 'replenishment')`),
     check("center_custody_transactions_amount_check", sql`${table.amount} > 0`),
   ],
@@ -964,6 +968,10 @@ export const residentPurchases = pgTable(
       () => canteenProducts.itemNumber,
       { onDelete: "restrict" },
     ),
+    categoryId: integer("invoice_category_id").references(
+      () => invoiceCategories.id,
+      { onDelete: "restrict" },
+    ),
     needsReview: boolean("needs_review").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -976,6 +984,7 @@ export const residentPurchases = pgTable(
     index("resident_purchases_canteen_item_number_idx").on(
       table.canteenItemNumber,
     ),
+    index("resident_purchases_category_id_idx").on(table.categoryId),
     index("resident_purchases_needs_review_idx").on(table.needsReview),
     index("resident_purchases_created_by_idx").on(table.createdBy),
     check("resident_purchases_price_check", sql`${table.price} >= 0`),
@@ -1190,6 +1199,7 @@ export const meatSalesInvoices = pgTable(
     saleDate: date("تاريخ البيع", { mode: "string" }).notNull(),
     issuePermitNumber: doublePrecision("رقم اذن الصرف"),
     beneficiary: text("اسم المستفيد").notNull(),
+    discount: doublePrecision("discount").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1200,6 +1210,7 @@ export const meatSalesInvoices = pgTable(
   (table) => [
     index("meat_sales_invoice_date_idx").on(table.saleDate),
     index("meat_sales_invoices_created_by_idx").on(table.createdBy),
+    check("meat_sales_invoices_discount_check", sql`${table.discount} >= 0`),
   ],
 );
 

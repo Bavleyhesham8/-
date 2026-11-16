@@ -107,6 +107,7 @@ export default function MeatSalesPanel({
   const [saleDate, setSaleDate] = useState(localDateValue());
   const [permitNumber, setPermitNumber] = useState("");
   const [beneficiary, setBeneficiary] = useState("");
+  const [discount, setDiscount] = useState("0");
   const [draftLines, setDraftLines] = useState<DraftLine[]>([
     { itemNumber: "", price: "", quantity: "1" },
   ]);
@@ -265,14 +266,22 @@ export default function MeatSalesPanel({
         Number.isFinite(total),
     };
   });
-  const total = preparedLines.reduce(
+  const subtotal = preparedLines.reduce(
     (sum, line) => sum + (line.valid ? line.total : 0),
     0,
   );
+  const discountValue = Number(discount);
+  const discountValid =
+    Number.isFinite(discountValue) &&
+    discountValue >= 0 &&
+    discountValue <= subtotal + 1e-9;
+  const netTotal = subtotal - (discountValid ? discountValue : 0);
   const canSaveSale =
     !!sales.products.length &&
     preparedLines.every((line) => line.valid) &&
-    total > 0;
+    subtotal > 0 &&
+    discountValid &&
+    netTotal > 0;
 
   function updateDraft(index: number, patch: Partial<DraftLine>) {
     setDraftLines((current) =>
@@ -452,6 +461,14 @@ export default function MeatSalesPanel({
     event.preventDefault();
     setError("");
     const parsedPermit = permitNumber.trim() ? Number(permitNumber) : null;
+    if (!Number.isFinite(discountValue) || discountValue < 0) {
+      setError("أدخل قيمة خصم صحيحة.");
+      return;
+    }
+    if (subtotal > 0 && discountValue > subtotal + 1e-9) {
+      setError("الخصم أكبر من إجمالي الفاتورة.");
+      return;
+    }
     if (
       !canSaveSale ||
       !saleDate ||
@@ -493,6 +510,7 @@ export default function MeatSalesPanel({
           saleDate,
           issuePermitNumber: parsedPermit,
           beneficiary: beneficiary.trim(),
+          discount: discountValue,
           items: saleItems,
         });
         if (!result.ok) {
@@ -565,7 +583,7 @@ export default function MeatSalesPanel({
               ),
             ) + 1,
           kind: "payment",
-          amount: total,
+          amount: netTotal,
           paymentDate: saleDate,
         };
         const invoice: MeatSaleInvoice = {
@@ -574,8 +592,10 @@ export default function MeatSalesPanel({
           issuePermitNumber: parsedPermit,
           beneficiary: beneficiary.trim(),
           lines,
-          total,
-          paid: total,
+          subtotal,
+          discount: discountValue,
+          total: netTotal,
+          paid: netTotal,
           voided: false,
           voidReason: "",
           payments: [payment],
@@ -589,6 +609,7 @@ export default function MeatSalesPanel({
       setSaleDate(localDateValue());
       setPermitNumber("");
       setBeneficiary("");
+      setDiscount("0");
       setDraftLines([{ itemNumber: "", price: "", quantity: "1" }]);
       setSection("history");
     } catch {
@@ -998,6 +1019,16 @@ export default function MeatSalesPanel({
               onChange={(event) => setBeneficiary(event.target.value)}
             />
           </label>
+          <label className="form-field">
+            خصم الفاتورة
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={discount}
+              onChange={(event) => setDiscount(event.target.value)}
+            />
+          </label>
 
           <div className="sales-lines">
             {preparedLines.map((line, index) => (
@@ -1093,9 +1124,17 @@ export default function MeatSalesPanel({
             إضافة بند
           </button>
           <div className="sales-total">
-            الإجمالي المستحق والمدفوع عند الحفظ:{" "}
-            <strong>{numberFormatter.format(total)}</strong>
+            الإجمالي قبل الخصم:{" "}
+            <strong>{numberFormatter.format(subtotal)}</strong> — الخصم:{" "}
+            <strong>{numberFormatter.format(discountValid ? discountValue : 0)}</strong>{" "}
+            — الإجمالي المستحق والمدفوع عند الحفظ:{" "}
+            <strong>{numberFormatter.format(netTotal)}</strong> ج.م
           </div>
+          {!discountValid && (
+            <p className="form-error" role="alert">
+              الخصم يجب ألا يتجاوز إجمالي الفاتورة.
+            </p>
+          )}
           {!sales.products.length && (
             <p className="access-note">أضف صنفًا للثلاجة ثم سجل واردًا أولًا.</p>
           )}
@@ -1121,6 +1160,18 @@ export default function MeatSalesPanel({
                 subtitle={invoice.beneficiary}
                 meta={[
                   { label: "التاريخ", value: formatDate(invoice.saleDate) },
+                  ...(invoice.discount > 0
+                    ? [
+                        {
+                          label: "الإجمالي قبل الخصم",
+                          value: formatOptionalNumber(invoice.subtotal),
+                        },
+                        {
+                          label: "الخصم",
+                          value: numberFormatter.format(invoice.discount),
+                        },
+                      ]
+                    : []),
                   { label: "الإجمالي المستحق", value: formatOptionalNumber(invoice.total) },
                   { label: "المسدد", value: numberFormatter.format(invoice.paid) },
                   {
@@ -1141,6 +1192,17 @@ export default function MeatSalesPanel({
                   </p>
                 </div>
                 <div className="sales-invoice-totals">
+                  {invoice.discount > 0 && (
+                    <>
+                      <span>
+                        الإجمالي قبل الخصم:{" "}
+                        {formatOptionalNumber(invoice.subtotal)} ج.م
+                      </span>
+                      <span>
+                        الخصم: {numberFormatter.format(invoice.discount)} ج.م
+                      </span>
+                    </>
+                  )}
                   <span>
                     الإجمالي المستحق: {formatOptionalNumber(invoice.total)} ج.م
                   </span>
@@ -1183,6 +1245,24 @@ export default function MeatSalesPanel({
                     ))}
                   </tbody>
                   <tfoot>
+                    {invoice.discount > 0 && (
+                      <>
+                        <tr>
+                          <th colSpan={3}>الإجمالي قبل الخصم</th>
+                          <td>
+                            {invoice.subtotal === null
+                              ? "—"
+                              : `${formatOptionalNumber(invoice.subtotal)} ج.م`}
+                          </td>
+                        </tr>
+                        <tr>
+                          <th colSpan={3}>الخصم</th>
+                          <td>
+                            {numberFormatter.format(invoice.discount)} ج.م
+                          </td>
+                        </tr>
+                      </>
+                    )}
                     <tr>
                       <th colSpan={3}>الإجمالي المستحق</th>
                       <td>
@@ -1439,6 +1519,10 @@ export default function MeatSalesPanel({
               <strong>{formatOptionalNumber(reportSummary.invoiceTotal)}</strong>
             </article>
             <article>
+              <span>إجمالي الخصومات</span>
+              <strong>{numberFormatter.format(reportSummary.invoiceDiscount)}</strong>
+            </article>
+            <article>
               <span>المسدد</span>
               <strong>{numberFormatter.format(reportSummary.invoicePaid)}</strong>
             </article>
@@ -1535,6 +1619,7 @@ export default function MeatSalesPanel({
                   <th>رقم الفاتورة</th>
                   <th>التاريخ</th>
                   <th>المستفيد</th>
+                  <th>الخصم</th>
                   <th>الإجمالي المستحق</th>
                   <th>المسدد</th>
                   <th>المتبقي</th>
@@ -1550,6 +1635,7 @@ export default function MeatSalesPanel({
                     <td>{invoice.invoiceNumber}</td>
                     <td>{formatDate(invoice.saleDate)}</td>
                     <td>{invoice.beneficiary}</td>
+                    <td>{formatOptionalNumber(invoice.discount)}</td>
                     <td>{formatOptionalNumber(invoice.total)}</td>
                     <td>{numberFormatter.format(invoice.paid)}</td>
                     <td>
@@ -1562,6 +1648,8 @@ export default function MeatSalesPanel({
                         subtitle={invoice.beneficiary}
                         meta={[
                           { label: "التاريخ", value: formatDate(invoice.saleDate) },
+                          { label: "الإجمالي قبل الخصم", value: formatOptionalNumber(invoice.subtotal) },
+                          { label: "الخصم", value: formatOptionalNumber(invoice.discount) },
                           { label: "الإجمالي المستحق", value: formatOptionalNumber(invoice.total) },
                           { label: "المسدد", value: numberFormatter.format(invoice.paid) },
                           { label: "المتبقي", value: remaining === null ? "—" : numberFormatter.format(remaining) },
@@ -1584,7 +1672,7 @@ export default function MeatSalesPanel({
                 })}
                 {!reportInvoices.length && (
                   <tr>
-                    <td colSpan={8}>
+                    <td colSpan={9}>
                       <div className="empty-state">
                         لا توجد فواتير بيع خلال الفترة المحددة.
                       </div>

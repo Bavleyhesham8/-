@@ -8,6 +8,7 @@ import {
   updateCenterCustodyTransactionAction,
 } from "@/app/actions/center-custody";
 import PrintBrand from "@/components/print-brand";
+import ResidentPicker from "@/components/resident-picker";
 import {
   CENTER_CUSTODY_TARGET,
   canCoverExpense,
@@ -23,7 +24,10 @@ import { printCurrentView } from "@/lib/print";
 import type {
   CenterCustodyBundle,
   CenterCustodyTransaction,
+  ResidentCustodyCharge,
 } from "@/lib/center-custody-types";
+import { residentChargesFromTransactions } from "@/lib/center-custody-types";
+import type { Resident } from "@/lib/demo-data";
 
 const money = new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 });
 const initialBundle: CenterCustodyBundle = {
@@ -35,9 +39,13 @@ const initialBundle: CenterCustodyBundle = {
 export default function CenterCustodyPanel({
   persistent,
   canManage,
+  residents = [],
+  onResidentChargesChange,
 }: {
   persistent: boolean;
   canManage: boolean;
+  residents?: Resident[];
+  onResidentChargesChange?: (charges: ResidentCustodyCharge[]) => void;
 }) {
   const [bundle, setBundle] = useState(initialBundle);
   const [loading, setLoading] = useState(persistent);
@@ -45,7 +53,10 @@ export default function CenterCustodyPanel({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [transactionDate, setTransactionDate] = useState(localDateValue());
+  const [expenseKind, setExpenseKind] = useState<"free" | "resident">("free");
   const [description, setDescription] = useState("");
+  const [residentId, setResidentId] = useState("");
+  const [residentPickerValue, setResidentPickerValue] = useState("");
   const [unit, setUnit] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [unitPrice, setUnitPrice] = useState("");
@@ -60,7 +71,12 @@ export default function CenterCustodyPanel({
   const [editingTransaction, setEditingTransaction] =
     useState<CenterCustodyTransaction | null>(null);
   const [editDate, setEditDate] = useState("");
+  const [editExpenseKind, setEditExpenseKind] = useState<"free" | "resident">(
+    "free",
+  );
   const [editDescription, setEditDescription] = useState("");
+  const [editResidentId, setEditResidentId] = useState("");
+  const [editResidentPickerValue, setEditResidentPickerValue] = useState("");
   const [editUnit, setEditUnit] = useState("");
   const [editQuantity, setEditQuantity] = useState("");
   const [editUnitPrice, setEditUnitPrice] = useState("");
@@ -75,6 +91,9 @@ export default function CenterCustodyPanel({
         if (active) {
           setBundle(data);
           setRenewalTarget(String(data.targetBalance));
+          onResidentChargesChange?.(
+            residentChargesFromTransactions(data.transactions),
+          );
         }
       })
       .catch(() => {
@@ -86,7 +105,7 @@ export default function CenterCustodyPanel({
     return () => {
       active = false;
     };
-  }, [persistent]);
+  }, [persistent, onResidentChargesChange]);
 
   const periodTransactions = useMemo(
     () =>
@@ -100,6 +119,9 @@ export default function CenterCustodyPanel({
   const expenseTotal = periodTransactions
     .filter((row) => row.kind === "expense")
     .reduce((sum, row) => sum + row.amount, 0);
+  const residentExpenseTotal = periodTransactions
+    .filter((row) => row.kind === "expense" && row.residentId)
+    .reduce((sum, row) => sum + row.amount, 0);
   const currentRemaining = remainingToTarget(
     bundle.balance,
     bundle.targetBalance,
@@ -108,8 +130,11 @@ export default function CenterCustodyPanel({
     bundle.balance,
     bundle.targetBalance,
   );
+  const selectedResident =
+    residents.find((resident) => resident.id === residentId) ?? null;
+  const draftQuantity = expenseKind === "resident" ? 1 : Number(quantity) || 0;
   const draftTotal = expenseAmount(
-    Number(quantity) || 0,
+    draftQuantity,
     Number(unitPrice) || 0,
   );
   const balanceAfterExpense = roundMoney(bundle.balance - draftTotal);
@@ -134,18 +159,32 @@ export default function CenterCustodyPanel({
     event.preventDefault();
     setError("");
     setMessage("");
+    if (expenseKind === "resident" && !selectedResident) {
+      setError("اختر النزيل الذي تُخصم منه مصاريف النزلاء.");
+      return;
+    }
+    if (expenseKind === "free" && !description.trim()) {
+      setError("أدخل بيان المصروف.");
+      return;
+    }
     if (!canCoverExpense(bundle.balance, draftTotal)) {
       setError("المصروف أكبر من الرصيد المتاح في عهدة المركز.");
       return;
     }
+    const expenseDescription =
+      expenseKind === "resident" && selectedResident
+        ? `مصاريف النزلاء - ${selectedResident.name}`
+        : description;
     setSaving(true);
     try {
       if (persistent) {
         const result = await recordCenterCustodyExpenseAction({
           transactionDate,
-          description,
-          unit,
-          quantity: Number(quantity),
+          description: expenseKind === "free" ? description : "",
+          residentId:
+            expenseKind === "resident" ? selectedResident?.id ?? null : null,
+          unit: expenseKind === "resident" ? "" : unit,
+          quantity: draftQuantity,
           unitPrice: Number(unitPrice),
         });
         if (!result.ok) {
@@ -153,6 +192,9 @@ export default function CenterCustodyPanel({
           return;
         }
         setBundle(result.bundle);
+        onResidentChargesChange?.(
+          residentChargesFromTransactions(result.bundle.transactions),
+        );
       } else {
         const recalculated = recalculateCustodyRows(
           [
@@ -161,9 +203,13 @@ export default function CenterCustodyPanel({
               id: crypto.randomUUID(),
               kind: "expense" as const,
               transactionDate,
-              description,
-              unit,
-              quantity: Number(quantity),
+              description: expenseDescription,
+              residentId:
+                expenseKind === "resident" ? selectedResident?.id ?? null : null,
+              residentName:
+                expenseKind === "resident" ? selectedResident?.name ?? "" : "",
+              unit: expenseKind === "resident" ? "" : unit,
+              quantity: draftQuantity,
               unitPrice: Number(unitPrice),
               amount: draftTotal,
               targetBalance: bundle.targetBalance,
@@ -176,17 +222,27 @@ export default function CenterCustodyPanel({
           setError(recalculated.error);
           return;
         }
-        setBundle({
+        const nextBundle = {
           targetBalance: bundle.targetBalance,
           balance: recalculated.balance,
           transactions: recalculated.rows,
-        });
+        };
+        setBundle(nextBundle);
+        onResidentChargesChange?.(
+          residentChargesFromTransactions(nextBundle.transactions),
+        );
       }
       setDescription("");
       setUnit("");
       setQuantity("1");
       setUnitPrice("");
-      setSuccess("تم تسجيل المصروف وخصمه من عهدة المركز.");
+      setResidentId("");
+      setResidentPickerValue("");
+      setSuccess(
+        expenseKind === "resident"
+          ? "تم تسجيل مصاريف النزيل وخصمها من عهدة المركز وحسابه."
+          : "تم تسجيل المصروف وخصمه من عهدة المركز.",
+      );
     } catch {
       setError("تعذر حفظ المصروف.");
     } finally {
@@ -247,6 +303,8 @@ export default function CenterCustodyPanel({
               quantity: 0,
               unitPrice: 0,
               amount: renewalAmountValue,
+              residentId: null,
+              residentName: "",
               targetBalance: renewalTargetValue,
               balanceAfter: 0,
             },
@@ -276,7 +334,10 @@ export default function CenterCustodyPanel({
     if (!canManage) return;
     setEditingTransaction(row);
     setEditDate(row.transactionDate);
+    setEditExpenseKind(row.residentId ? "resident" : "free");
     setEditDescription(row.description);
+    setEditResidentId(row.residentId ?? "");
+    setEditResidentPickerValue(row.residentName);
     setEditUnit(row.unit);
     setEditQuantity(String(row.quantity));
     setEditUnitPrice(String(row.unitPrice));
@@ -293,15 +354,35 @@ export default function CenterCustodyPanel({
     setMessage("");
 
     const isExpense = editingTransaction.kind === "expense";
-    const nextQuantity = isExpense ? Number(editQuantity) : 0;
+    const editUsesResident = isExpense && editExpenseKind === "resident";
+    const editSelectedResident =
+      residents.find((resident) => resident.id === editResidentId) ?? null;
+    const nextQuantity = isExpense
+      ? editUsesResident
+        ? 1
+        : Number(editQuantity)
+      : 0;
     const nextUnitPrice = isExpense ? Number(editUnitPrice) : 0;
     const nextAmount = isExpense
       ? expenseAmount(nextQuantity, nextUnitPrice)
       : Number(editAmount);
     const nextTarget = Number(editTarget);
+    const nextDescription = isExpense
+      ? editUsesResident
+        ? `مصاريف النزلاء - ${editSelectedResident?.name ?? ""}`
+        : editDescription
+      : editDescription || "تجديد عهدة المركز";
 
     if (!editDate) {
       setError("أدخل تاريخ الحركة.");
+      return;
+    }
+    if (editUsesResident && !editSelectedResident) {
+      setError("اختر النزيل الذي تُخصم منه مصاريف النزلاء.");
+      return;
+    }
+    if (isExpense && !editUsesResident && !editDescription.trim()) {
+      setError("أدخل بيان المصروف.");
       return;
     }
     if (isExpense && nextAmount <= 0) {
@@ -323,8 +404,13 @@ export default function CenterCustodyPanel({
         const result = await updateCenterCustodyTransactionAction({
           id: editingTransaction.id,
           transactionDate: editDate,
-          description: editDescription,
-          unit: isExpense ? editUnit : "",
+          description: editUsesResident ? "" : nextDescription,
+          residentId: isExpense
+            ? editUsesResident
+              ? editSelectedResident?.id ?? null
+              : null
+            : null,
+          unit: isExpense && !editUsesResident ? editUnit : "",
           quantity: nextQuantity,
           unitPrice: nextUnitPrice,
           amount: isExpense ? undefined : nextAmount,
@@ -335,6 +421,9 @@ export default function CenterCustodyPanel({
           return;
         }
         setBundle(result.bundle);
+        onResidentChargesChange?.(
+          residentChargesFromTransactions(result.bundle.transactions),
+        );
         setRenewalTarget(String(result.bundle.targetBalance));
       } else {
         const updatedRows = bundle.transactions.map((row) =>
@@ -342,10 +431,18 @@ export default function CenterCustodyPanel({
             ? {
                 ...row,
                 transactionDate: editDate,
-                description: isExpense
-                  ? editDescription
-                  : editDescription || "تجديد عهدة المركز",
-                unit: isExpense ? editUnit : "",
+                description: nextDescription,
+                residentId: isExpense
+                  ? editUsesResident
+                    ? editSelectedResident?.id ?? null
+                    : null
+                  : null,
+                residentName: isExpense
+                  ? editUsesResident
+                    ? editSelectedResident?.name ?? ""
+                    : ""
+                  : "",
+                unit: isExpense && !editUsesResident ? editUnit : "",
                 quantity: nextQuantity,
                 unitPrice: nextUnitPrice,
                 amount: nextAmount,
@@ -357,11 +454,15 @@ export default function CenterCustodyPanel({
           setError(recalculated.error);
           return;
         }
-        setBundle({
+        const nextBundle = {
           targetBalance: nextTarget,
           balance: recalculated.balance,
           transactions: recalculated.rows,
-        });
+        };
+        setBundle(nextBundle);
+        onResidentChargesChange?.(
+          residentChargesFromTransactions(nextBundle.transactions),
+        );
         setRenewalTarget(String(nextTarget));
       }
       setEditingTransaction(null);
@@ -399,6 +500,10 @@ export default function CenterCustodyPanel({
             label: "مصروفات الفترة",
             value: `${money.format(expenseTotal)} ج.م`,
           },
+          {
+            label: "مصاريف النزلاء",
+            value: `${money.format(residentExpenseTotal)} ج.م`,
+          },
         ]}
       />
       <div className="panel-heading">
@@ -406,7 +511,8 @@ export default function CenterCustodyPanel({
           <h3>عهدة المركز</h3>
           <p>
             سجل المصروفات وتجديد الرصيد المستهدف يدويًا. المصروف يُخصم فورًا،
-            والتجديد يقترح الفرق حتى الهدف مع إمكانية تعديله.
+            والتجديد يقترح الفرق حتى الهدف مع إمكانية تعديله. اختر «مصاريف
+            النزلاء» لربط المصروف بحساب نزيل ليظهر في كشف حسابه.
           </p>
         </div>
         <button
@@ -435,6 +541,10 @@ export default function CenterCustodyPanel({
           <strong>{money.format(expenseTotal)} ج.م</strong>
         </div>
         <div className="inventory-summary-card">
+          <span>مصاريف النزلاء بالفترة</span>
+          <strong>{money.format(residentExpenseTotal)} ج.م</strong>
+        </div>
+        <div className="inventory-summary-card">
           <span>مبلغ التجديد المقترح</span>
           <strong>{money.format(currentSuggestedRenewal)} ج.م</strong>
         </div>
@@ -453,35 +563,76 @@ export default function CenterCustodyPanel({
         <>
           <form className="inventory-form no-print" onSubmit={submitExpense}>
             <label className="form-field">
-              البيان
-              <input
-                maxLength={255}
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                required
-              />
+              نوع البيان
+              <select
+                value={expenseKind}
+                onChange={(event) => {
+                  const nextKind =
+                    event.target.value === "resident" ? "resident" : "free";
+                  setExpenseKind(nextKind);
+                  if (nextKind === "resident") {
+                    setQuantity("1");
+                    setUnit("");
+                  }
+                }}
+              >
+                <option value="free">بيان حر</option>
+                <option value="resident" disabled={!residents.length}>
+                  مصاريف النزلاء
+                </option>
+              </select>
             </label>
+            {expenseKind === "free" ? (
+              <label className="form-field">
+                البيان
+                <input
+                  maxLength={255}
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  required
+                />
+              </label>
+            ) : (
+              <label className="form-field">
+                النزيل
+                <ResidentPicker
+                  residents={residents}
+                  value={residentPickerValue}
+                  onChange={(value, resident) => {
+                    setResidentPickerValue(value);
+                    setResidentId(resident?.id ?? "");
+                  }}
+                  placeholder="ابحث باسم النزيل..."
+                  required
+                  disabled={saving}
+                />
+              </label>
+            )}
+            {expenseKind === "free" && (
+              <>
+                <label className="form-field">
+                  الوحدة
+                  <input
+                    maxLength={80}
+                    value={unit}
+                    onChange={(event) => setUnit(event.target.value)}
+                  />
+                </label>
+                <label className="form-field">
+                  الكمية
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="any"
+                    value={quantity}
+                    onChange={(event) => setQuantity(event.target.value)}
+                    required
+                  />
+                </label>
+              </>
+            )}
             <label className="form-field">
-              الوحدة
-              <input
-                maxLength={80}
-                value={unit}
-                onChange={(event) => setUnit(event.target.value)}
-              />
-            </label>
-            <label className="form-field">
-              الكمية
-              <input
-                type="number"
-                min="0.01"
-                step="any"
-                value={quantity}
-                onChange={(event) => setQuantity(event.target.value)}
-                required
-              />
-            </label>
-            <label className="form-field">
-              السعر
+              {expenseKind === "resident" ? "المبلغ المحتسب" : "السعر"}
               <input
                 type="number"
                 min="0"
@@ -502,6 +653,13 @@ export default function CenterCustodyPanel({
             </label>
             <p className="access-note">
               إجمالي المصروف: <strong>{money.format(draftTotal)} ج.م</strong>
+              {expenseKind === "resident" && selectedResident ? (
+                <>
+                  {" "}
+                  — يُخصم من حساب النزيل:{" "}
+                  <strong>{selectedResident.name}</strong>
+                </>
+              ) : null}
               {draftTotal > 0 ? (
                 <>
                   {" "}
@@ -516,7 +674,9 @@ export default function CenterCustodyPanel({
               className="primary-button"
               disabled={
                 saving ||
-                !description.trim() ||
+                (expenseKind === "free"
+                  ? !description.trim()
+                  : !selectedResident) ||
                 !canCoverExpense(bundle.balance, draftTotal)
               }
             >
@@ -636,42 +796,93 @@ export default function CenterCustodyPanel({
                   required
                 />
               </label>
-              <label className="form-field">
-                البيان
-                <input
-                  maxLength={255}
-                  value={editDescription}
-                  onChange={(event) => setEditDescription(event.target.value)}
-                  placeholder={
-                    editingTransaction.kind === "replenishment"
-                      ? "تجديد عهدة المركز"
-                      : "بيان المصروف"
-                  }
-                />
-              </label>
+              {editingTransaction.kind === "expense" && (
+                <label className="form-field">
+                  نوع البيان
+                  <select
+                    value={editExpenseKind}
+                    onChange={(event) => {
+                      const nextKind =
+                        event.target.value === "resident"
+                          ? "resident"
+                          : "free";
+                      setEditExpenseKind(nextKind);
+                      if (nextKind === "resident") {
+                        setEditQuantity("1");
+                        setEditUnit("");
+                      }
+                    }}
+                  >
+                    <option value="free">بيان حر</option>
+                    <option value="resident" disabled={!residents.length}>
+                      مصاريف النزلاء
+                    </option>
+                  </select>
+                </label>
+              )}
+              {editingTransaction.kind === "expense" &&
+              editExpenseKind === "resident" ? (
+                <label className="form-field">
+                  النزيل
+                  <ResidentPicker
+                    residents={residents}
+                    value={editResidentPickerValue}
+                    onChange={(value, resident) => {
+                      setEditResidentPickerValue(value);
+                      setEditResidentId(resident?.id ?? "");
+                    }}
+                    placeholder="ابحث باسم النزيل..."
+                    required
+                    disabled={saving}
+                  />
+                </label>
+              ) : (
+                <label className="form-field">
+                  البيان
+                  <input
+                    maxLength={255}
+                    value={editDescription}
+                    onChange={(event) => setEditDescription(event.target.value)}
+                    placeholder={
+                      editingTransaction.kind === "replenishment"
+                        ? "تجديد عهدة المركز"
+                        : "بيان المصروف"
+                    }
+                    required={editingTransaction.kind === "expense"}
+                  />
+                </label>
+              )}
               {editingTransaction.kind === "expense" ? (
                 <>
+                  {editExpenseKind === "free" && (
+                    <>
+                      <label className="form-field">
+                        الوحدة
+                        <input
+                          maxLength={80}
+                          value={editUnit}
+                          onChange={(event) => setEditUnit(event.target.value)}
+                        />
+                      </label>
+                      <label className="form-field">
+                        الكمية
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="any"
+                          value={editQuantity}
+                          onChange={(event) =>
+                            setEditQuantity(event.target.value)
+                          }
+                          required
+                        />
+                      </label>
+                    </>
+                  )}
                   <label className="form-field">
-                    الوحدة
-                    <input
-                      maxLength={80}
-                      value={editUnit}
-                      onChange={(event) => setEditUnit(event.target.value)}
-                    />
-                  </label>
-                  <label className="form-field">
-                    الكمية
-                    <input
-                      type="number"
-                      min="0.01"
-                      step="any"
-                      value={editQuantity}
-                      onChange={(event) => setEditQuantity(event.target.value)}
-                      required
-                    />
-                  </label>
-                  <label className="form-field">
-                    سعر الوحدة
+                    {editExpenseKind === "resident"
+                      ? "المبلغ المحتسب"
+                      : "سعر الوحدة"}
                     <input
                       type="number"
                       min="0"
@@ -750,6 +961,7 @@ export default function CenterCustodyPanel({
               <tr>
                 <th>التاريخ</th>
                 <th>النوع</th>
+                <th>النزيل</th>
                 <th>البيان</th>
                 <th>الوحدة</th>
                 <th>الكمية</th>
@@ -765,16 +977,19 @@ export default function CenterCustodyPanel({
                 <tr key={row.id}>
                   <td>{formatDate(row.transactionDate)}</td>
                   <td>{row.kind === "expense" ? "مصروف" : "تجديد"}</td>
+                  <td>{row.residentName || "—"}</td>
                   <td>{row.description || "—"}</td>
                   <td>{row.unit || "—"}</td>
                   <td>
-                    {row.kind === "expense"
+                    {row.kind === "expense" && !row.residentId
                       ? money.format(row.quantity)
                       : "—"}
                   </td>
                   <td>
                     {row.kind === "expense"
-                      ? money.format(row.unitPrice)
+                      ? money.format(
+                          row.residentId ? row.amount : row.unitPrice,
+                        )
                       : "—"}
                   </td>
                   <td>{money.format(row.amount)} ج.م</td>
@@ -801,7 +1016,7 @@ export default function CenterCustodyPanel({
               ))}
               {!periodTransactions.length && (
                 <tr>
-                  <td colSpan={canManage ? 10 : 9}>
+                  <td colSpan={canManage ? 11 : 10}>
                     <div className="empty-state">
                       لا توجد حركات في الفترة المحددة.
                     </div>

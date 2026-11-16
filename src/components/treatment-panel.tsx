@@ -13,6 +13,7 @@ import { printCurrentView } from "@/lib/print";
 import { buildResidentAccount } from "@/lib/resident-account";
 import { findResidentByName } from "@/lib/resident-matching";
 import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
+import type { ResidentCustodyCharge } from "@/lib/center-custody-types";
 import type { Resident } from "@/lib/demo-data";
 import type { ResidentFinanceBundle } from "@/lib/resident-finance-types";
 import type { TreatmentBundle, TreatmentDetailEntry } from "@/lib/treatment-types";
@@ -22,6 +23,7 @@ type Props = {
   residents: Resident[];
   residentFinance?: ResidentFinanceBundle;
   sales?: CanteenSalesBundle;
+  custodyCharges?: ResidentCustodyCharge[];
   canManage: boolean;
   onBundleChange: (bundle: TreatmentBundle) => void;
   onOpenStatement?: (resident: Resident) => void;
@@ -42,6 +44,7 @@ export default function TreatmentPanel({
   residents,
   residentFinance,
   sales,
+  custodyCharges,
   canManage,
   onBundleChange,
   onOpenStatement,
@@ -121,9 +124,10 @@ export default function TreatmentPanel({
             residentFinance,
             sales,
             treatment: bundle,
+            custodyCharges,
           })
         : null,
-    [selectedResident, residentFinance, sales, bundle],
+    [selectedResident, residentFinance, sales, bundle, custodyCharges],
   );
 
   const recordAccounts = useMemo(() => {
@@ -142,6 +146,7 @@ export default function TreatmentPanel({
         residentFinance,
         sales,
         treatment: bundle,
+        custodyCharges,
       });
       accounts.set(record.residentNumber, {
         resident,
@@ -150,7 +155,7 @@ export default function TreatmentPanel({
       });
     }
     return accounts;
-  }, [bundle, residents, residentFinance, sales]);
+  }, [bundle, residents, residentFinance, sales, custodyCharges]);
 
   const liveCalculatedTotal = useMemo(() => {
     const amt = parseFloat(amount) || 0;

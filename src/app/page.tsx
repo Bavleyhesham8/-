@@ -22,6 +22,7 @@ import { listStaffAttendanceForCurrentUser } from "@/lib/staff-attendance-data";
 import { listAuditLogsForAdministrator } from "@/lib/audit-log-data";
 import { listLookupDataForCurrentUser } from "@/lib/lookup-data";
 import { listResidentFinanceForAdministrator } from "@/lib/resident-finance-data";
+import { listResidentCustodyChargesForCurrentUser } from "@/lib/center-custody-data";
 import { listTreatmentForCurrentUser } from "@/lib/treatment-data";
 import { hasScreenAccess } from "@/lib/access-control";
 import CenterDashboard from "@/components/center-dashboard";
@@ -93,6 +94,14 @@ async function DashboardPage() {
     hasScreenAccess(role, allowedScreens, screen);
   const canAccessAny = (...screens: Parameters<typeof hasScreenAccess>[2][]) =>
     screens.some(canAccessScreen);
+  const canViewResidentCustodyCharges = canAccessAny(
+    "custody",
+    "resident-finance",
+    "residents",
+    "resident-reports",
+    "resident-search",
+    "rooms",
+  );
   const needsResidents = canAccessAny(
     "overview",
     "residents",
@@ -123,6 +132,7 @@ async function DashboardPage() {
     lookups,
     residentFinance,
     treatment,
+    residentCustodyCharges,
   ] =
     await Promise.all([
       needsResidents ? listResidentsForCurrentUser() : Promise.resolve([]),
@@ -154,6 +164,9 @@ async function DashboardPage() {
       canAccessScreen("treatment")
         ? listTreatmentForCurrentUser()
         : Promise.resolve(undefined),
+      canViewResidentCustodyCharges
+        ? listResidentCustodyChargesForCurrentUser()
+        : Promise.resolve([]),
     ]);
   const staffAttendance = canAccessScreen("staff-attendance")
     ? await listStaffAttendanceForCurrentUser()
@@ -197,6 +210,7 @@ async function DashboardPage() {
       initialLookups={lookups}
       initialResidentFinance={residentFinance}
       initialTreatment={treatment}
+      initialResidentCustodyCharges={residentCustodyCharges}
     />
   );
 }

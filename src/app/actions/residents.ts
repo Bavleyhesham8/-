@@ -71,6 +71,7 @@ const residentAdminDraftSchema = residentBaseDraftSchema.extend({
   incompleteStay: z.boolean().default(false),
   followUp: z.boolean().default(false),
   graduated: z.boolean().default(false),
+  imagePath: z.string().trim().max(400_000).default(""),
 });
 
 const idSchema = z.string().uuid();
@@ -162,6 +163,7 @@ export async function saveResidentAction(
       incompleteStay: false,
       followUp: false,
       graduated: false,
+      imagePath: "",
     };
   }
 
@@ -182,10 +184,11 @@ export async function saveResidentAction(
   }
 
   const database = getDatabase();
+  let photoUpdated = false;
   const result = await database.transaction(async (transaction) => {
     const [existing] = id?.success
       ? await transaction
-          .select({ id: residents.id })
+          .select({ id: residents.id, imagePath: residents.imagePath })
           .from(residents)
           .where(eq(residents.id, id.data))
           .limit(1)
@@ -230,9 +233,23 @@ export async function saveResidentAction(
       }
     }
 
+    const requestedImagePath = isAdministrator ? draft.imagePath.trim() : "";
+    const nextImagePath = !isAdministrator
+      ? undefined
+      : requestedImagePath.startsWith("data:image/")
+        ? requestedImagePath
+        : requestedImagePath === ""
+          ? ""
+          : (existing?.imagePath ?? "");
+    photoUpdated =
+      isAdministrator &&
+      nextImagePath !== undefined &&
+      nextImagePath !== (existing?.imagePath ?? "");
+
     const residentValues = {
       fileNumber: draft.fileNumber.normalize("NFC").toLocaleUpperCase("en-US"),
       name: draft.name,
+      ...(isAdministrator ? { imagePath: nextImagePath ?? "" } : {}),
       updatedAt: new Date(),
     };
 
@@ -272,6 +289,7 @@ export async function saveResidentAction(
           incompleteStay: draft.incompleteStay || false,
           followUp: draft.followUp || false,
           graduated: draft.graduated || false,
+          imagePath: nextImagePath ?? "",
         }
       : undefined;
 
@@ -307,6 +325,7 @@ export async function saveResidentAction(
             incompleteStay: profileValues?.incompleteStay ?? false,
             followUp: profileValues?.followUp ?? false,
             graduated: profileValues?.graduated ?? false,
+            imagePath: profileValues?.imagePath ?? "",
             createdBy: currentSession.user.id,
           })
           .returning({ id: residents.id });
@@ -352,7 +371,11 @@ export async function saveResidentAction(
     action: id?.success ? "update" : "create",
     entity: "residents",
     entityId: result.residentId,
-    metadata: { fields: "residentProfile,stay" },
+    metadata: {
+      fields: photoUpdated
+        ? "residentProfile,stay,photo"
+        : "residentProfile,stay",
+    },
   });
   const resident = await getResidentRecord(result.residentId);
   if (!resident) throw new Error("Saved resident could not be reloaded.");

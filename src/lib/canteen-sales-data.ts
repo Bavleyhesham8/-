@@ -33,12 +33,18 @@ export async function listCanteenSalesForAdministrator(): Promise<CanteenSalesBu
         price: sql<number>`case when ${residentPurchases.price} > 0 then ${residentPurchases.price} else coalesce(${canteenProducts.price}, ${residentPurchases.price}) end`,
         addToResidentAccount: residentPurchases.addToResidentAccount,
         canteenItemNumber: residentPurchases.canteenItemNumber,
+        categoryId: residentPurchases.categoryId,
+        categoryName: sql<string>`coalesce(${invoiceCategories.name}, '')`,
         needsReview: residentPurchases.needsReview,
       })
       .from(residentPurchases)
       .leftJoin(
         canteenProducts,
         eq(canteenProducts.itemNumber, residentPurchases.canteenItemNumber),
+      )
+      .leftJoin(
+        invoiceCategories,
+        eq(invoiceCategories.id, residentPurchases.categoryId),
       )
       .orderBy(residentPurchases.itemName),
     database

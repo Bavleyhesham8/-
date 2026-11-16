@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import type { AuditLogEntry } from "@/lib/audit-log-types";
 
 type Props = {
@@ -62,6 +63,10 @@ const timeFormatter = new Intl.DateTimeFormat("ar-EG-u-nu-latn", {
   timeZone: "Africa/Cairo",
 });
 
+function normalizeSearch(value: string) {
+  return value.normalize("NFC").toLocaleLowerCase("ar");
+}
+
 function formatEntity(value: string) {
   return (
     entityLabels[value] ??
@@ -87,14 +92,61 @@ function Timestamp({ value }: { value: string }) {
   );
 }
 
+function searchableText(entry: AuditLogEntry) {
+  const date = new Date(entry.occurredAt);
+  const timestamp = Number.isFinite(date.getTime())
+    ? `${dateFormatter.format(date)} ${timeFormatter.format(date)}`
+    : entry.occurredAt;
+  const metadata = entry.metadata
+    ? Object.entries(entry.metadata)
+        .map(([key, value]) => `${key} ${value}`)
+        .join(" ")
+    : "";
+
+  return normalizeSearch(
+    [
+      entry.actorName ?? "حساب غير متاح",
+      entry.action,
+      actionLabels[entry.action] ?? "",
+      entry.entity,
+      entityLabels[entry.entity] ?? formatEntity(entry.entity),
+      entry.entityId ?? "",
+      metadata,
+      timestamp,
+      entry.occurredAt,
+    ].join(" "),
+  );
+}
+
 export default function AuditLogPanel({ entries, onRefresh }: Props) {
+  const [search, setSearch] = useState("");
+  const [action, setAction] = useState("all");
+
+  const actionOptions = useMemo(
+    () =>
+      Array.from(new Set(entries.map((entry) => entry.action))).sort((a, b) =>
+        (actionLabels[a] ?? a).localeCompare(actionLabels[b] ?? b, "ar"),
+      ),
+    [entries],
+  );
+
+  const filteredEntries = useMemo(() => {
+    const query = normalizeSearch(search.trim());
+    return entries.filter((entry) => {
+      if (action !== "all" && entry.action !== action) return false;
+      if (!query) return true;
+      return searchableText(entry).includes(query);
+    });
+  }, [entries, search, action]);
+
   return (
     <section className="audit-log-panel" dir="rtl">
       <div className="audit-log-heading">
         <div>
           <h3>سجل التدقيق</h3>
           <p>
-            يعرض آخر 200 عملية مع المنفذ ونوع السجل، دون حفظ قيم بياناته الحساسة.
+            يعرض آخر 200 عملية مع المنفذ ونوع السجل، دون حفظ قيم بياناته
+            الحساسة. استخدم البحث لمعرفة من نفّذ أي عملية.
           </p>
         </div>
         <button
@@ -105,9 +157,50 @@ export default function AuditLogPanel({ entries, onRefresh }: Props) {
           تحديث السجل
         </button>
         <span className="audit-log-count" aria-live="polite">
+          {new Intl.NumberFormat("ar-EG").format(filteredEntries.length)} من{" "}
           {new Intl.NumberFormat("ar-EG").format(entries.length)} سجل معروض
         </span>
       </div>
+
+      <div className="audit-log-filters">
+        <label className="form-field">
+          بحث باسم المستخدم أو نوع العملية أو السجل
+          <input
+            type="search"
+            value={search}
+            maxLength={200}
+            placeholder="مثال: أحمد، إضافة، فواتير بيع اللحوم..."
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+        <label className="form-field">
+          العملية
+          <select
+            value={action}
+            onChange={(event) => setAction(event.target.value)}
+          >
+            <option value="all">كل العمليات</option>
+            {actionOptions.map((option) => (
+              <option key={option} value={option}>
+                {actionLabels[option] ?? option}
+              </option>
+            ))}
+          </select>
+        </label>
+        {(search || action !== "all") && (
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              setSearch("");
+              setAction("all");
+            }}
+          >
+            مسح البحث
+          </button>
+        )}
+      </div>
+
       <div className="audit-log-table-wrap">
         <table className="audit-log-table">
           <thead>
@@ -120,7 +213,7 @@ export default function AuditLogPanel({ entries, onRefresh }: Props) {
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => (
+            {filteredEntries.map((entry) => (
               <tr key={entry.id}>
                 <td><Timestamp value={entry.occurredAt} /></td>
                 <td className="audit-log-actor">{entry.actorName ?? "حساب غير متاح"}</td>
@@ -141,10 +234,12 @@ export default function AuditLogPanel({ entries, onRefresh }: Props) {
                 </td>
               </tr>
             ))}
-            {entries.length === 0 && (
+            {filteredEntries.length === 0 && (
               <tr>
                 <td className="audit-log-empty" colSpan={5}>
-                  لا توجد عمليات مسجلة حتى الآن.
+                  {entries.length === 0
+                    ? "لا توجد عمليات مسجلة حتى الآن."
+                    : "لا توجد نتائج مطابقة للبحث أو للعملية المحددة."}
                 </td>
               </tr>
             )}

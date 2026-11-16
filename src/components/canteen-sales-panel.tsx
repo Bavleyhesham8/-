@@ -6,6 +6,8 @@ import { printCurrentView, printSingleRecord } from "@/lib/print";
 import { useMemo, useState, type FormEvent } from "react";
 import {
   createResidentInvoiceAction,
+  deleteCanteenSalesItemAction,
+  deleteInvoiceCategoryAction,
   recordInvoicePaymentAction,
   saveCanteenSalesItemAction,
   saveInvoiceCategoryAction,
@@ -89,6 +91,10 @@ export default function CanteenSalesPanel({
   const [itemPrice, setItemPrice] = useState("");
   const [itemStockNumber, setItemStockNumber] = useState("");
   const [itemAddFlag, setItemAddFlag] = useState(false);
+  const [itemCategoryId, setItemCategoryId] = useState("");
+  const [saleCategoryFilter, setSaleCategoryFilter] = useState("");
+  const [catalogCategoryFilter, setCatalogCategoryFilter] = useState("");
+  const [catalogSearch, setCatalogSearch] = useState("");
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [categoryName, setCategoryName] = useState("");
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
@@ -100,6 +106,7 @@ export default function CanteenSalesPanel({
   const [confirmRefund, setConfirmRefund] = useState(false);
   const [historyResidentId, setHistoryResidentId] = useState("");
   const [historyItemName, setHistoryItemName] = useState("");
+  const [historyCategoryId, setHistoryCategoryId] = useState("");
   const [historyFromDate, setHistoryFromDate] = useState("");
   const [historyToDate, setHistoryToDate] = useState("");
   const [historySaleType, setHistorySaleType] = useState<
@@ -137,6 +144,7 @@ export default function CanteenSalesPanel({
       filterCanteenInvoices(sales.invoices, {
         residentId: historyResidentId,
         itemName: historyItemName,
+        categoryId: historyCategoryId,
         fromDate: historyFromDate,
         toDate: historyToDate,
         saleType: historySaleType,
@@ -145,6 +153,7 @@ export default function CanteenSalesPanel({
       sales.invoices,
       historyResidentId,
       historyItemName,
+      historyCategoryId,
       historyFromDate,
       historyToDate,
       historySaleType,
@@ -178,6 +187,13 @@ export default function CanteenSalesPanel({
       : "الفترة: كل الحركات",
     historyResidentLabel ? `النزيل: ${historyResidentLabel}` : null,
     historyItemName.trim() ? `الصنف: ${historyItemName.trim()}` : null,
+    historyCategoryId
+      ? `الفئة: ${
+          sales.categories.find(
+            (category) => String(category.id) === historyCategoryId,
+          )?.name ?? ""
+        }`
+      : null,
     historySaleType === "cash"
       ? "النوع: بيع نقدي"
       : historySaleType === "resident"
@@ -211,7 +227,11 @@ export default function CanteenSalesPanel({
   const canCreateInvoice =
     !!sales.items.length &&
     preparedLines.every(
-      (line) => line.catalogItem && line.quantity > 0 && line.validTotal,
+      (line) =>
+        line.catalogItem &&
+        line.quantity > 0 &&
+        line.validTotal &&
+        Boolean(line.draft.categoryId),
     ) &&
     draftTotal > 0;
 
@@ -420,16 +440,19 @@ export default function CanteenSalesPanel({
     const canteenItemNumber = itemStockNumber
       ? Number(itemStockNumber)
       : null;
+    const categoryId = itemCategoryId ? Number(itemCategoryId) : null;
     if (
       !itemName.trim() ||
       !Number.isFinite(price) ||
       price < 0 ||
+      categoryId === null ||
+      !sales.categories.some((category) => category.id === categoryId) ||
       (canteenItemNumber !== null &&
         !canteen.products.some(
           (item) => item.itemNumber === canteenItemNumber,
         ))
     ) {
-      setError("أدخل اسمًا وسعرًا صحيحين واختر صنف مخزون موجودًا.");
+      setError("أدخل اسمًا وسعرًا صحيحين واختر فئة للصنف.");
       return;
     }
     setSaving(true);
@@ -441,6 +464,7 @@ export default function CanteenSalesPanel({
           price,
           addToResidentAccount: itemAddFlag,
           canteenItemNumber,
+          categoryId,
         });
         if (!result.ok) {
           setError(result.error);
@@ -459,6 +483,10 @@ export default function CanteenSalesPanel({
           price,
           addToResidentAccount: itemAddFlag,
           canteenItemNumber,
+          categoryId,
+          categoryName:
+            sales.categories.find((category) => category.id === categoryId)
+              ?.name ?? "",
         };
         onSalesChange((current) => ({
           ...current,
@@ -472,6 +500,7 @@ export default function CanteenSalesPanel({
       setItemPrice("");
       setItemStockNumber("");
       setItemAddFlag(false);
+      setItemCategoryId("");
     } catch {
       setError("تعذر حفظ صنف المشتريات.");
     } finally {
@@ -516,6 +545,64 @@ export default function CanteenSalesPanel({
       setEditingCategoryId(null);
     } catch {
       setError("تعذر حفظ الفئة.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeSalesItem(id: number, name: string) {
+    if (!window.confirm(`حذف الصنف «${name}»؟ لا يمكن التراجع.`)) return;
+    setError("");
+    setSaving(true);
+    try {
+      if (persistent) {
+        const result = await deleteCanteenSalesItemAction(id);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+      }
+      onSalesChange((current) => ({
+        ...current,
+        items: current.items.filter((item) => item.id !== id),
+      }));
+      if (editingItemId === id) {
+        setEditingItemId(null);
+        setItemName("");
+        setItemPrice("");
+        setItemStockNumber("");
+        setItemAddFlag(false);
+        setItemCategoryId("");
+      }
+    } catch {
+      setError("تعذر حذف الصنف.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeCategory(id: number, name: string) {
+    if (!window.confirm(`حذف الفئة «${name}»؟ لا يمكن التراجع.`)) return;
+    setError("");
+    setSaving(true);
+    try {
+      if (persistent) {
+        const result = await deleteInvoiceCategoryAction(id);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+      }
+      onSalesChange((current) => ({
+        ...current,
+        categories: current.categories.filter((category) => category.id !== id),
+      }));
+      if (editingCategoryId === id) {
+        setEditingCategoryId(null);
+        setCategoryName("");
+      }
+    } catch {
+      setError("تعذر حذف الفئة.");
     } finally {
       setSaving(false);
     }
@@ -794,6 +881,21 @@ export default function CanteenSalesPanel({
             <input type="number" value={draftTotal} readOnly />
           </label>}
 
+          <label className="form-field">
+            تصفية الأصناف بالفئة
+            <select
+              value={saleCategoryFilter}
+              onChange={(event) => setSaleCategoryFilter(event.target.value)}
+            >
+              <option value="">كل الفئات</option>
+              {sales.categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <div className="sales-lines">
             {preparedLines.map((line, index) => (
               <div className="sales-line" key={index}>
@@ -802,16 +904,31 @@ export default function CanteenSalesPanel({
                   <select
                     required
                     value={line.draft.catalogId}
-                    onChange={(event) =>
-                      updateDraftLine(index, { catalogId: event.target.value })
-                    }
+                    onChange={(event) => {
+                      const item = sales.items.find(
+                        (entry) => String(entry.id) === event.target.value,
+                      );
+                      updateDraftLine(index, {
+                        catalogId: event.target.value,
+                        categoryId: item?.categoryId
+                          ? String(item.categoryId)
+                          : "",
+                      });
+                    }}
                   >
                     <option value="">اختر الصنف</option>
-                    {sales.items.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} — {numberFormatter.format(item.price)}
-                      </option>
-                    ))}
+                    {sales.items
+                      .filter(
+                        (item) =>
+                          !saleCategoryFilter ||
+                          String(item.categoryId ?? "") === saleCategoryFilter,
+                      )
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} — {numberFormatter.format(item.price)}
+                          {item.categoryName ? ` — ${item.categoryName}` : ""}
+                        </option>
+                      ))}
                   </select>
                 </label>
                 <label className="form-field">
@@ -827,45 +944,44 @@ export default function CanteenSalesPanel({
                     }
                   />
                 </label>
+                <label className="form-field">
+                  فئة الصنف
+                  <select
+                    required
+                    value={line.draft.categoryId}
+                    onChange={(event) =>
+                      updateDraftLine(index, { categoryId: event.target.value })
+                    }
+                  >
+                    <option value="">اختر الفئة</option>
+                    {sales.categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 {saleMode === "grouped" && (
-                  <>
-                    <label className="form-field">
-                      فئة الصنف
-                      <select
-                        value={line.draft.categoryId}
-                        onChange={(event) =>
-                          updateDraftLine(index, { categoryId: event.target.value })
-                        }
-                      >
-                        <option value="">بدون فئة</option>
-                        {sales.categories.map((category) => (
-                          <option key={category.id} value={category.id}>
+                  <label className="form-field">
+                    فئة المصدر القديمة
+                    <select
+                      value={line.draft.alternateCategory}
+                      onChange={(event) =>
+                        updateDraftLine(index, {
+                          alternateCategory: event.target.value,
+                        })
+                      }
+                    >
+                      <option value="">بدون فئة بديلة</option>
+                      {lookups.alternateCategories.map((category) =>
+                        category.name ? (
+                          <option key={category.id} value={category.name}>
                             {category.name}
                           </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="form-field">
-                      فئة المصدر القديمة
-                      <select
-                        value={line.draft.alternateCategory}
-                        onChange={(event) =>
-                          updateDraftLine(index, {
-                            alternateCategory: event.target.value,
-                          })
-                        }
-                      >
-                        <option value="">بدون فئة بديلة</option>
-                        {lookups.alternateCategories.map((category) =>
-                          category.name ? (
-                            <option key={category.id} value={category.name}>
-                              {category.name}
-                            </option>
-                          ) : null,
-                        )}
-                      </select>
-                    </label>
-                  </>
+                        ) : null,
+                      )}
+                    </select>
+                  </label>
                 )}
                 <span className="sales-line-total">
                   الإجمالي:{" "}
@@ -975,6 +1091,21 @@ export default function CanteenSalesPanel({
               />
             </label>
             <label className="form-field">
+              فئة الصنف *
+              <select
+                required
+                value={itemCategoryId}
+                onChange={(event) => setItemCategoryId(event.target.value)}
+              >
+                <option value="">اختر الفئة</option>
+                {sales.categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-field">
               صنف المخزون المرتبط
               <select
                 value={itemStockNumber}
@@ -1017,11 +1148,36 @@ export default function CanteenSalesPanel({
             </button>
           </form>
 
+          <div className="sales-catalog-filters">
+            <label className="form-field">
+              بحث باسم الصنف
+              <input
+                value={catalogSearch}
+                onChange={(event) => setCatalogSearch(event.target.value)}
+                placeholder="ابحث..."
+              />
+            </label>
+            <label className="form-field">
+              تصفية بالفئة
+              <select
+                value={catalogCategoryFilter}
+                onChange={(event) => setCatalogCategoryFilter(event.target.value)}
+              >
+                <option value="">كل الفئات</option>
+                {sales.categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="table-wrap">
             <table className="resident-table inventory-table">
               <thead>
                 <tr>
                   <th scope="col">الصنف</th>
+                  <th scope="col">الفئة</th>
                   <th scope="col">السعر</th>
                   <th scope="col">اضافة</th>
                   <th scope="col">الارتباط بالمخزون</th>
@@ -1030,9 +1186,19 @@ export default function CanteenSalesPanel({
                 </tr>
               </thead>
               <tbody>
-                {sales.items.map((item) => (
+                {sales.items
+                  .filter(
+                    (item) =>
+                      (!catalogCategoryFilter ||
+                        String(item.categoryId ?? "") ===
+                          catalogCategoryFilter) &&
+                      (!catalogSearch.trim() ||
+                        item.name.includes(catalogSearch.trim())),
+                  )
+                  .map((item) => (
                   <tr key={item.id}>
                     <td>{item.name}</td>
+                    <td>{item.categoryName || "بدون فئة"}</td>
                     <td>{numberFormatter.format(item.price)}</td>
                     <td>{item.addToResidentAccount ? "نعم" : "لا"}</td>
                     <td>
@@ -1043,24 +1209,33 @@ export default function CanteenSalesPanel({
                     </td>
                     <td>{item.needsReview || item.price <= 0 ? "يحتاج مراجعة" : "سليم"}</td>
                     <td>
-                      <button
-                        className="table-action"
-                        disabled={saving}
-                        onClick={() => {
-                          setEditingItemId(item.id);
-                          setItemName(item.name);
-                          setItemPrice(String(item.price));
-                          setItemStockNumber(item.canteenItemNumber?.toString() ?? "");
-                          setItemAddFlag(item.addToResidentAccount);
-                        }}
-                        type="button"
-                      >تعديل</button>
+                      <div className="action-group">
+                        <button
+                          className="table-action"
+                          disabled={saving}
+                          onClick={() => {
+                            setEditingItemId(item.id);
+                            setItemName(item.name);
+                            setItemPrice(String(item.price));
+                            setItemStockNumber(item.canteenItemNumber?.toString() ?? "");
+                            setItemAddFlag(item.addToResidentAccount);
+                            setItemCategoryId(item.categoryId?.toString() ?? "");
+                          }}
+                          type="button"
+                        >تعديل</button>
+                        <button
+                          className="table-action danger-action"
+                          disabled={saving}
+                          onClick={() => void removeSalesItem(item.id, item.name)}
+                          type="button"
+                        >حذف</button>
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {!sales.items.length && (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={7}>
                       <div className="empty-state">لا توجد أصناف مسجلة.</div>
                     </td>
                   </tr>
@@ -1083,22 +1258,34 @@ export default function CanteenSalesPanel({
                     <td>{category.id}</td>
                     <td>{category.name}</td>
                     <td>
-                      <button
-                        className="table-action"
-                        type="button"
-                        onClick={() => {
-                          setEditingCategoryId(category.id);
-                          setCategoryName(category.name);
-                        }}
-                      >
-                        تعديل
-                      </button>
+                      <div className="action-group">
+                        <button
+                          className="table-action"
+                          type="button"
+                          onClick={() => {
+                            setEditingCategoryId(category.id);
+                            setCategoryName(category.name);
+                          }}
+                        >
+                          تعديل
+                        </button>
+                        <button
+                          className="table-action danger-action"
+                          type="button"
+                          disabled={saving}
+                          onClick={() =>
+                            void removeCategory(category.id, category.name)
+                          }
+                        >
+                          حذف
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {!sales.categories.length && (
                   <tr>
-                    <td colSpan={2}>
+                    <td colSpan={3}>
                       <div className="empty-state">لا توجد فئات مسجلة.</div>
                     </td>
                   </tr>
@@ -1126,6 +1313,7 @@ export default function CanteenSalesPanel({
                 onClick={() => {
                   setHistoryResidentId("");
                   setHistoryItemName("");
+                  setHistoryCategoryId("");
                   setHistoryFromDate("");
                   setHistoryToDate("");
                   setHistorySaleType("all");
@@ -1174,6 +1362,20 @@ export default function CanteenSalesPanel({
                 {historyItemNames.map((name) => (
                   <option key={name} value={name}>
                     {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              الفئة
+              <select
+                value={historyCategoryId}
+                onChange={(event) => setHistoryCategoryId(event.target.value)}
+              >
+                <option value="">كل الفئات</option>
+                {sales.categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
                   </option>
                 ))}
               </select>

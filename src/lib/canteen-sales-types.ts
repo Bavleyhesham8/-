@@ -4,6 +4,8 @@ export type CanteenSalesItem = {
   price: number;
   addToResidentAccount: boolean;
   canteenItemNumber: number | null;
+  categoryId: number | null;
+  categoryName: string;
   needsReview?: boolean;
 };
 

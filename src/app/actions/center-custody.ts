@@ -3,7 +3,7 @@
 import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
-import { centerCustodyTransactions } from "@/db/schema";
+import { centerCustodyTransactions, residents } from "@/db/schema";
 import {
   requireAnyStaffPermission,
   requireScreenAccess,
@@ -19,11 +19,26 @@ import type { CenterCustodyBundle } from "@/lib/center-custody-types";
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const entrySchema = z.object({
   transactionDate: dateSchema,
-  description: z.string().trim().min(1).max(255),
+  description: z.string().trim().max(255).default(""),
+  residentId: z.string().uuid().nullable().optional(),
   unit: z.string().trim().max(80).default(""),
   quantity: z.number().finite().positive().max(1_000_000),
   unitPrice: z.number().finite().nonnegative().max(1_000_000_000),
 });
+
+async function residentNameFor(
+  transaction: Parameters<
+    Parameters<ReturnType<typeof getDatabase>["transaction"]>[0]
+  >[0],
+  residentId: string,
+) {
+  const [resident] = await transaction
+    .select({ name: residents.name })
+    .from(residents)
+    .where(eq(residents.id, residentId))
+    .limit(1);
+  return resident?.name ?? null;
+}
 
 async function withFundLock<T>(work: (transaction: Parameters<Parameters<ReturnType<typeof getDatabase>["transaction"]>[0]>[0]) => Promise<T>) {
   return getDatabase().transaction(async (transaction) => {
@@ -60,10 +75,16 @@ export async function getCenterCustodyBundleAction(): Promise<CenterCustodyBundl
       quantity: centerCustodyTransactions.quantity,
       unitPrice: centerCustodyTransactions.unitPrice,
       amount: centerCustodyTransactions.amount,
+      residentId: centerCustodyTransactions.residentId,
+      residentName: sql<string>`coalesce(${residents.name}, '')`,
       targetBalance: centerCustodyTransactions.targetBalance,
       balanceAfter: centerCustodyTransactions.balanceAfter,
     })
     .from(centerCustodyTransactions)
+    .leftJoin(
+      residents,
+      eq(residents.id, centerCustodyTransactions.residentId),
+    )
     .orderBy(
       asc(centerCustodyTransactions.transactionDate),
       asc(centerCustodyTransactions.createdAt),
@@ -91,17 +112,30 @@ export async function recordCenterCustodyExpenseAction(input: unknown) {
   const session = await requireAnyStaffPermission("canManageCustody", "canManageWarehouse");
   const parsed = entrySchema.safeParse(input);
   if (!parsed.success) return { ok: false as const, error: "راجع البيان والوحدة والكمية والسعر والتاريخ." };
+  if (!parsed.data.residentId && !parsed.data.description) {
+    return { ok: false as const, error: "أدخل بيان المصروف أو اختر مصاريف النزلاء." };
+  }
   const amount = expenseAmount(parsed.data.quantity, parsed.data.unitPrice);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false as const, error: "إجمالي المصروف غير صالح." };
 
   const result = await withFundLock(async (transaction) => {
     const current = await readBalance(transaction);
     if (amount > current.balance + 1e-9) return { error: "المصروف أكبر من الرصيد المتاح في عهدة المركز." } as const;
+    const residentName = parsed.data.residentId
+      ? await residentNameFor(transaction, parsed.data.residentId)
+      : null;
+    if (parsed.data.residentId && !residentName) {
+      return { error: "لم يتم العثور على النزيل المرتبط بالمصروف." } as const;
+    }
+    const description = residentName
+      ? `مصاريف النزلاء - ${residentName.normalize("NFC")}`
+      : parsed.data.description.normalize("NFC");
     const balanceAfter = roundMoney(current.balance - amount);
     const [row] = await transaction.insert(centerCustodyTransactions).values({
       kind: "expense",
       transactionDate: parsed.data.transactionDate,
-      description: parsed.data.description.normalize("NFC"),
+      description,
+      residentId: parsed.data.residentId ?? null,
       unit: parsed.data.unit.normalize("NFC"),
       quantity: parsed.data.quantity,
       unitPrice: parsed.data.unitPrice,
@@ -113,7 +147,7 @@ export async function recordCenterCustodyExpenseAction(input: unknown) {
     return { id: row!.id, balanceAfter } as const;
   });
   if ("error" in result) return { ok: false as const, error: result.error };
-  await recordAuditEvent({ actorUserId: session.user.id, action: "create", entity: "centerCustodyTransactions", entityId: result.id, metadata: { fields: "description,quantity,unitPrice,amount,transactionDate" } });
+  await recordAuditEvent({ actorUserId: session.user.id, action: "create", entity: "centerCustodyTransactions", entityId: result.id, metadata: { fields: parsed.data.residentId ? "residentId,description,quantity,unitPrice,amount,transactionDate" : "description,quantity,unitPrice,amount,transactionDate" } });
   return { ok: true as const, bundle: await getCenterCustodyBundleAction() };
 }
 
@@ -146,6 +180,7 @@ const updateEntrySchema = z.object({
   id: z.string().uuid(),
   transactionDate: dateSchema,
   description: z.string().trim().max(255).default(""),
+  residentId: z.string().uuid().nullable().optional(),
   unit: z.string().trim().max(80).default(""),
   quantity: z.number().finite().nonnegative().max(1_000_000).default(0),
   unitPrice: z.number().finite().nonnegative().max(1_000_000_000).default(0),
@@ -178,6 +213,7 @@ export async function updateCenterCustodyTransactionAction(input: unknown) {
         quantity: centerCustodyTransactions.quantity,
         unitPrice: centerCustodyTransactions.unitPrice,
         amount: centerCustodyTransactions.amount,
+        residentId: centerCustodyTransactions.residentId,
         targetBalance: centerCustodyTransactions.targetBalance,
         balanceAfter: centerCustodyTransactions.balanceAfter,
       })
@@ -214,13 +250,34 @@ export async function updateCenterCustodyTransactionAction(input: unknown) {
 
     const nextTargetBalance =
       parsed.data.targetBalance ?? target.targetBalance;
+    const nextResidentId =
+      parsed.data.residentId !== undefined
+        ? parsed.data.residentId
+        : target.residentId;
+    const nextResidentName = nextResidentId
+      ? await residentNameFor(transaction, nextResidentId)
+      : null;
+    if (nextResidentId && !nextResidentName) {
+      return { error: "لم يتم العثور على النزيل المرتبط بالمصروف." } as const;
+    }
+    if (
+      target.kind === "expense" &&
+      !nextResidentId &&
+      !parsed.data.description
+    ) {
+      return { error: "أدخل بيان المصروف أو اختر مصاريف النزلاء." } as const;
+    }
+    const nextExpenseDescription = nextResidentName
+      ? `مصاريف النزلاء - ${nextResidentName.normalize("NFC")}`
+      : parsed.data.description.normalize("NFC");
     const updatedRows = rows.map((row) => {
       if (row.id !== target.id) return row;
       if (row.kind === "expense") {
         return {
           ...row,
           transactionDate: parsed.data.transactionDate,
-          description: parsed.data.description.normalize("NFC"),
+          description: nextExpenseDescription,
+          residentId: nextResidentId ?? null,
           unit: parsed.data.unit.normalize("NFC"),
           quantity: parsed.data.quantity,
           unitPrice: parsed.data.unitPrice,
@@ -251,6 +308,7 @@ export async function updateCenterCustodyTransactionAction(input: unknown) {
         .set({
           transactionDate: row.transactionDate,
           description: row.description,
+          residentId: row.kind === "expense" ? row.residentId : null,
           unit: row.unit,
           quantity: row.quantity,
           unitPrice: row.unitPrice,
@@ -274,7 +332,7 @@ export async function updateCenterCustodyTransactionAction(input: unknown) {
     entityId: parsed.data.id,
     metadata: {
       fields:
-        "transactionDate,description,unit,quantity,unitPrice,amount,targetBalance,balanceAfter",
+        "transactionDate,description,residentId,unit,quantity,unitPrice,amount,targetBalance,balanceAfter",
     },
   });
   return {

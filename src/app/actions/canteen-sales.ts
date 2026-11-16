@@ -47,6 +47,7 @@ const purchaseSchema = z.object({
   price: z.number().finite().min(0).max(1_000_000_000),
   addToResidentAccount: z.boolean(),
   canteenItemNumber: z.number().int().positive().nullable(),
+  categoryId: z.number().int().positive(),
 });
 
 const categorySchema = z.object({
@@ -101,6 +102,14 @@ export async function saveCanteenSalesItemAction(
   }
   const name = parsed.data.name.normalize("NFC");
   const database = getDatabase();
+  const [category] = await database
+    .select({ id: invoiceCategories.id, name: invoiceCategories.name })
+    .from(invoiceCategories)
+    .where(eq(invoiceCategories.id, parsed.data.categoryId))
+    .limit(1);
+  if (!category) {
+    return { ok: false, error: "اختر فئة صالحة للصنف." };
+  }
   if (parsed.data.canteenItemNumber !== null) {
     const [product] = await database
       .select({ itemNumber: canteenProducts.itemNumber })
@@ -127,6 +136,7 @@ export async function saveCanteenSalesItemAction(
     price: parsed.data.price,
     addToResidentAccount: parsed.data.addToResidentAccount,
     canteenItemNumber: parsed.data.canteenItemNumber,
+    categoryId: parsed.data.categoryId,
     needsReview: false,
   };
   const [saved] = id === null
@@ -138,6 +148,7 @@ export async function saveCanteenSalesItemAction(
           price: residentPurchases.price,
           addToResidentAccount: residentPurchases.addToResidentAccount,
           canteenItemNumber: residentPurchases.canteenItemNumber,
+          categoryId: residentPurchases.categoryId,
           needsReview: residentPurchases.needsReview,
         })
     : await database.update(residentPurchases)
@@ -149,6 +160,7 @@ export async function saveCanteenSalesItemAction(
           price: residentPurchases.price,
           addToResidentAccount: residentPurchases.addToResidentAccount,
           canteenItemNumber: residentPurchases.canteenItemNumber,
+          categoryId: residentPurchases.categoryId,
           needsReview: residentPurchases.needsReview,
         });
   if (!saved) {
@@ -159,9 +171,48 @@ export async function saveCanteenSalesItemAction(
     action: id === null ? "create" : "update",
     entity: "residentPurchases",
     entityId: saved.id,
-    metadata: { fields: "itemName,price,addToResidentAccount,canteenItemNumber" },
+    metadata: {
+      fields:
+        "itemName,price,addToResidentAccount,canteenItemNumber,categoryId",
+    },
   });
-  return { ok: true, item: saved };
+  return { ok: true, item: { ...saved, categoryName: category.name } };
+}
+
+export async function deleteCanteenSalesItemAction(
+  idInput: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireStaffPermission("canIssueInvoices");
+  const id = z.number().int().positive().safeParse(idInput);
+  if (!id.success) return { ok: false, error: "معرّف الصنف غير صالح." };
+
+  const database = getDatabase();
+  const [reference] = await database
+    .select({ id: residentInvoiceLines.id })
+    .from(residentInvoiceLines)
+    .where(eq(residentInvoiceLines.purchaseId, id.data))
+    .limit(1);
+  if (reference) {
+    return {
+      ok: false,
+      error: "لا يمكن حذف الصنف لارتباطه بحركات بيع مسجلة.",
+    };
+  }
+
+  const [deleted] = await database
+    .delete(residentPurchases)
+    .where(eq(residentPurchases.id, id.data))
+    .returning({ id: residentPurchases.id });
+  if (!deleted) return { ok: false, error: "لم يتم العثور على الصنف." };
+
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "delete",
+    entity: "residentPurchases",
+    entityId: deleted.id,
+    metadata: { fields: "itemName" },
+  });
+  return { ok: true };
 }
 
 export async function saveInvoiceCategoryAction(
@@ -197,6 +248,53 @@ export async function saveInvoiceCategoryAction(
     metadata: { fields: "name" },
   });
   return { ok: true, category: created };
+}
+
+export async function deleteInvoiceCategoryAction(
+  idInput: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await requireStaffPermission("canIssueInvoices");
+  const id = z.number().int().positive().safeParse(idInput);
+  if (!id.success) return { ok: false, error: "معرّف الفئة غير صالح." };
+
+  const database = getDatabase();
+  const [itemReference] = await database
+    .select({ id: residentPurchases.id })
+    .from(residentPurchases)
+    .where(eq(residentPurchases.categoryId, id.data))
+    .limit(1);
+  if (itemReference) {
+    return {
+      ok: false,
+      error: "لا يمكن حذف الفئة لارتباطها بأصناف بيع.",
+    };
+  }
+  const [lineReference] = await database
+    .select({ id: residentInvoiceLines.id })
+    .from(residentInvoiceLines)
+    .where(eq(residentInvoiceLines.categoryId, id.data))
+    .limit(1);
+  if (lineReference) {
+    return {
+      ok: false,
+      error: "لا يمكن حذف الفئة لارتباطها بحركات بيع مسجلة.",
+    };
+  }
+
+  const [deleted] = await database
+    .delete(invoiceCategories)
+    .where(eq(invoiceCategories.id, id.data))
+    .returning({ id: invoiceCategories.id });
+  if (!deleted) return { ok: false, error: "لم يتم العثور على الفئة." };
+
+  await recordAuditEvent({
+    actorUserId: session.user.id,
+    action: "delete",
+    entity: "invoiceCategories",
+    entityId: deleted.id,
+    metadata: { fields: "name" },
+  });
+  return { ok: true };
 }
 
 export async function createResidentInvoiceAction(

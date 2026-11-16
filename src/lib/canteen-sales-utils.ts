@@ -5,6 +5,7 @@ export const UNLINKED_RESIDENT_FILTER = "__unlinked__";
 export type CanteenHistoryFilters = {
   residentId: string;
   itemName: string;
+  categoryId?: string;
   fromDate: string;
   toDate: string;
   saleType: "all" | "cash" | "resident";
@@ -33,6 +34,14 @@ export function filterCanteenInvoices(
         return false;
       }
       if (filters.toDate && invoice.invoiceDate > filters.toDate) {
+        return false;
+      }
+      if (
+        filters.categoryId &&
+        !invoice.lines.some(
+          (line) => String(line.categoryId ?? "") === filters.categoryId,
+        )
+      ) {
         return false;
       }
       if (filters.residentId === UNLINKED_RESIDENT_FILTER) {

@@ -197,9 +197,22 @@ export default function ResidentProfilePrintModal({ resident, onClose }: Props) 
                 flexShrink: 0,
               }}
             >
-              <span className="person-avatar" aria-hidden="true">
-                {resident.name.trim().slice(0, 1)}
-              </span>
+              {resident.imagePath ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={resident.imagePath}
+                  alt={`صورة ${resident.name}`}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                  }}
+                />
+              ) : (
+                <span className="person-avatar" aria-hidden="true">
+                  {resident.name.trim().slice(0, 1)}
+                </span>
+              )}
             </div>
 
             {/* ملخص الهوية */}

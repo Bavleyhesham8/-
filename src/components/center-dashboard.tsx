@@ -54,6 +54,7 @@ import MeatSalesPanel from "@/components/meat-sales-panel";
 import type { MeatSalesBundle } from "@/lib/meat-sales-types";
 import CustodyPanel from "@/components/custody-panel";
 import CenterCustodyPanel from "@/components/center-custody-panel";
+import type { ResidentCustodyCharge } from "@/lib/center-custody-types";
 import type { CustodyBundle } from "@/lib/custody-types";
 import ResidentFinancePanel from "@/components/resident-finance-panel";
 import { demoResidentFinance } from "@/lib/resident-finance-demo-data";
@@ -78,6 +79,7 @@ import ResidentReportsPanel from "@/components/resident-reports-panel";
 import ResidentSearchPanel from "@/components/resident-search-panel";
 import PrintToolbar from "@/components/print-toolbar";
 import PrintBrand from "@/components/print-brand";
+import ResidentPhotoManager from "@/components/resident-photo-manager";
 import ClassicAccessNavigator from "@/components/classic-access-navigator";
 import { normalizeArabicName } from "@/lib/resident-matching";
 
@@ -116,7 +118,6 @@ type ResidentDraft = Omit<
   | "trainer"
   | "supervisor"
   | "lecturer"
-  | "imagePath"
 >;
 
 const emptyDraft: ResidentDraft = {
@@ -149,6 +150,7 @@ const emptyDraft: ResidentDraft = {
   incompleteStay: false,
   followUp: false,
   graduated: false,
+  imagePath: "",
 };
 
 type NavItem = {
@@ -353,6 +355,31 @@ function initials(name: string) {
   return name.trim().slice(-1);
 }
 
+function ResidentAvatar({
+  resident,
+  className = "person-avatar",
+}: {
+  resident: Resident;
+  className?: string;
+}) {
+  if (resident.imagePath) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        className={`${className} person-avatar-photo`}
+        src={resident.imagePath}
+        alt={`صورة ${resident.name}`}
+        loading="lazy"
+      />
+    );
+  }
+  return (
+    <span className={className} aria-hidden="true">
+      {initials(resident.name)}
+    </span>
+  );
+}
+
 function displayValue(value: string) {
   return value.trim() || "غير مسجل";
 }
@@ -405,6 +432,7 @@ function ResidentForm({
           relationshipDegree: initial.relationshipDegree || "",
           entryTime: initial.entryTime || "",
           exitMethod: initial.exitMethod || "",
+          imagePath: initial.imagePath || "",
         }
       : { ...emptyDraft };
     if (checkIn) {
@@ -444,6 +472,15 @@ function ResidentForm({
   return (
     <form onSubmit={handleSubmit}>
       <div className="modal-content">
+        {!basicOnly && (
+          <div className="resident-photo-editor">
+            <ResidentPhotoManager
+              photoUrl={draft.imagePath}
+              residentName={draft.name}
+              onPhotoChange={(newUrl) => update("imagePath", newUrl)}
+            />
+          </div>
+        )}
         <div className="form-grid">
           <label className="form-field">
             الاسم الكامل *
@@ -795,6 +832,7 @@ type CenterDashboardProps = {
   initialAuditLogs?: AuditLogEntry[];
   initialLookups?: LookupData;
   initialTreatment?: TreatmentBundle;
+  initialResidentCustodyCharges?: ResidentCustodyCharge[];
   currentUser?: DemoUser;
 };
 
@@ -818,6 +856,7 @@ export default function CenterDashboard({
   initialAuditLogs,
   initialLookups,
   initialTreatment,
+  initialResidentCustodyCharges,
   currentUser,
 }: CenterDashboardProps = {}) {
   const router = useRouter();
@@ -839,6 +878,9 @@ export default function CenterDashboard({
   );
   const [treatment, setTreatment] = useState(
     initialTreatment ?? (persistent ? emptyTreatment : demoTreatmentBundle),
+  );
+  const [residentCustodyCharges, setResidentCustodyCharges] = useState(
+    initialResidentCustodyCharges ?? [],
   );
   const [canteen, setCanteen] = useState(
     initialCanteen ?? (persistent ? emptyCanteen : demoCanteen),
@@ -1644,9 +1686,7 @@ export default function CenterDashboard({
                       <tr key={resident.id}>
                         <td>
                           <div className="person-cell">
-                            <span className="person-avatar" aria-hidden="true">
-                              {initials(resident.name)}
-                            </span>
+                            <ResidentAvatar resident={resident} />
                             <span className="person-info">
                               <strong>{resident.name}</strong>
                               {activeUser.role === "admin" && (
@@ -1745,12 +1785,7 @@ export default function CenterDashboard({
                       <div className="room-residents">
                         {villaResidents.map((resident) => (
                           <div className="room-resident" key={resident.id}>
-                            <span
-                              className="person-avatar"
-                              aria-hidden="true"
-                            >
-                              {initials(resident.name)}
-                            </span>
+                            <ResidentAvatar resident={resident} />
                             <span>{resident.name}</span>
                             <span className="muted-cell">
                               {resident.room
@@ -1793,6 +1828,7 @@ export default function CenterDashboard({
               residents={residents}
               residentFinance={residentFinance}
               sales={sales}
+              custodyCharges={residentCustodyCharges}
               canManage={canAccessClinic}
               onBundleChange={setTreatment}
               onOpenStatement={setStatementResident}
@@ -1810,7 +1846,12 @@ export default function CenterDashboard({
 
           {view === "custody" && isScreenAllowed("custody") && (
             viewTab === "center" ? (
-              <CenterCustodyPanel persistent={persistent} canManage={canManageWarehouse || canManageCustody} />
+              <CenterCustodyPanel
+                persistent={persistent}
+                canManage={canManageWarehouse || canManageCustody}
+                residents={residents}
+                onResidentChargesChange={setResidentCustodyCharges}
+              />
             ) : (
               <CustodyPanel
                 key={viewTab ?? "custody"}
@@ -1829,6 +1870,7 @@ export default function CenterDashboard({
               residents={residents}
               sales={sales}
               treatment={treatment}
+              custodyCharges={residentCustodyCharges}
               persistent={persistent}
               canManage={activeUser.role === "admin"}
               onBundleChange={setResidentFinance}
@@ -2081,6 +2123,7 @@ export default function CenterDashboard({
           sales={sales}
           treatment={treatment}
           residentFinance={residentFinance}
+          custodyCharges={residentCustodyCharges}
           onClose={() => setStatementResident(null)}
         />
       )}
@@ -2223,9 +2266,7 @@ function ResidentDetails({
         </div>
         <div className="modal-content">
           <div className="detail-person" style={{ display: "flex", gap: "14px", alignItems: "center" }}>
-            <span className="person-avatar" aria-hidden="true">
-              {initials(resident.name)}
-            </span>
+            <ResidentAvatar resident={resident} />
             <div>
               <h4>{resident.name}</h4>
               <p>

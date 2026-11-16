@@ -55,6 +55,11 @@ export type MeatSaleInvoice = {
   issuePermitNumber: number | null;
   beneficiary: string;
   lines: MeatSaleLine[];
+  /** إجمالي البنود قبل خصم الفاتورة. */
+  subtotal: number | null;
+  /** خصم على مستوى الفاتورة. */
+  discount: number;
+  /** الصافي المستحق بعد الخصم. */
   total: number | null;
   paid: number;
   voided: boolean;

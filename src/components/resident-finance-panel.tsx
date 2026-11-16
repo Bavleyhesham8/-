@@ -9,6 +9,7 @@ import {
 } from "@/app/actions/resident-finance";
 import { formatDate, localDateValue } from "@/lib/date-format";
 import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
+import type { ResidentCustodyCharge } from "@/lib/center-custody-types";
 import type { Resident } from "@/lib/demo-data";
 import {
   buildResidentAccounts,
@@ -25,6 +26,7 @@ type Props = {
   residents: Resident[];
   sales?: CanteenSalesBundle;
   treatment?: TreatmentBundle;
+  custodyCharges?: ResidentCustodyCharge[];
   persistent: boolean;
   canManage: boolean;
   onBundleChange: (bundle: ResidentFinanceBundle) => void;
@@ -49,6 +51,7 @@ export default function ResidentFinancePanel({
   residents,
   sales,
   treatment,
+  custodyCharges,
   persistent,
   canManage,
   onBundleChange,
@@ -77,8 +80,9 @@ export default function ResidentFinancePanel({
         residentFinance: bundle,
         sales,
         treatment,
+        custodyCharges,
       }),
-    [residents, bundle, sales, treatment],
+    [residents, bundle, sales, treatment, custodyCharges],
   );
   const filteredAccounts = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -102,9 +106,10 @@ export default function ResidentFinancePanel({
           deposits: sum.deposits + account.deposits,
           canteen: sum.canteen + account.canteenPurchases,
           treatment: sum.treatment + account.treatment,
+          custody: sum.custody + account.custodyCharges,
           balance: sum.balance + account.balance,
         }),
-        { deposits: 0, canteen: 0, treatment: 0, balance: 0 },
+        { deposits: 0, canteen: 0, treatment: 0, custody: 0, balance: 0 },
       ),
     [accounts],
   );
@@ -389,6 +394,10 @@ export default function ResidentFinancePanel({
           <strong>{numberFormatter.format(totals.treatment)} ج.م</strong>
         </article>
         <article>
+          <span>مصاريف النزلاء</span>
+          <strong>{numberFormatter.format(totals.custody)} ج.م</strong>
+        </article>
+        <article>
           <span>صافي أرصدة النزلاء</span>
           <strong className={totals.balance < 0 ? "resident-account-negative" : ""}>
             {numberFormatter.format(totals.balance)} ج.م
@@ -413,6 +422,78 @@ export default function ResidentFinancePanel({
         </span>
       </div>
 
+      {canManage && (
+        <section className="resident-deposit-section no-print">
+          <div className="resident-deposit-heading">
+            <div>
+              <h4>قسم الإيداعات المستقل</h4>
+              <p>
+                سجّل إيداعًا نقديًا مباشرًا في حساب النزيل. يظهر الإيداع فورًا
+                في رصيده وكشف حسابه، ويمكن تعديله أو إلغاؤه من سجل الإيداعات
+                أدناه.
+              </p>
+            </div>
+          </div>
+          <form className="resident-deposit-form" onSubmit={submitReceipt}>
+            <label className="form-field">
+              النزيل
+              <select
+                required
+                value={selectedResidentNumber}
+                onChange={(event) =>
+                  setSelectedResidentNumber(event.target.value)
+                }
+              >
+                <option value="">اختر النزيل</option>
+                {bundle.records.map((record) => (
+                  <option
+                    key={record.residentNumber}
+                    value={record.residentNumber}
+                  >
+                    {record.residentName || "—"} — {record.residentNumber}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-field">
+              المبلغ المودع
+              <input
+                min="0.01"
+                required
+                step="any"
+                type="number"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+              />
+            </label>
+            <label className="form-field">
+              تاريخ الإيداع
+              <input
+                required
+                type="date"
+                value={transactionDate}
+                onChange={(event) => setTransactionDate(event.target.value)}
+              />
+            </label>
+            <label className="form-field">
+              تاريخ الاستحقاق المتوقع (اختياري)
+              <input
+                type="date"
+                value={returnDate}
+                onChange={(event) => setReturnDate(event.target.value)}
+              />
+            </label>
+            <button
+              className="primary-button"
+              disabled={saving || !bundle.records.length}
+              type="submit"
+            >
+              تسجيل الإيداع
+            </button>
+          </form>
+        </section>
+      )}
+
       <div className="table-wrap">
         <table className="resident-table">
           <thead>
@@ -422,6 +503,7 @@ export default function ResidentFinancePanel({
               <th>الإيداعات</th>
               <th>مشتريات الكانتين</th>
               <th>العلاج</th>
+              <th>مصاريف النزلاء</th>
               <th>الرصيد الحالي</th>
               <th>كشف الحساب</th>
             </tr>
@@ -444,6 +526,7 @@ export default function ResidentFinancePanel({
                 <td>{numberFormatter.format(account.deposits)}</td>
                 <td>{numberFormatter.format(account.canteenPurchases)}</td>
                 <td>{numberFormatter.format(account.treatment)}</td>
+                <td>{numberFormatter.format(account.custodyCharges)}</td>
                 <td>
                   <strong
                     className={
@@ -473,7 +556,7 @@ export default function ResidentFinancePanel({
             ))}
             {!filteredAccounts.length && (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={8}>
                   <div className="empty-state">
                     {accounts.length
                       ? "لا توجد حسابات مطابقة للبحث."
@@ -530,61 +613,7 @@ export default function ResidentFinancePanel({
       )}
 
       {canManage && (
-        <div className="resident-finance-forms">
-          <form className="lookup-form" onSubmit={submitReceipt}>
-            <h4>إيداع في الحساب</h4>
-            <label className="form-field">
-              النزيل
-              <select
-                required
-                value={selectedResidentNumber}
-                onChange={(event) => setSelectedResidentNumber(event.target.value)}
-              >
-                <option value="">اختر النزيل</option>
-                {bundle.records.map((record) => (
-                  <option key={record.residentNumber} value={record.residentNumber}>
-                    {record.residentName || "—"} — {record.residentNumber}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="form-field">
-              المبلغ المودع
-              <input
-                min="0.01"
-                required
-                step="any"
-                type="number"
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-              />
-            </label>
-            <label className="form-field">
-              تاريخ الإيداع
-              <input
-                required
-                type="date"
-                value={transactionDate}
-                onChange={(event) => setTransactionDate(event.target.value)}
-              />
-            </label>
-            <label className="form-field">
-              تاريخ الاستحقاق المتوقع (اختياري)
-              <input
-                type="date"
-                value={returnDate}
-                onChange={(event) => setReturnDate(event.target.value)}
-              />
-            </label>
-            <button
-              className="primary-button"
-              disabled={saving || !bundle.records.length}
-              type="submit"
-            >
-              تسجيل الإيداع
-            </button>
-          </form>
-
+        <section className="resident-finance-forms">
           <form className="lookup-form" onSubmit={submitHeader}>
             <h4>فتح حساب مالي مستقل (سجلات قديمة)</h4>
             <p className="access-note">
@@ -614,7 +643,7 @@ export default function ResidentFinancePanel({
               فتح الحساب
             </button>
           </form>
-        </div>
+        </section>
       )}
 
       {error && (

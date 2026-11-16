@@ -53,6 +53,7 @@ const saleSchema = z.object({
   saleDate: dateSchema,
   issuePermitNumber: z.number().finite().positive().nullable(),
   beneficiary: z.string().trim().min(1).max(160),
+  discount: z.number().finite().min(0).max(1_000_000_000).optional().default(0),
   items: z
     .array(
       z.object({
@@ -270,12 +271,20 @@ export async function createMeatSaleAction(
       const productByNumber = new Map(
         products.map((product) => [product.itemNumber, product]),
       );
-      const total = parsed.data.items.reduce(
+      const subtotal = parsed.data.items.reduce(
         (sum, item) => sum + item.price * item.quantity,
         0,
       );
-      if (!Number.isFinite(total) || total <= 0) {
+      if (!Number.isFinite(subtotal) || subtotal <= 0) {
         return { error: "إجمالي الفاتورة غير صالح." } as const;
+      }
+      const discount = parsed.data.discount;
+      if (discount > subtotal + 1e-9) {
+        return { error: "الخصم أكبر من إجمالي الفاتورة." } as const;
+      }
+      const total = subtotal - discount;
+      if (!Number.isFinite(total) || total <= 0) {
+        return { error: "صافي الفاتورة بعد الخصم غير صالح." } as const;
       }
 
       const ledger = await transaction
@@ -330,6 +339,7 @@ export async function createMeatSaleAction(
           saleDate: parsed.data.saleDate,
           issuePermitNumber: parsed.data.issuePermitNumber,
           beneficiary: parsed.data.beneficiary,
+          discount,
           createdBy: session.user.id,
         })
         .returning({ invoiceNumber: meatSalesInvoices.invoiceNumber });
@@ -436,6 +446,8 @@ export async function createMeatSaleAction(
         issuePermitNumber: parsed.data.issuePermitNumber,
         beneficiary: parsed.data.beneficiary,
         lines,
+        subtotal,
+        discount,
         total,
         paid: total,
         voided: false,
@@ -452,7 +464,7 @@ export async function createMeatSaleAction(
       action: "create",
       entity: "meatSalesInvoices",
       entityId: result.invoice.invoiceNumber,
-      metadata: { fields: "saleDate,items" },
+      metadata: { fields: "saleDate,items,discount" },
     });
     return {
       ok: true,

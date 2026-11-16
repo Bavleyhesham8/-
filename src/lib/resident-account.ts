@@ -1,4 +1,5 @@
 import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
+import type { ResidentCustodyCharge } from "@/lib/center-custody-types";
 import { formatDate } from "@/lib/date-format";
 import type { Resident } from "@/lib/demo-data";
 import type {
@@ -12,7 +13,8 @@ export type ResidentAccountEntryKind =
   | "deposit"
   | "canteen-purchase"
   | "canteen-payment"
-  | "treatment";
+  | "treatment"
+  | "center-custody";
 
 export type ResidentAccountEntry = {
   id: string;
@@ -33,6 +35,7 @@ export type ResidentAccount = {
   canteenPurchases: number;
   canteenPayments: number;
   treatment: number;
+  custodyCharges: number;
   balance: number;
   entries: ResidentAccountEntry[];
 };
@@ -41,11 +44,12 @@ export type ResidentAccountSources = {
   residentFinance?: ResidentFinanceBundle;
   sales?: CanteenSalesBundle;
   treatment?: TreatmentBundle;
+  custodyCharges?: ResidentCustodyCharge[];
 };
 
 export function buildResidentAccount(
   resident: Resident,
-  { residentFinance, sales, treatment }: ResidentAccountSources,
+  { residentFinance, sales, treatment, custodyCharges }: ResidentAccountSources,
 ): ResidentAccount {
   const financeRecord = residentFinance
     ? (findRecordForResident(resident, residentFinance.records) ?? null)
@@ -119,12 +123,27 @@ export function buildResidentAccount(
     });
   }
 
+  for (const charge of custodyCharges ?? []) {
+    if (charge.residentId !== resident.id || !charge.amount) continue;
+    entries.push({
+      id: `center-custody-${charge.id}`,
+      date: charge.transactionDate,
+      kind: "center-custody",
+      typeLabel: "مصاريف النزلاء",
+      description: charge.description || "مصاريف نزيل من عهدة المركز",
+      debit: charge.amount,
+      credit: 0,
+      status: "عهدة المركز",
+    });
+  }
+
   entries.sort((left, right) => left.date.localeCompare(right.date));
 
   const deposits = sum(entries, "deposit", "credit");
   const canteenPurchases = sum(entries, "canteen-purchase", "debit");
   const canteenPayments = sum(entries, "canteen-payment", "credit");
   const treatmentTotal = sum(entries, "treatment", "debit");
+  const custodyChargeTotal = sum(entries, "center-custody", "debit");
 
   return {
     resident,
@@ -134,7 +153,13 @@ export function buildResidentAccount(
     canteenPurchases,
     canteenPayments,
     treatment: treatmentTotal,
-    balance: deposits + canteenPayments - canteenPurchases - treatmentTotal,
+    custodyCharges: custodyChargeTotal,
+    balance:
+      deposits +
+      canteenPayments -
+      canteenPurchases -
+      treatmentTotal -
+      custodyChargeTotal,
     entries,
   };
 }
