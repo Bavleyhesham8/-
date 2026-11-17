@@ -216,11 +216,12 @@ export async function updateCenterCustodyTransactionAction(input: unknown) {
         residentId: centerCustodyTransactions.residentId,
         targetBalance: centerCustodyTransactions.targetBalance,
         balanceAfter: centerCustodyTransactions.balanceAfter,
+        createdAt: centerCustodyTransactions.createdAt,
       })
       .from(centerCustodyTransactions)
       .orderBy(
-        asc(centerCustodyTransactions.transactionDate),
         asc(centerCustodyTransactions.createdAt),
+        asc(centerCustodyTransactions.transactionDate),
       )
       .for("update");
     const rows = rawRows.map((row) => ({

@@ -204,6 +204,20 @@
       "when": 1794826722920,
       "tag": "0028_resident_charges_categories_discounts",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794912000000,
+      "tag": "0029_unify_canteen_item_prices",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794915600000,
+      "tag": "0030_link_canteen_sales_items",
+      "breakpoints": true
     }
   ]
 }

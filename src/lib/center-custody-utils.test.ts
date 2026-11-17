@@ -52,7 +52,7 @@ test("prevents an expense above the available balance", () => {
   assert.equal(canCoverExpense(2000, 0), false);
 });
 
-test("recalculates the running balance after editing a custody movement", () => {
+test("recalculates the running balance in creation order after an edit", () => {
   const rows = [
     {
       id: "expense-2",
@@ -61,6 +61,7 @@ test("recalculates the running balance after editing a custody movement", () => 
       amount: 500,
       balanceAfter: 0,
       targetBalance: 15000,
+      createdAt: "2026-11-15T09:00:00Z",
     },
     {
       id: "renewal-1",
@@ -69,6 +70,7 @@ test("recalculates the running balance after editing a custody movement", () => 
       amount: 15000,
       balanceAfter: 0,
       targetBalance: 15000,
+      createdAt: "2026-11-13T09:00:00Z",
     },
     {
       id: "expense-1",
@@ -77,6 +79,7 @@ test("recalculates the running balance after editing a custody movement", () => 
       amount: 300,
       balanceAfter: 0,
       targetBalance: 15000,
+      createdAt: "2026-11-14T09:00:00Z",
     },
   ];
 
@@ -105,6 +108,7 @@ test("keeps same-day custody movements stable while recalculating", () => {
       amount: 1000,
       balanceAfter: 0,
       targetBalance: 15000,
+      createdAt: "2026-11-01T08:00:00Z",
     },
     {
       id: "second",
@@ -113,6 +117,7 @@ test("keeps same-day custody movements stable while recalculating", () => {
       amount: 250,
       balanceAfter: 0,
       targetBalance: 15000,
+      createdAt: "2026-11-01T09:00:00Z",
     },
   ];
 
@@ -129,6 +134,119 @@ test("keeps same-day custody movements stable while recalculating", () => {
   );
 });
 
+test("preserves the given order when creation timestamps are unavailable", () => {
+  const result = recalculateCustodyRows([
+    {
+      id: "renewal",
+      kind: "replenishment" as const,
+      transactionDate: "2026-11-13",
+      amount: 1000,
+      balanceAfter: 0,
+      targetBalance: 15000,
+    },
+    {
+      id: "expense",
+      kind: "expense" as const,
+      transactionDate: "2026-11-01",
+      amount: 250,
+      balanceAfter: 0,
+      targetBalance: 15000,
+    },
+  ]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    result.rows.map((row) => row.id),
+    ["renewal", "expense"],
+  );
+  assert.deepEqual(
+    result.rows.map((row) => row.balanceAfter),
+    [1000, 750],
+  );
+});
+
+test("allows editing backfilled expenses dated before the opening replenishment", () => {
+  const result = recalculateCustodyRows([
+    {
+      id: "renewal",
+      kind: "replenishment" as const,
+      transactionDate: "2026-11-13",
+      amount: 15000,
+      balanceAfter: 15000,
+      targetBalance: 15000,
+      createdAt: "2026-11-13T19:53:24.797Z",
+    },
+    {
+      id: "backfilled-expense",
+      kind: "expense" as const,
+      transactionDate: "2026-11-01",
+      amount: 500,
+      balanceAfter: 14500,
+      targetBalance: 15000,
+      createdAt: "2026-11-14T19:16:53.879Z",
+    },
+    {
+      id: "latest-expense",
+      kind: "expense" as const,
+      transactionDate: "2026-11-17",
+      amount: 4,
+      balanceAfter: 14496,
+      targetBalance: 15000,
+      createdAt: "2026-11-17T06:48:43.267Z",
+    },
+  ]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    result.rows.map((row) => row.id),
+    ["renewal", "backfilled-expense", "latest-expense"],
+  );
+  assert.deepEqual(
+    result.rows.map((row) => row.balanceAfter),
+    [15000, 14500, 14496],
+  );
+  assert.equal(result.balance, 14496);
+});
+
+test("editing the latest custody row keeps earlier balances unchanged", () => {
+  const result = recalculateCustodyRows([
+    {
+      id: "renewal",
+      kind: "replenishment" as const,
+      transactionDate: "2026-11-13",
+      amount: 15000,
+      balanceAfter: 15000,
+      targetBalance: 15000,
+      createdAt: "2026-11-13T19:53:24.797Z",
+    },
+    {
+      id: "expense",
+      kind: "expense" as const,
+      transactionDate: "2026-11-14",
+      amount: 500,
+      balanceAfter: 14500,
+      targetBalance: 15000,
+      createdAt: "2026-11-14T19:16:53.879Z",
+    },
+    {
+      id: "latest",
+      kind: "expense" as const,
+      transactionDate: "2026-11-17",
+      amount: 100,
+      balanceAfter: 0,
+      targetBalance: 15000,
+      createdAt: "2026-11-17T06:48:43.267Z",
+    },
+  ]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    result.rows.map((row) => row.balanceAfter),
+    [15000, 14500, 14400],
+  );
+  assert.equal(result.balance, 14400);
+});
+
 test("rejects an edit that makes any custody running balance negative", () => {
   const result = recalculateCustodyRows(
     [
@@ -139,6 +257,7 @@ test("rejects an edit that makes any custody running balance negative", () => {
         amount: 500,
         balanceAfter: 0,
         targetBalance: 15000,
+        createdAt: "2026-11-01T08:00:00Z",
       },
       {
         id: "renewal",
@@ -147,6 +266,7 @@ test("rejects an edit that makes any custody running balance negative", () => {
         amount: 1000,
         balanceAfter: 0,
         targetBalance: 15000,
+        createdAt: "2026-11-02T08:00:00Z",
       },
     ],
   );

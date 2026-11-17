@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import {
@@ -110,86 +110,215 @@ export async function saveCanteenSalesItemAction(
   if (!category) {
     return { ok: false, error: "اختر فئة صالحة للصنف." };
   }
-  let canteenItemNumber = parsed.data.canteenItemNumber;
-  let price = parsed.data.price;
-  if (canteenItemNumber !== null) {
-    const [product] = await database
-      .select({ itemNumber: canteenProducts.itemNumber, price: canteenProducts.price })
-      .from(canteenProducts)
-      .where(eq(canteenProducts.itemNumber, canteenItemNumber))
-      .limit(1);
-    if (!product) {
-      return { ok: false, error: "لم يتم العثور على صنف المخزون المحدد." };
-    }
-    if (product.price > 0) price = product.price;
-  } else {
-    const [matched] = await database
-      .select({ itemNumber: canteenProducts.itemNumber, price: canteenProducts.price })
-      .from(canteenProducts)
-      .where(sql`lower(trim(${canteenProducts.name})) = lower(trim(${name}))`)
-      .limit(1);
-    if (matched) {
-      canteenItemNumber = matched.itemNumber;
-      if (matched.price > 0) price = matched.price;
-    }
-  }
   const id = parsed.data.id ?? null;
-  const [duplicate] = await database
-    .select({ id: residentPurchases.id })
-    .from(residentPurchases)
-    .where(id === null
-      ? eq(residentPurchases.itemName, name)
-      : and(eq(residentPurchases.itemName, name), ne(residentPurchases.id, id)))
-    .limit(1);
-  if (duplicate) {
-    return { ok: false, error: "اسم الصنف مسجل بالفعل." };
+
+  try {
+    const result = await database.transaction(async (transaction) => {
+      const [existingPurchase] = id === null
+        ? []
+        : await transaction
+            .select({ itemName: residentPurchases.itemName })
+            .from(residentPurchases)
+            .where(eq(residentPurchases.id, id))
+            .limit(1)
+            .for("update");
+      if (id !== null && !existingPurchase) {
+        return { error: "لم يتم العثور على صنف المشتريات." } as const;
+      }
+      const previousName = existingPurchase?.itemName ?? name;
+
+      let canteenItemNumber = parsed.data.canteenItemNumber;
+      let linkedProductNumber: number | null = null;
+
+      if (canteenItemNumber !== null) {
+        const [product] = await transaction
+          .select({ itemNumber: canteenProducts.itemNumber })
+          .from(canteenProducts)
+          .where(eq(canteenProducts.itemNumber, canteenItemNumber))
+          .limit(1)
+          .for("update");
+        if (!product) {
+          return {
+            error: "لم يتم العثور على صنف المخزون المحدد.",
+          } as const;
+        }
+        linkedProductNumber = product.itemNumber;
+      } else {
+        const [matched] = await transaction
+          .select({ itemNumber: canteenProducts.itemNumber })
+          .from(canteenProducts)
+          .where(
+            sql`lower(trim(${canteenProducts.name})) = lower(trim(${name}))`,
+          )
+          .limit(1)
+          .for("update");
+        if (matched) {
+          canteenItemNumber = matched.itemNumber;
+          linkedProductNumber = matched.itemNumber;
+        }
+      }
+
+      if (linkedProductNumber !== null) {
+        const [productNameConflict] = await transaction
+          .select({ itemNumber: canteenProducts.itemNumber })
+          .from(canteenProducts)
+          .where(
+            and(
+              sql`lower(trim(${canteenProducts.name})) = lower(trim(${name}))`,
+              ne(canteenProducts.itemNumber, linkedProductNumber),
+            ),
+          )
+          .limit(1);
+        if (productNameConflict) {
+          return {
+            error: "اسم الصنف مستخدم في صنف مخزون آخر.",
+          } as const;
+        }
+
+        const [existingLink] = await transaction
+          .select({
+            id: residentPurchases.id,
+            itemName: residentPurchases.itemName,
+          })
+          .from(residentPurchases)
+          .where(
+            and(
+              eq(residentPurchases.canteenItemNumber, linkedProductNumber),
+              id === null ? undefined : ne(residentPurchases.id, id),
+            ),
+          )
+          .limit(1)
+          .for("update");
+
+        if (existingLink) {
+          // صف قديم مكرر بالاسم نفسه: نبقيه غير مرتبط (الفهرس الفريد يسمح
+          // بارتباط واحد) لكن نحدّث الاسم والسعر على الصفوف كلها.
+          const sameLegacyName =
+            parsed.data.canteenItemNumber === null &&
+            id !== null &&
+            existingLink.itemName.trim().toLowerCase() ===
+              name.trim().toLowerCase();
+          if (!sameLegacyName) {
+            return {
+              error:
+                "هذا الصنف مرتبط بالفعل بصنف بيع آخر. افصل الارتباط أولًا أو عدّل الصنف المرتبط.",
+            } as const;
+          }
+          canteenItemNumber = null;
+        }
+
+        // سعر واسم صنف البيع هما المصدر الظاهر للمستخدم؛ نعكسهما فورًا
+        // على صنف المخزون حتى لا تختلف الشاشات أو الفاتورة عن المعروض.
+        await transaction
+          .update(canteenProducts)
+          .set({ name, price: parsed.data.price, needsReview: false })
+          .where(eq(canteenProducts.itemNumber, linkedProductNumber));
+      } else {
+        const [duplicate] = await transaction
+          .select({ id: residentPurchases.id })
+          .from(residentPurchases)
+          .where(
+            id === null
+              ? eq(residentPurchases.itemName, name)
+              : and(
+                  eq(residentPurchases.itemName, name),
+                  ne(residentPurchases.id, id),
+                ),
+          )
+          .limit(1);
+        if (duplicate) {
+          return { error: "اسم الصنف مسجل بالفعل." } as const;
+        }
+      }
+
+      const values = {
+        itemName: name,
+        price: parsed.data.price,
+        addToResidentAccount: parsed.data.addToResidentAccount,
+        canteenItemNumber,
+        categoryId: parsed.data.categoryId,
+        needsReview: false,
+      };
+      const [saved] = id === null
+        ? await transaction.insert(residentPurchases)
+            .values({ ...values, createdBy: session.user.id })
+            .returning({
+              id: residentPurchases.id,
+              name: residentPurchases.itemName,
+              price: residentPurchases.price,
+              addToResidentAccount: residentPurchases.addToResidentAccount,
+              canteenItemNumber: residentPurchases.canteenItemNumber,
+              categoryId: residentPurchases.categoryId,
+              needsReview: residentPurchases.needsReview,
+            })
+        : await transaction.update(residentPurchases)
+            .set(values)
+            .where(eq(residentPurchases.id, id))
+            .returning({
+              id: residentPurchases.id,
+              name: residentPurchases.itemName,
+              price: residentPurchases.price,
+              addToResidentAccount: residentPurchases.addToResidentAccount,
+              canteenItemNumber: residentPurchases.canteenItemNumber,
+              categoryId: residentPurchases.categoryId,
+              needsReview: residentPurchases.needsReview,
+            });
+      if (!saved) {
+        return { error: "اسم الصنف مستخدم بالفعل." } as const;
+      }
+
+      if (linkedProductNumber !== null) {
+        // الصفوف المكررة القديمة تبقى ظاهرة بنفس الاسم والسعر بدلًا من
+        // قيمة قديمة مختلفة، مع عدم المساس بارتباطها.
+        await transaction
+          .update(residentPurchases)
+          .set({ itemName: name, price: parsed.data.price })
+          .where(
+            and(
+              ne(residentPurchases.id, saved.id),
+              or(
+                sql`lower(trim(${residentPurchases.itemName})) = lower(trim(${previousName}))`,
+                sql`lower(trim(${residentPurchases.itemName})) = lower(trim(${name}))`,
+              ),
+            ),
+          );
+      }
+      return { saved, linkedProductNumber };
+    });
+
+    if ("error" in result && typeof result.error === "string") {
+      return { ok: false, error: result.error };
+    }
+
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: id === null ? "create" : "update",
+      entity: "residentPurchases",
+      entityId: result.saved.id,
+      metadata: {
+        fields:
+          "itemName,price,addToResidentAccount,canteenItemNumber,categoryId",
+      },
+    });
+    if (result.linkedProductNumber !== null) {
+      await recordAuditEvent({
+        actorUserId: session.user.id,
+        action: "update",
+        entity: "canteenProducts",
+        entityId: result.linkedProductNumber,
+        metadata: { fields: "name,price", source: "residentPurchases" },
+      });
+    }
+    return {
+      ok: true,
+      item: { ...result.saved, categoryName: category.name },
+    };
+  } catch {
+    return {
+      ok: false,
+      error: "تعذر حفظ صنف المشتريات. حاول مرة أخرى.",
+    };
   }
-  const values = {
-    itemName: name,
-    price,
-    addToResidentAccount: parsed.data.addToResidentAccount,
-    canteenItemNumber,
-    categoryId: parsed.data.categoryId,
-    needsReview: false,
-  };
-  const [saved] = id === null
-    ? await database.insert(residentPurchases)
-        .values({ ...values, createdBy: session.user.id })
-        .returning({
-          id: residentPurchases.id,
-          name: residentPurchases.itemName,
-          price: residentPurchases.price,
-          addToResidentAccount: residentPurchases.addToResidentAccount,
-          canteenItemNumber: residentPurchases.canteenItemNumber,
-          categoryId: residentPurchases.categoryId,
-          needsReview: residentPurchases.needsReview,
-        })
-    : await database.update(residentPurchases)
-        .set(values)
-        .where(eq(residentPurchases.id, id))
-        .returning({
-          id: residentPurchases.id,
-          name: residentPurchases.itemName,
-          price: residentPurchases.price,
-          addToResidentAccount: residentPurchases.addToResidentAccount,
-          canteenItemNumber: residentPurchases.canteenItemNumber,
-          categoryId: residentPurchases.categoryId,
-          needsReview: residentPurchases.needsReview,
-        });
-  if (!saved) {
-    return { ok: false, error: "اسم الصنف مستخدم بالفعل." };
-  }
-  await recordAuditEvent({
-    actorUserId: session.user.id,
-    action: id === null ? "create" : "update",
-    entity: "residentPurchases",
-    entityId: saved.id,
-    metadata: {
-      fields:
-        "itemName,price,addToResidentAccount,canteenItemNumber,categoryId",
-    },
-  });
-  return { ok: true, item: { ...saved, categoryName: category.name } };
 }
 
 export async function deleteCanteenSalesItemAction(
@@ -352,7 +481,6 @@ export async function createResidentInvoiceAction(
       .select({
         itemNumber: canteenProducts.itemNumber,
         name: canteenProducts.name,
-        price: canteenProducts.price,
       })
       .from(canteenProducts);
     const canteenByNumber = new Map(allCanteenProducts.map((p) => [p.itemNumber, p]));
@@ -361,20 +489,22 @@ export async function createResidentInvoiceAction(
     );
 
     const catalogRows = purchaseRows.map((p) => {
-      const matchedByNumber = p.canteenItemNumber ? canteenByNumber.get(p.canteenItemNumber) : undefined;
+      const matchedByNumber = p.canteenItemNumber
+        ? canteenByNumber.get(p.canteenItemNumber)
+        : undefined;
       const matchedByName = canteenByName.get(p.name.trim().toLowerCase());
       const linkedProduct = matchedByNumber ?? matchedByName;
 
-      const effectivePrice =
-        linkedProduct && linkedProduct.price > 0
-          ? linkedProduct.price
-          : p.price;
-      const effectiveItemNumber = linkedProduct?.itemNumber ?? p.canteenItemNumber;
+      // السعر المعروض في نموذج البيع هو سعر صنف المشتريات نفسه، ويُحفظ في
+      // الفاتورة كما ظهر للمستخدم. لا نستبدله بسعر المخزون حتى لا تختلف
+      // الفاتورة عن السعر الذي تمت به الحركة.
+      const effectiveItemNumber =
+        linkedProduct?.itemNumber ?? p.canteenItemNumber;
 
       return {
         id: p.id,
         name: p.name,
-        price: effectivePrice,
+        price: p.price,
         canteenItemNumber: effectiveItemNumber,
       };
     });

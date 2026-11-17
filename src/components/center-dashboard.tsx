@@ -1884,6 +1884,7 @@ export default function CenterDashboard({
               persistent={persistent}
               canManage={canManageCanteen}
               onCanteenChange={setCanteen}
+              onSalesChange={setSales}
               onOpenMovementLog={
                 isScreenAllowed("canteen-reports")
                   ? () => openView("canteen-reports")

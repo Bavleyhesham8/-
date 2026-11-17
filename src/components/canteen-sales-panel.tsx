@@ -14,6 +14,10 @@ import {
   voidResidentInvoiceAction,
 } from "@/app/actions/canteen-sales";
 import { formatDate, localDateValue } from "@/lib/date-format";
+import {
+  syncProductsAfterSalesItem,
+  syncSalesItemsAfterSalesItem,
+} from "@/lib/canteen-item-sync";
 import ResidentPicker from "@/components/resident-picker";
 import {
   filterCanteenInvoices,
@@ -461,6 +465,11 @@ export default function CanteenSalesPanel({
       return;
     }
     setSaving(true);
+    const previousName =
+      editingItemId === null
+        ? itemName.trim().normalize("NFC")
+        : sales.items.find((item) => item.id === editingItemId)?.name ??
+          itemName.trim().normalize("NFC");
     try {
       if (persistent) {
         const result = await saveCanteenSalesItemAction({
@@ -479,7 +488,18 @@ export default function CanteenSalesPanel({
           ...current,
           items: editingItemId === null
             ? [...current.items, result.item]
-            : current.items.map((item) => item.id === editingItemId ? result.item : item),
+            : syncSalesItemsAfterSalesItem(
+                current.items,
+                result.item,
+                previousName,
+              ),
+        }));
+        onCanteenChange((current) => ({
+          ...current,
+          products: syncProductsAfterSalesItem(
+            current.products,
+            result.item,
+          ),
         }));
       } else {
         const item = {
@@ -497,7 +517,15 @@ export default function CanteenSalesPanel({
           ...current,
           items: editingItemId === null
             ? [...current.items, item]
-            : current.items.map((entry) => entry.id === editingItemId ? item : entry),
+            : syncSalesItemsAfterSalesItem(
+                current.items,
+                item,
+                previousName,
+              ),
+        }));
+        onCanteenChange((current) => ({
+          ...current,
+          products: syncProductsAfterSalesItem(current.products, item),
         }));
       }
       setEditingItemId(null);
@@ -1102,7 +1130,7 @@ export default function CanteenSalesPanel({
               </datalist>
             </label>
             <label className="form-field">
-              السعر
+              سعر البيع (مشترك مع المخزون)
               <input
                 type="number"
                 min="0"
@@ -1161,6 +1189,11 @@ export default function CanteenSalesPanel({
               />
               إضافة إلى الحركة
             </label>
+            <p className="access-note">
+              اسم الصنف وسعره مشتركان مع مخزون الكانتين. أي تعديل هنا يحدّث
+              صنف المخزون المرتبط، وتظهر نفس القيمة في الحركات والفواتير
+              الجديدة.
+            </p>
             <button className="primary-button" disabled={saving}>
               حفظ الصنف
             </button>

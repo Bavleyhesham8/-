@@ -46,10 +46,20 @@ type CustodyLedgerRow = {
   amount: number;
   balanceAfter: number;
   targetBalance: number;
+  createdAt?: string | Date;
 };
 
+function creationTime(value: string | Date | undefined) {
+  if (value === undefined) return null;
+  const time = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(time) ? time : null;
+}
+
 /**
- * يعيد ترتيب حركات عهدة المركز حسب التاريخ ويعيد حساب الرصيد بعد كل حركة.
+ * يعيد حساب الرصيد بعد كل حركة بترتيب إنشاء الحركات.
+ * ترتيب الإنشاء هو ترتيب السجل الفعلي الذي تتبعه أرصدة العهدة والرصيد الحالي،
+ * أما تاريخ الحركة فقد يكون قديمًا عند إدخال حركات بأثر رجعي.
+ * إذا لم تتوفر تواريخ الإنشاء يُحتفظ بترتيب المصفوفة المرسلة.
  * يُستخدم عند تعديل أي حركة حتى تظل الأرصدة اللاحقة صحيحة.
  */
 export function recalculateCustodyRows<T extends CustodyLedgerRow>(
@@ -58,13 +68,16 @@ export function recalculateCustodyRows<T extends CustodyLedgerRow>(
 ):
   | { ok: true; rows: T[]; balance: number }
   | { ok: false; error: string } {
-  const ordered = rows
-    .map((row, index) => ({ row, index }))
-    .sort((left, right) =>
-      left.row.transactionDate === right.row.transactionDate
-        ? left.index - right.index
-        : left.row.transactionDate.localeCompare(right.row.transactionDate),
-    );
+  const creationTimes = rows.map((row) => creationTime(row.createdAt));
+  const useCreationOrder =
+    rows.length > 0 && creationTimes.every((time) => time !== null);
+  const ordered = rows.map((row, index) => ({ row, index }));
+  if (useCreationOrder) {
+    ordered.sort((left, right) => {
+      const delta = creationTimes[left.index]! - creationTimes[right.index]!;
+      return delta === 0 ? left.index - right.index : delta;
+    });
+  }
 
   let running = 0;
   const nextRows: T[] = [];
@@ -79,7 +92,7 @@ export function recalculateCustodyRows<T extends CustodyLedgerRow>(
       return {
         ok: false,
         error:
-          "هذا التعديل يجعل رصيد عهدة المركز سالبًا في تاريخ لاحق. راجع المبالغ.",
+          "هذا التعديل يجعل رصيد عهدة المركز سالبًا في حركة لاحقة. راجع المبالغ.",
       };
     }
     nextRows.push({

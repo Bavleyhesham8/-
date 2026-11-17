@@ -3,7 +3,6 @@ import "server-only";
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
-  canteenProducts,
   invoiceCategories,
   residentInvoiceLines,
   residentInvoicePayments,
@@ -30,18 +29,14 @@ export async function listCanteenSalesForAdministrator(): Promise<CanteenSalesBu
       .select({
         id: residentPurchases.id,
         name: residentPurchases.itemName,
-        price: sql<number>`case when ${canteenProducts.price} is not null and ${canteenProducts.price} > 0 then ${canteenProducts.price} else ${residentPurchases.price} end`,
+        price: residentPurchases.price,
         addToResidentAccount: residentPurchases.addToResidentAccount,
-        canteenItemNumber: sql<number | null>`coalesce(${residentPurchases.canteenItemNumber}, ${canteenProducts.itemNumber})`,
+        canteenItemNumber: residentPurchases.canteenItemNumber,
         categoryId: residentPurchases.categoryId,
         categoryName: sql<string>`coalesce(${invoiceCategories.name}, '')`,
         needsReview: residentPurchases.needsReview,
       })
       .from(residentPurchases)
-      .leftJoin(
-        canteenProducts,
-        sql`${canteenProducts.itemNumber} = ${residentPurchases.canteenItemNumber} or lower(trim(${canteenProducts.name})) = lower(trim(${residentPurchases.itemName}))`,
-      )
       .leftJoin(
         invoiceCategories,
         eq(invoiceCategories.id, residentPurchases.categoryId),

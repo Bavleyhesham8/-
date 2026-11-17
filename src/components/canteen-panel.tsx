@@ -1,20 +1,25 @@
 "use client";
 
-import { useId, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { recordCanteenMovementAction, saveCanteenProductAction } from "@/app/actions/canteen";
 import { localDateValue } from "@/lib/date-format";
+import { syncSalesItemsAfterProduct } from "@/lib/canteen-item-sync";
 import PrintBrand from "@/components/print-brand";
 import type {
   CanteenBundle,
   CanteenMovement,
   CanteenProduct,
 } from "@/lib/canteen-types";
+import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
 
 type CanteenPanelProps = {
   canteen: CanteenBundle;
   persistent: boolean;
   canManage: boolean;
   onCanteenChange: (update: (current: CanteenBundle) => CanteenBundle) => void;
+  onSalesChange?: (
+    update: (current: CanteenSalesBundle) => CanteenSalesBundle,
+  ) => void;
   onOpenMovementLog?: () => void;
 };
 
@@ -46,9 +51,9 @@ export default function CanteenPanel({
   persistent,
   canManage,
   onCanteenChange,
+  onSalesChange,
   onOpenMovementLog,
 }: CanteenPanelProps) {
-  const incomingDatalistId = useId();
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProductNumber, setEditingProductNumber] = useState<
     number | null
@@ -65,6 +70,13 @@ export default function CanteenPanel({
   const [incomingQuantity, setIncomingQuantity] = useState("");
   const [incomingPrice, setIncomingPrice] = useState("");
   const [incomingDate, setIncomingDate] = useState(localDateValue());
+
+  function syncLinkedSalesItems(product: CanteenProduct, previousName?: string) {
+    onSalesChange?.((current) => ({
+      ...current,
+      items: syncSalesItemsAfterProduct(current.items, product, previousName),
+    }));
+  }
 
   const balances = useMemo(() => {
     const result = new Map<number, number>();
@@ -158,6 +170,12 @@ export default function CanteenPanel({
     }
 
     setSaving(true);
+    const previousProductName =
+      editingProductNumber === null
+        ? undefined
+        : canteen.products.find(
+            (item) => item.itemNumber === editingProductNumber,
+          )?.name;
     try {
       if (persistent) {
         const result = await saveCanteenProductAction({
@@ -189,6 +207,7 @@ export default function CanteenPanel({
             movements,
           };
         });
+        syncLinkedSalesItems(savedProduct, previousProductName);
       } else {
         const itemNumber =
           editingProductNumber ??
@@ -241,6 +260,7 @@ export default function CanteenPanel({
               : current.movements,
           };
         });
+        syncLinkedSalesItems(savedProduct, previousProductName);
       }
       resetForm();
     } catch {
@@ -285,6 +305,7 @@ export default function CanteenPanel({
             ...current,
             products: [...current.products, productResult.product],
           }));
+          syncLinkedSalesItems(productResult.product);
         } else if (existing.price !== price) {
           const productResult = await saveCanteenProductAction({
             itemNumber: existing.itemNumber,
@@ -296,6 +317,7 @@ export default function CanteenPanel({
               ...current,
               products: current.products.map((item) => item.itemNumber === itemNumber ? productResult.product : item),
             }));
+            syncLinkedSalesItems(productResult.product);
           }
         }
         const movementResult = await recordCanteenMovementAction({
@@ -321,6 +343,7 @@ export default function CanteenPanel({
             : [...current.products, product],
           movements: [...current.movements, movement],
         }));
+        syncLinkedSalesItems(product);
       }
       setIncomingItemNumber(""); setIncomingNewName(""); setIncomingQuantity("");
       setIncomingPrice(""); setIncomingDate(localDateValue()); setShowIncomingForm(false);
@@ -479,6 +502,10 @@ export default function CanteenPanel({
             {editingProductNumber === null
               ? "الكمية تُسجَّل كوارد افتتاحي للصنف. المنصرف يُسجَّل من حركات البيع."
               : "تعديل الرصيد يُسجَّل كحركة تسوية في سجل الحركات للحفاظ على التتبع."}
+          </p>
+          <p className="access-note">
+            اسم الصنف وسعره مشتركان مع أصناف البيع. أي تعديل هنا يحدّث صنف
+            البيع المرتبط، وتظهر نفس القيمة في كل شاشات الكانتين.
           </p>
           {error && (
             <p className="form-error" role="alert">

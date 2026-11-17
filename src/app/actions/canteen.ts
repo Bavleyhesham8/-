@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import {
@@ -11,6 +11,7 @@ import {
   canteenStockMovementLinks,
   canteenStockVoids,
   invoiceStockMovementLinks,
+  residentPurchases,
   user,
   userCanteenAccess,
 } from "@/db/schema";
@@ -149,6 +150,27 @@ export async function saveCanteenProductAction(
     .limit(1);
   if (duplicate) return { ok: false, error: "اسم الصنف مستخدم بالفعل." };
 
+  if (parsed.data.itemNumber != null) {
+    const [salesItemConflict] = await database
+      .select({ id: residentPurchases.id })
+      .from(residentPurchases)
+      .where(
+        and(
+          eq(residentPurchases.itemName, name),
+          isNotNull(residentPurchases.canteenItemNumber),
+          ne(residentPurchases.canteenItemNumber, parsed.data.itemNumber),
+        ),
+      )
+      .limit(1);
+    if (salesItemConflict) {
+      return {
+        ok: false,
+        error:
+          "اسم الصنف مستخدم في صنف مبيعات مرتبط بصنف مخزون آخر. اختر اسمًا مختلفًا أولًا.",
+      };
+    }
+  }
+
   const values = { name, price: parsed.data.price, needsReview: false };
   const result = await database.transaction(async (transaction) => {
     if (parsed.data.itemNumber == null) {
@@ -163,6 +185,42 @@ export async function saveCanteenProductAction(
           needsReview: canteenProducts.needsReview,
         });
       if (!product) return null;
+
+      // صنف بيع قديم بنفس الاسم وغير مرتبط بمخزون: نربطه بالصنف الجديد
+      // ونوحّد الاسم والسعر بدلًا من بقاء نسختين مختلفتين.
+      const [matchingPurchase] = await transaction
+        .select({ id: residentPurchases.id })
+        .from(residentPurchases)
+        .where(
+          and(
+            eq(residentPurchases.itemName, name),
+            isNull(residentPurchases.canteenItemNumber),
+          ),
+        )
+        .orderBy(asc(residentPurchases.id))
+        .limit(1)
+        .for("update");
+      if (matchingPurchase) {
+        await transaction
+          .update(residentPurchases)
+          .set({ canteenItemNumber: product.itemNumber })
+          .where(eq(residentPurchases.id, matchingPurchase.id));
+      }
+      // كل الصفوف التي تحمل الاسم نفسه (بما فيها الصف المرتبط للتو)
+      // تعرض اسم وسعر صنف المخزون الجديد.
+      await transaction
+        .update(residentPurchases)
+        .set({ itemName: product.name, price: product.price })
+        .where(
+          or(
+            eq(residentPurchases.canteenItemNumber, product.itemNumber),
+            and(
+              isNull(residentPurchases.canteenItemNumber),
+              sql`lower(trim(${residentPurchases.itemName})) = lower(trim(${name}))`,
+            ),
+          ),
+        );
+
       const openingQuantity = parsed.data.quantity ?? 0;
       let openingMovement: CanteenMovement | null = null;
       if (openingQuantity > 0) {
@@ -201,6 +259,13 @@ export async function saveCanteenProductAction(
       return { product, balance: openingQuantity, movement: openingMovement };
     }
 
+    const [previousProduct] = await transaction
+      .select({ name: canteenProducts.name })
+      .from(canteenProducts)
+      .where(eq(canteenProducts.itemNumber, parsed.data.itemNumber))
+      .limit(1)
+      .for("update");
+    if (!previousProduct) return null;
     const [product] = await transaction
       .update(canteenProducts)
       .set(values)
@@ -213,6 +278,51 @@ export async function saveCanteenProductAction(
         needsReview: canteenProducts.needsReview,
       });
     if (!product) return null;
+
+    // أي تعديل على اسم أو سعر صنف المخزون ينعكس على صنف البيع المرتبط.
+    // إن لم يكن هناك ارتباط بعد نربط أقدم صف بيع يحمل الاسم نفسه، ثم
+    // نوحّد كل الصفوف المكررة حتى تعرض الشاشات القيمة نفسها.
+    const [linkedPurchase] = await transaction
+      .select({ id: residentPurchases.id })
+      .from(residentPurchases)
+      .where(eq(residentPurchases.canteenItemNumber, product.itemNumber))
+      .limit(1)
+      .for("update");
+    if (!linkedPurchase) {
+      const [candidate] = await transaction
+        .select({ id: residentPurchases.id })
+        .from(residentPurchases)
+        .where(
+          and(
+            isNull(residentPurchases.canteenItemNumber),
+            sql`lower(trim(${residentPurchases.itemName})) = lower(trim(${product.name}))`,
+          ),
+        )
+        .orderBy(asc(residentPurchases.id))
+        .limit(1)
+        .for("update");
+      if (candidate) {
+        await transaction
+          .update(residentPurchases)
+          .set({ canteenItemNumber: product.itemNumber })
+          .where(eq(residentPurchases.id, candidate.id));
+      }
+    }
+    await transaction
+      .update(residentPurchases)
+      .set({ itemName: product.name, price: product.price })
+      .where(
+        or(
+          eq(residentPurchases.canteenItemNumber, product.itemNumber),
+          and(
+            isNull(residentPurchases.canteenItemNumber),
+            or(
+              sql`lower(trim(${residentPurchases.itemName})) = lower(trim(${previousProduct.name}))`,
+              sql`lower(trim(${residentPurchases.itemName})) = lower(trim(${product.name}))`,
+            ),
+          ),
+        ),
+      );
 
     let nextBalance: number | undefined;
     let adjustmentMovement: CanteenMovement | null = null;
