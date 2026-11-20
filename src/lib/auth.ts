@@ -33,10 +33,9 @@ function createAuth() {
       disableSignUp: true,
     },
     session: {
-      // جلسة مطلقة: تنتهي بعد 30 دقيقة من تسجيل الدخول ولا تُمدَّد تلقائيًا.
+      // تنتهي الجلسة بعد 30 دقيقة من تسجيل الدخول
       expiresIn: 60 * 30,
       updateAge: 60 * 30,
-      disableSessionRefresh: true,
     },
     user: {
       additionalFields: {

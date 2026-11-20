@@ -218,6 +218,13 @@
       "when": 1794915600000,
       "tag": "0030_link_canteen_sales_items",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1795197600000,
+      "tag": "0031_gate_system_and_permissions",
+      "breakpoints": true
     }
   ]
 }
