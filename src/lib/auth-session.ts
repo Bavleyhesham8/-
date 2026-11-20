@@ -108,7 +108,8 @@ export type StaffPermission =
   | "canIssueInvoices"
   | "canManageWarehouse"
   | "canManageCustody"
-  | "canManageMeatSales";
+  | "canManageMeatSales"
+  | "canManageGate";
 
 const permissionScreens: Record<StaffPermission, DashboardScreen> = {
   canAccessClinic: "treatment",
@@ -117,6 +118,7 @@ const permissionScreens: Record<StaffPermission, DashboardScreen> = {
   canManageWarehouse: "inventory",
   canManageCustody: "custody",
   canManageMeatSales: "meat-sales",
+  canManageGate: "gate",
 };
 
 export async function requireStaffPermission(

@@ -21,7 +21,6 @@ export async function listLookupDataForCurrentUser(): Promise<LookupData> {
       ? session.user.role
       : "staff",
     session.user.allowedScreens,
-    session.user.canEditResidents === true,
   );
   const [churches, governorates, days, alternateCategories, villas] =
     await Promise.all([

@@ -62,8 +62,11 @@ export async function listStaffDataForCurrentUser(): Promise<StaffBundle> {
 
   const canViewAllStaff =
     session.user.role === "admin" ||
-    (session.user.role === "viewer" &&
-      hasScreenAccess("viewer", session.user.allowedScreens, "staff"));
+    hasScreenAccess(
+      session.user.role === "viewer" ? "viewer" : "staff",
+      session.user.allowedScreens,
+      "staff",
+    );
   if (canViewAllStaff) {
     const [profiles, employees, leaveRows, accounts, links] = await Promise.all(
       [

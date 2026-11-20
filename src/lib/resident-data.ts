@@ -112,7 +112,6 @@ export async function listResidentsForCurrentUser() {
       ? session.user.role
       : "staff",
     session.user.allowedScreens,
-    session.user.canEditResidents === true,
   );
   const database = getDatabase();
   const [residentRows, latestStays] = await Promise.all([
@@ -160,6 +159,7 @@ export async function listStaffForAdministrator(): Promise<DemoUser[]> {
         canManageWarehouse: user.canManageWarehouse,
         canManageCustody: user.canManageCustody,
         canManageMeatSales: user.canManageMeatSales,
+        canManageGate: user.canManageGate,
         allowedScreens: user.allowedScreens,
       })
       .from(user)
@@ -210,6 +210,7 @@ export async function listStaffForAdministrator(): Promise<DemoUser[]> {
     canManageWarehouse: member.canManageWarehouse,
     canManageCustody: member.canManageCustody,
     canManageMeatSales: member.canManageMeatSales,
+    canManageGate: member.canManageGate,
     allowedScreens: member.allowedScreens ? member.allowedScreens.split(",").filter(Boolean) : [],
     inventoryCategoryIds: categoryIdsByUser.get(member.id) ?? [],
     canteenAccess: member.canManageCanteen || canteenUserIds.has(member.id),
@@ -229,7 +230,6 @@ export async function getResidentRecord(id: string) {
       ? session.user.role
       : "staff",
     session.user.allowedScreens,
-    session.user.canEditResidents === true,
   );
   const database = getDatabase();
   const [resident] = await database

@@ -88,6 +88,7 @@ export default function InvoiceReportPanel({
   const [report, setReport] = useState<InvoiceReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isCustomItem, setIsCustomItem] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -172,11 +173,12 @@ export default function InvoiceReportPanel({
 
   const availableItems = useMemo(() => {
     const items = new Set<string>();
+    for (const name of report?.itemNames ?? []) if (name) items.add(name);
     for (const p of canteen?.products ?? []) if (p.name) items.add(p.name);
     for (const item of sales?.items ?? []) if (item.name) items.add(item.name);
     for (const row of report?.rows ?? []) if (row.itemName) items.add(row.itemName);
     return Array.from(items).filter(Boolean).sort((a, b) => a.localeCompare(b, "ar"));
-  }, [canteen?.products, sales?.items, report?.rows]);
+  }, [report?.itemNames, canteen?.products, sales?.items, report?.rows]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -325,20 +327,51 @@ export default function InvoiceReportPanel({
         </label>
         <label>
           الصنف
-          <input
-            list={itemListId}
-            value={filters.itemName}
-            onChange={(event) =>
-              setFilters((current) => ({ ...current, itemName: event.target.value }))
-            }
-            maxLength={160}
-            placeholder="اختر صنفاً أو اكتب..."
-          />
-          <datalist id={itemListId}>
-            {availableItems.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <select
+              value={
+                availableItems.includes(filters.itemName)
+                  ? filters.itemName
+                  : filters.itemName === ""
+                  ? ""
+                  : "__custom__"
+              }
+              onChange={(event) => {
+                const val = event.target.value;
+                if (val === "__custom__") {
+                  setIsCustomItem(true);
+                } else {
+                  setIsCustomItem(false);
+                  setFilters((current) => ({ ...current, itemName: val }));
+                }
+              }}
+              style={{ flex: 1 }}
+            >
+              <option value="">-- كل الأصناف --</option>
+              {availableItems.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+              <option value="__custom__">-- كتابة اسم صنف يدوياً --</option>
+            </select>
+            {(isCustomItem || (!availableItems.includes(filters.itemName) && filters.itemName !== "")) && (
+              <input
+                type="text"
+                autoFocus
+                placeholder="اكتب اسم الصنف..."
+                value={filters.itemName}
+                onChange={(event) =>
+                  setFilters((current) => ({
+                    ...current,
+                    itemName: event.target.value,
+                  }))
+                }
+                maxLength={160}
+                style={{ minWidth: "150px" }}
+              />
+            )}
+          </div>
         </label>
         <label>
           طريقة الدفع

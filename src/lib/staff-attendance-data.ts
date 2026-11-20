@@ -13,70 +13,44 @@ export async function listStaffAttendanceForCurrentUser(): Promise<StaffAttendan
   const session = await requireScreenAccess("staff-attendance");
   const database = getDatabase();
 
-  if (session.user.role === "admin" || session.user.role === "viewer") {
-    const [employees, rows] = await Promise.all([
-      database
-        .select({
-          employeeNumber: staffEmployees.employeeNumber,
-          employeeName: staffEmployees.employeeName,
-        })
-        .from(staffEmployees)
-        .orderBy(staffEmployees.employeeName),
-      database
-        .select({
-          id: staffAttendance.id,
-          employeeNumber: staffAttendance.employeeNumber,
-          employeeName: staffEmployees.employeeName,
-          clockInAt: staffAttendance.clockInAt,
-          clockOutAt: staffAttendance.clockOutAt,
-        })
-        .from(staffAttendance)
-        .innerJoin(
-          staffEmployees,
-          eq(staffEmployees.employeeNumber, staffAttendance.employeeNumber),
-        )
-        .orderBy(asc(staffAttendance.clockInAt))
-        .limit(100),
-    ]);
-
-    return {
-      employees,
-      entries: rows.map(toEntry),
-      linkedEmployeeNumber: null,
-    };
-  }
-
-  const [link] = await database
-    .select({ employeeNumber: staffAccountLinks.employeeNumber })
-    .from(staffAccountLinks)
-    .where(eq(staffAccountLinks.userId, session.user.id))
-    .limit(1);
-
-  if (!link) {
-    return { entries: [], employees: [], linkedEmployeeNumber: null };
-  }
-
-  const rows = await database
-    .select({
-      id: staffAttendance.id,
-      employeeNumber: staffAttendance.employeeNumber,
-      employeeName: staffEmployees.employeeName,
-      clockInAt: staffAttendance.clockInAt,
-      clockOutAt: staffAttendance.clockOutAt,
-    })
-    .from(staffAttendance)
-    .innerJoin(
-      staffEmployees,
-      eq(staffEmployees.employeeNumber, staffAttendance.employeeNumber),
-    )
-    .where(eq(staffAttendance.employeeNumber, link.employeeNumber))
-    .orderBy(asc(staffAttendance.clockInAt))
-    .limit(100);
+  // منح شاشة الحضور والانصراف يمنح عرض السجل الكامل لكل الأدوار،
+  // بينما يظل تسجيل الحضور والانصراف مقصورًا على الموظف المرتبط بحساب الموظف.
+  const [employees, rows, linkRows] = await Promise.all([
+    database
+      .select({
+        employeeNumber: staffEmployees.employeeNumber,
+        employeeName: staffEmployees.employeeName,
+      })
+      .from(staffEmployees)
+      .orderBy(staffEmployees.employeeName),
+    database
+      .select({
+        id: staffAttendance.id,
+        employeeNumber: staffAttendance.employeeNumber,
+        employeeName: staffEmployees.employeeName,
+        clockInAt: staffAttendance.clockInAt,
+        clockOutAt: staffAttendance.clockOutAt,
+      })
+      .from(staffAttendance)
+      .innerJoin(
+        staffEmployees,
+        eq(staffEmployees.employeeNumber, staffAttendance.employeeNumber),
+      )
+      .orderBy(asc(staffAttendance.clockInAt))
+      .limit(100),
+    session.user.role === "admin" || session.user.role === "viewer"
+      ? Promise.resolve([])
+      : database
+          .select({ employeeNumber: staffAccountLinks.employeeNumber })
+          .from(staffAccountLinks)
+          .where(eq(staffAccountLinks.userId, session.user.id))
+          .limit(1),
+  ]);
 
   return {
     entries: rows.map(toEntry),
-    employees: [],
-    linkedEmployeeNumber: link.employeeNumber,
+    employees,
+    linkedEmployeeNumber: linkRows[0]?.employeeNumber ?? null,
   };
 }
 

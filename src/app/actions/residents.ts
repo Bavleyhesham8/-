@@ -508,6 +508,7 @@ export async function updateStaffPermissionAction(
         canManageWarehouse: user.canManageWarehouse,
         canManageCustody: user.canManageCustody,
         canManageMeatSales: user.canManageMeatSales,
+        canManageGate: user.canManageGate,
         allowedScreens: user.allowedScreens,
       });
     return updated ?? null;
@@ -550,6 +551,7 @@ export async function updateUserRoleAndPermissionsAction(
     canManageWarehouse: z.boolean().default(false),
     canManageCustody: z.boolean().default(false),
     canManageMeatSales: z.boolean().default(false),
+    canManageGate: z.boolean().default(false),
     allowedScreens: z
       .array(z.enum(DASHBOARD_SCREENS))
       .max(DASHBOARD_SCREENS.length)
@@ -580,6 +582,7 @@ export async function updateUserRoleAndPermissionsAction(
           canManageWarehouse: false,
           canManageCustody: false,
           canManageMeatSales: false,
+          canManageGate: false,
         }
       : perms;
   const safeInventoryCategoryIds =
@@ -658,6 +661,7 @@ export async function updateUserRoleAndPermissionsAction(
         canManageWarehouse: user.canManageWarehouse,
         canManageCustody: user.canManageCustody,
         canManageMeatSales: user.canManageMeatSales,
+        canManageGate: user.canManageGate,
         allowedScreens: user.allowedScreens,
       });
     if (!updatedUser) {
@@ -705,7 +709,7 @@ export async function updateUserRoleAndPermissionsAction(
     entityId: savedUser.id,
     metadata: {
       fields:
-        "role,canEditResidents,canAccessClinic,canManageCanteen,canIssueInvoices,canManageWarehouse,canManageCustody,canManageMeatSales,allowedScreens,inventoryCategoryIds",
+        "role,canEditResidents,canAccessClinic,canManageCanteen,canIssueInvoices,canManageWarehouse,canManageCustody,canManageMeatSales,canManageGate,allowedScreens,inventoryCategoryIds",
     },
   });
   return {

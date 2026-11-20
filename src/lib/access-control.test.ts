@@ -59,22 +59,30 @@ test("viewers can access assigned screens but get no implicit defaults", () => {
   assert.equal(hasScreenAccess("viewer", "", "residents"), false);
 });
 
-test("church and profile data are visible only through assigned read screens or resident editing", () => {
-  assert.equal(canViewResidentChurchData("admin", [], false), true);
-  assert.equal(canViewResidentChurchData("staff", ["residents"], true), true);
-  assert.equal(canViewResidentChurchData("staff", ["sales"], true), false);
-  assert.equal(canViewResidentChurchData("staff", ["residents"], false), false);
-  assert.equal(canViewResidentChurchData("viewer", ["residents"], false), true);
-  assert.equal(canViewResidentChurchData("viewer", ["lookups"], false), true);
-  assert.equal(canViewResidentChurchData("viewer", ["sales"], false), false);
+test("church and profile data follow the assigned read screens for every role", () => {
+  assert.equal(canViewResidentChurchData("admin", []), true);
+  assert.equal(canViewResidentChurchData("staff", ["residents"]), true);
+  assert.equal(canViewResidentChurchData("staff", ["sales"]), false);
+  assert.equal(canViewResidentChurchData("staff", ["lookups"]), true);
+  assert.equal(canViewResidentChurchData("viewer", ["residents"]), true);
+  assert.equal(canViewResidentChurchData("viewer", ["lookups"]), true);
+  assert.equal(canViewResidentChurchData("viewer", ["sales"]), false);
+  assert.equal(canViewFullResidentProfile("staff", ["residents"]), true);
   assert.equal(canViewFullResidentProfile("viewer", ["residents"]), true);
   assert.equal(canViewFullResidentProfile("viewer", ["sales"]), false);
 });
 
-test("birth dates are visible to read-only viewers with the assigned report screen", () => {
-  assert.equal(canViewResidentBirthDate("admin"), true);
-  assert.equal(canViewResidentBirthDate("staff"), false);
-  assert.equal(canViewResidentBirthDate("viewer"), true);
+test("birth dates follow the assigned stay-report screen for every role", () => {
+  assert.equal(canViewResidentBirthDate("admin", []), true);
+  assert.equal(
+    canViewResidentBirthDate("staff", ["resident-stay-reports"]),
+    true,
+  );
+  assert.equal(canViewResidentBirthDate("staff", []), false);
+  assert.equal(
+    canViewResidentBirthDate("viewer", ["resident-stay-reports"]),
+    true,
+  );
 });
 
 test("operational permissions automatically add their required screens", () => {

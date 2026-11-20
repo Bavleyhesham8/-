@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asc, eq, inArray, or } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   custodyDetails,
@@ -17,12 +17,6 @@ import type {
   CustodyRecord,
 } from "@/lib/custody-types";
 
-const emptyBundle: CustodyBundle = {
-  employees: [],
-  records: [],
-  linkedEmployeeNumber: null,
-};
-
 function dateValue(value: Date | null): string | null {
   return value ? value.toISOString().slice(0, 10) : null;
 }
@@ -31,52 +25,30 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
   const session = await requireCurrentSession();
   await requireAnyScreenAccess("custody", "tracking");
   const database = getDatabase();
-  const isAdministrator =
-    session.user.role === "admin" || session.user.role === "viewer";
   let linkedEmployeeNumber: number | null = null;
-
-  if (!isAdministrator) {
+  if (session.user.role !== "admin" && session.user.role !== "viewer") {
     const [link] = await database
       .select({ employeeNumber: staffAccountLinks.employeeNumber })
       .from(staffAccountLinks)
       .where(eq(staffAccountLinks.userId, session.user.id))
       .limit(1);
-    if (!link) return emptyBundle;
-    linkedEmployeeNumber = link.employeeNumber;
+    linkedEmployeeNumber = link?.employeeNumber ?? null;
   }
 
-  const employeeRows = await database
-    .select({
-      employeeNumber: staffEmployees.employeeNumber,
-      employeeName: staffEmployees.employeeName,
-    })
-    .from(staffEmployees)
-    .orderBy(staffEmployees.employeeName);
-  const allHeaders = isAdministrator
-    ? await database
-        .select()
-        .from(custodyHeaders)
-        .orderBy(asc(custodyHeaders.custodyNumber))
-    : [];
-  const initialHeaderNumbers = isAdministrator
-    ? []
-    : await database
-        .select({ custodyNumber: custodyHeaders.custodyNumber })
-        .from(custodyHeaders)
-        .where(
-          eq(custodyHeaders.recipientEmployeeNumber, linkedEmployeeNumber!),
-        );
-  const detailVisibility = isAdministrator
-    ? []
-    : await database
-        .select({ detailId: custodyEvents.detailId })
-        .from(custodyEvents)
-        .where(
-          or(
-            eq(custodyEvents.fromEmployeeNumber, linkedEmployeeNumber!),
-            eq(custodyEvents.toEmployeeNumber, linkedEmployeeNumber!),
-          ),
-        );
+  const [employeeRows, headerRows] = await Promise.all([
+    database
+      .select({
+        employeeNumber: staffEmployees.employeeNumber,
+        employeeName: staffEmployees.employeeName,
+      })
+      .from(staffEmployees)
+      .orderBy(staffEmployees.employeeName),
+    // شاشة العهد تمنح عرض كل السجلات؛ صلاحية التعديل منفصلة.
+    database
+      .select()
+      .from(custodyHeaders)
+      .orderBy(asc(custodyHeaders.custodyNumber)),
+  ]);
 
   const employeeNames = new Map(
     employeeRows.map((employee) => [
@@ -84,54 +56,6 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
       employee.employeeName,
     ]),
   );
-  const custodyNumbers = new Set<number>([
-    ...allHeaders.map((header) => header.custodyNumber),
-    ...initialHeaderNumbers.map((header) => header.custodyNumber),
-  ]);
-
-  if (!isAdministrator && detailVisibility.length) {
-    const visibleDetails = await database
-      .select({
-        custodyNumber: custodyDetails.custodyNumber,
-      })
-      .from(custodyDetails)
-      .where(
-        inArray(
-          custodyDetails.webId,
-          detailVisibility.map((event) => event.detailId),
-        ),
-      );
-    for (const detail of visibleDetails) {
-      custodyNumbers.add(detail.custodyNumber);
-    }
-  }
-
-  if (!isAdministrator && linkedEmployeeNumber !== null) {
-    const currentDetails = await database
-      .select({ custodyNumber: custodyDetails.custodyNumber })
-      .from(custodyDetails)
-      .where(
-        eq(custodyDetails.currentEmployeeNumber, linkedEmployeeNumber),
-      );
-    for (const detail of currentDetails) {
-      custodyNumbers.add(detail.custodyNumber);
-    }
-  }
-
-  if (!custodyNumbers.size && !isAdministrator) {
-    return {
-      ...emptyBundle,
-      linkedEmployeeNumber,
-    };
-  }
-
-  const headerRows = isAdministrator
-    ? allHeaders
-    : await database
-        .select()
-        .from(custodyHeaders)
-        .where(inArray(custodyHeaders.custodyNumber, [...custodyNumbers]))
-        .orderBy(asc(custodyHeaders.custodyNumber));
   const numbers = headerRows.map((header) => header.custodyNumber);
 
   const detailRows = numbers.length
@@ -219,7 +143,7 @@ export async function listCustodyDataForCurrentUser(): Promise<CustodyBundle> {
   }));
 
   return {
-    employees: isAdministrator ? employeeRows : [],
+    employees: employeeRows,
     records,
     linkedEmployeeNumber,
   };

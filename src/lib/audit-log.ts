@@ -9,7 +9,9 @@ type AuditAction =
   | "delete"
   | "permission-change"
   | "clock-in"
-  | "clock-out";
+  | "clock-out"
+  | "gate-in"
+  | "gate-out";
 
 export async function recordAuditEvent({
   actorUserId,

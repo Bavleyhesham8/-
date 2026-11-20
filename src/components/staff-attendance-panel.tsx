@@ -81,9 +81,7 @@ export default function StaffAttendancePanel({
         !selectedEmployee ||
         entry.employeeNumber === Number(selectedEmployee)) &&
       (!fromDate || entryDate >= fromDate) &&
-      (!toDate || entryDate <= toDate) &&
-      (role === "admin" || role === "viewer" ||
-        entry.employeeNumber === bundle.linkedEmployeeNumber)
+      (!toDate || entryDate <= toDate)
     );
   });
   const invalidDateRange = Boolean(fromDate && toDate && fromDate > toDate);
@@ -277,7 +275,7 @@ export default function StaffAttendancePanel({
           <table className="min-w-[760px] w-full text-right text-sm">
             <thead>
               <tr>
-                {role === "admin" && <th className="px-4 py-3">الموظف</th>}
+                <th className="px-4 py-3">الموظف</th>
                 <th className="px-4 py-3">وقت الحضور</th>
                 <th className="px-4 py-3">وقت الانصراف</th>
                 <th className="px-4 py-3">المدة</th>
@@ -288,7 +286,7 @@ export default function StaffAttendancePanel({
             <tbody>
               {!invalidDateRange && visibleEntries.map((entry) => (
                   <tr key={entry.id}>
-                    {role === "admin" && <td>{entry.employeeName}</td>}
+                    <td className="px-4 py-3">{entry.employeeName}</td>
                     <td className="px-4 py-3">{editingId === entry.id ? <input className="rounded border border-slate-300 p-2" aria-label="وقت الحضور" type="datetime-local" value={editClockIn} onChange={(event) => setEditClockIn(event.target.value)} /> : formatTimestamp(entry.clockInAt)}</td>
                     <td className="px-4 py-3">{editingId === entry.id ? <input className="rounded border border-slate-300 p-2" aria-label="وقت الانصراف" type="datetime-local" value={editClockOut} onChange={(event) => setEditClockOut(event.target.value)} /> : formatTimestamp(entry.clockOutAt)}</td>
                     <td className="px-4 py-3">{durationLabel(entry.clockInAt, entry.clockOutAt)}</td>
@@ -312,7 +310,7 @@ export default function StaffAttendancePanel({
                 ))}
               {visibleEntries.length === 0 && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={role === "admin" ? 6 : 4}>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={role === "admin" ? 6 : 5}>
                     لا توجد سجلات حضور وانصراف بعد.
                   </td>
                 </tr>

@@ -15,6 +15,8 @@ const actionLabels: Record<string, string> = {
   "permission-change": "تغيير صلاحية",
   "clock-in": "حضور",
   "clock-out": "انصراف",
+  "gate-in": "دخول بوابة",
+  "gate-out": "خروج بوابة",
 };
 
 const entityLabels: Record<string, string> = {
@@ -46,6 +48,8 @@ const entityLabels: Record<string, string> = {
   staffLeaveEntries: "إجازات الموظفين",
   staffAccountLinks: "ربط حسابات الموظفين",
   staff_attendance: "الحضور والانصراف",
+  gate_visits: "زيارات البوابة",
+  gate_visitors: "ملفات زوار البوابة",
   churchLookup: "الكنائس",
   confessorLookup: "آباء الاعتراف",
   governorateLookup: "المحافظات",

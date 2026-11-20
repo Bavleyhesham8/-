@@ -8,7 +8,6 @@ import {
   canteenStockLedger,
   canteenStockMovementLinks,
   canteenStockVoids,
-  userCanteenAccess,
 } from "@/db/schema";
 import { hasScreenAccess } from "@/lib/access-control";
 import { requireAnyScreenAccess, requireCurrentSession } from "@/lib/auth-session";
@@ -27,37 +26,24 @@ export async function listCanteenForCurrentUser(): Promise<{
     "tracking",
   );
   const database = getDatabase();
-  const canManageCanteen =
-    session.user.role === "admin" ||
-    (session.user.role === "staff" &&
-      session.user.canManageCanteen === true);
-  let hasFullAccess =
-    canManageCanteen ||
-    (session.user.role === "viewer" &&
-      (["canteen", "canteen-reports", "tracking"] as const).some((screen) =>
-        hasScreenAccess("viewer", session.user.allowedScreens, screen),
-      ));
-  if (!hasFullAccess && session.user.role === "staff") {
-    const [grant] = await database
-      .select({ userId: userCanteenAccess.userId })
-      .from(userCanteenAccess)
-      .where(eq(userCanteenAccess.userId, session.user.id))
-      .limit(1);
-    hasFullAccess = Boolean(grant);
-  }
-  const canReadSalesStock =
-    session.user.role === "viewer" &&
-    hasScreenAccess("viewer", session.user.allowedScreens, "sales");
-  const canIssueSales =
-    session.user.role === "staff" &&
-    session.user.canIssueInvoices === true &&
-    hasScreenAccess(
-      "staff",
-      session.user.allowedScreens,
-      "sales",
+  const role =
+    session.user.role === "admin" || session.user.role === "viewer"
+      ? session.user.role
+      : "staff";
+  // Ù…Ù†Ø­ Ø´Ø§Ø´Ø© Ø§Ù„ÙƒØ§Ù†ØªÙŠÙ† Ø£Ùˆ Ø³Ø¬Ù„ Ø­Ø±ÙƒØ§ØªÙ‡ Ø£Ùˆ Ø§Ù„ØªØªØ¨Ø¹ ÙŠÙ…Ù†Ø­ Ù‚Ø±Ø§Ø¡Ø© ÙƒØ§Ù…Ù„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ÙƒØ§Ù†ØªÙŠÙ†.
+  // ØµÙ„Ø§Ø­ÙŠØ© Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„ÙƒØ§Ù†ØªÙŠÙ† ØªØ¸Ù„ Ù…Ù†ÙØµÙ„Ø© ÙˆØªØªØ­ÙƒÙ… ÙÙŠ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„ ÙÙ‚Ø·.
+  const canViewCanteenStock =
+    role === "admin" ||
+    (["canteen", "canteen-reports", "tracking"] as const).some((screen) =>
+      hasScreenAccess(role, session.user.allowedScreens, screen),
+    );
+  const canViewSalesStock =
+    role === "admin" ||
+    (["sales", "invoice-reports"] as const).some((screen) =>
+      hasScreenAccess(role, session.user.allowedScreens, screen),
     );
 
-  if (!hasFullAccess && !canIssueSales && !canReadSalesStock) {
+  if (!canViewCanteenStock && !canViewSalesStock) {
     return {
       bundle: { products: [], movements: [] },
       hasAccess: false,
@@ -74,7 +60,7 @@ export async function listCanteenForCurrentUser(): Promise<{
     })
     .from(canteenProducts)
     .orderBy(canteenProducts.itemNumber);
-  const movementsPromise = hasFullAccess
+  const movementsPromise = canViewCanteenStock
     ? database
       .select({
         id: canteenStockLedger.id,
@@ -166,39 +152,39 @@ export async function listCanteenForCurrentUser(): Promise<{
     balance: movement.balance,
     incoming: movement.incoming,
     incomingDate:
-      hasFullAccess &&
+      canViewCanteenStock &&
       "incomingDate" in movement &&
       typeof movement.incomingDate === "string"
         ? movement.incomingDate
         : null,
     outgoing: movement.outgoing,
     outgoingDate:
-      hasFullAccess &&
+      canViewCanteenStock &&
       "outgoingDate" in movement &&
       typeof movement.outgoingDate === "string"
         ? movement.outgoingDate
         : null,
     recipient:
-      hasFullAccess &&
+      canViewCanteenStock &&
       "recipient" in movement &&
       typeof movement.recipient === "string"
         ? movement.recipient
         : "",
     issueCategory:
-      hasFullAccess &&
+      canViewCanteenStock &&
       "issueCategory" in movement &&
       typeof movement.issueCategory === "string"
         ? movement.issueCategory
         : "",
     voucherId:
-      hasFullAccess &&
+      canViewCanteenStock &&
       "voucherId" in movement &&
       typeof movement.voucherId === "number"
         ? movement.voucherId
         : null,
     voided: movement.voided,
     voidReason:
-      hasFullAccess &&
+      canViewCanteenStock &&
       "voidReason" in movement &&
       typeof movement.voidReason === "string"
         ? movement.voidReason
@@ -213,6 +199,6 @@ export async function listCanteenForCurrentUser(): Promise<{
       })),
       movements,
     },
-    hasAccess: hasFullAccess && session.user.role !== "viewer",
+    hasAccess: canViewCanteenStock,
   };
 }

@@ -17,6 +17,7 @@ export const DASHBOARD_SCREENS = [
   "tracking",
   "staff",
   "staff-attendance",
+  "gate",
   "lookups",
   "access",
 ] as const;
@@ -36,6 +37,7 @@ export const PERMISSION_SCREENS = {
   canManageWarehouse: "inventory",
   canManageCustody: "custody",
   canManageMeatSales: "meat-sales",
+  canManageGate: "gate",
 } as const satisfies Record<string, DashboardScreen>;
 
 export type OperationalPermission = keyof typeof PERMISSION_SCREENS;
@@ -82,20 +84,27 @@ export function firstAccessibleScreen(
   ) ?? null;
 }
 
+/**
+ * قراءة بيانات النزلاء الحساسة مرتبطة بالشاشات المسموح بها فقط.
+ * منح الشاشة يعني حق العرض، بينما تظل صلاحيات التعديل منفصلة.
+ */
+const RESIDENT_READ_SCREENS: DashboardScreen[] = [
+  "residents",
+  "resident-reports",
+  "resident-search",
+  "resident-stay-reports",
+  "rooms",
+];
+
 export function canViewResidentChurchData(
   role: AccessRole,
   allowedScreens: readonly string[] | string | null | undefined,
-  canEditResidents: boolean,
 ) {
   return (
     role === "admin" ||
-    (role === "viewer" &&
-      ["residents", "resident-reports", "resident-search", "lookups"].some(
-        (screen) => hasScreenAccess(role, allowedScreens, screen as DashboardScreen),
-      )) ||
-    (role === "staff" &&
-      canEditResidents &&
-      hasScreenAccess(role, allowedScreens, "residents"))
+    [...RESIDENT_READ_SCREENS, "lookups" as DashboardScreen].some((screen) =>
+      hasScreenAccess(role, allowedScreens, screen),
+    )
   );
 }
 
@@ -105,17 +114,18 @@ export function canViewFullResidentProfile(
 ) {
   return (
     role === "admin" ||
-    (role === "viewer" &&
-      [
-        "residents",
-        "resident-reports",
-        "resident-search",
-        "resident-stay-reports",
-        "rooms",
-      ].some((screen) => hasScreenAccess(role, allowedScreens, screen as DashboardScreen)))
+    RESIDENT_READ_SCREENS.some((screen) =>
+      hasScreenAccess(role, allowedScreens, screen),
+    )
   );
 }
 
-export function canViewResidentBirthDate(role: AccessRole) {
-  return role === "admin" || role === "viewer";
+export function canViewResidentBirthDate(
+  role: AccessRole,
+  allowedScreens: readonly string[] | string | null | undefined,
+) {
+  return (
+    role === "admin" ||
+    hasScreenAccess(role, allowedScreens, "resident-stay-reports")
+  );
 }

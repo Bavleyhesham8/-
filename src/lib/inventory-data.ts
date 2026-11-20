@@ -22,42 +22,40 @@ export async function listInventoryForCurrentUser(): Promise<InventoryBundle> {
   const session = await requireCurrentSession();
   await requireAnyScreenAccess("inventory", "tracking");
   const database = getDatabase();
-  const canViewAll =
+  const canManageWarehouse =
     session.user.role === "admin" ||
-    session.user.role === "viewer" ||
     session.user.canManageWarehouse === true;
 
-  const categories = canViewAll
-      ? await database
-          .select({
-            id: inventoryCategories.id,
-            name: inventoryCategories.name,
-            active: inventoryCategories.active,
-          })
-          .from(inventoryCategories)
-          .where(
-            notInArray(inventoryCategories.name, excludedInventoryCategoryNames),
-          )
-          .orderBy(inventoryCategories.name)
-      : await database
-          .select({
-            id: inventoryCategories.id,
-            name: inventoryCategories.name,
-            active: inventoryCategories.active,
-          })
-          .from(userInventoryCategories)
-          .innerJoin(
-            inventoryCategories,
-            eq(userInventoryCategories.categoryId, inventoryCategories.id),
-          )
-          .where(
-            and(
-              eq(userInventoryCategories.userId, session.user.id),
-              eq(inventoryCategories.active, true),
-              notInArray(inventoryCategories.name, excludedInventoryCategoryNames),
-            ),
-          )
-          .orderBy(inventoryCategories.name);
+  const [allCategories, grantedCategoryRows] = await Promise.all([
+    database
+      .select({
+        id: inventoryCategories.id,
+        name: inventoryCategories.name,
+        active: inventoryCategories.active,
+      })
+      .from(inventoryCategories)
+      .where(
+        notInArray(inventoryCategories.name, excludedInventoryCategoryNames),
+      )
+      .orderBy(inventoryCategories.name),
+    database
+      .select({ categoryId: userInventoryCategories.categoryId })
+      .from(userInventoryCategories)
+      .where(eq(userInventoryCategories.userId, session.user.id)),
+  ]);
+
+  // شاشة المخزن تمنح قراءة كل الفئات افتراضيًا. إذا حدد المدير فئات
+  // بعينها لهذا الموظف تصبح هي نطاق العرض المسموح.
+  const grantedCategoryIds = new Set(
+    grantedCategoryRows.map((row) => row.categoryId),
+  );
+  const restrictToGranted =
+    !canManageWarehouse && grantedCategoryIds.size > 0;
+  const categories = restrictToGranted
+    ? allCategories.filter(
+        (category) => category.active && grantedCategoryIds.has(category.id),
+      )
+    : allCategories;
 
   const categoryIds = categories.map((category) => category.id);
   if (!categoryIds.length) return { categories, items: [], movements: [] };
@@ -73,15 +71,14 @@ export async function listInventoryForCurrentUser(): Promise<InventoryBundle> {
       })
       .from(inventoryItems)
       .orderBy(inventoryItems.name);
-  const items =
-    canViewAll
-      ? await itemsQuery.where(inArray(inventoryItems.categoryId, categoryIds))
-      : await itemsQuery.where(
-          and(
-            inArray(inventoryItems.categoryId, categoryIds),
-            eq(inventoryItems.active, true),
-          ),
-        );
+  const items = restrictToGranted
+    ? await itemsQuery.where(
+        and(
+          inArray(inventoryItems.categoryId, categoryIds),
+          eq(inventoryItems.active, true),
+        ),
+      )
+    : await itemsQuery.where(inArray(inventoryItems.categoryId, categoryIds));
 
   const movements = await database
       .select({

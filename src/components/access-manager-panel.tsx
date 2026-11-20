@@ -41,6 +41,7 @@ const AVAILABLE_SCREENS = [
   { id: "tracking", label: "التتبع العام" },
   { id: "staff", label: "الموظفون" },
   { id: "staff-attendance", label: "الحضور والانصراف" },
+  { id: "gate", label: "بوابة الدخول والخروج" },
   { id: "lookups", label: "البيانات المرجعية" },
 ];
 
@@ -72,6 +73,7 @@ export default function AccessManagerPanel({
               canManageWarehouse: merged.canManageWarehouse,
               canManageCustody: merged.canManageCustody,
               canManageMeatSales: merged.canManageMeatSales,
+              canManageGate: merged.canManageGate,
             })
           : merged.allowedScreens,
     };
@@ -94,6 +96,7 @@ export default function AccessManagerPanel({
           canManageWarehouse: updated.canManageWarehouse ?? false,
           canManageCustody: updated.canManageCustody ?? false,
           canManageMeatSales: updated.canManageMeatSales ?? false,
+          canManageGate: updated.canManageGate ?? false,
           allowedScreens: updated.allowedScreens ?? [],
           inventoryCategoryIds: updated.inventoryCategoryIds ?? [],
         });
@@ -336,6 +339,16 @@ export default function AccessManagerPanel({
                         className="h-4 w-4 rounded-sm text-teal-600 focus:ring-teal-500"
                       />
                       <span>مبيعات اللحوم والثلاجة</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 text-xs font-semibold text-slate-800 hover:bg-slate-100/70 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={user.canManageGate ?? false}
+                        onChange={(e) => handleUpdateUser(user, { canManageGate: e.target.checked })}
+                        className="h-4 w-4 rounded-sm text-teal-600 focus:ring-teal-500"
+                      />
+                      <span>تسجيل دخول وخروج الزوار بالبوابة</span>
                     </label>
                   </div>
 

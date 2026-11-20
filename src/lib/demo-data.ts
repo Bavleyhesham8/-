@@ -59,6 +59,7 @@ export type DemoUser = {
   canManageWarehouse?: boolean;
   canManageCustody?: boolean;
   canManageMeatSales?: boolean;
+  canManageGate?: boolean;
   allowedScreens?: string[];
 };
 
@@ -246,6 +247,7 @@ export const demoUsers: DemoUser[] = [
     canManageWarehouse: true,
     canManageCustody: true,
     canManageMeatSales: true,
+    canManageGate: true,
   },
   {
     id: "staff-demo-1",
@@ -259,6 +261,7 @@ export const demoUsers: DemoUser[] = [
     canManageCustody: false,
     canAccessClinic: false,
     canManageMeatSales: false,
+    canManageGate: false,
   },
   {
     id: "staff-demo-2",
@@ -272,6 +275,7 @@ export const demoUsers: DemoUser[] = [
     canManageWarehouse: false,
     canManageCustody: false,
     canManageMeatSales: false,
+    canManageGate: false,
   },
   {
     id: "viewer-demo-1",
@@ -300,6 +304,8 @@ export const demoUsers: DemoUser[] = [
       "resident-stay-reports",
       "meat-sales",
       "staff",
+      "staff-attendance",
+      "gate",
       "lookups",
     ],
   },

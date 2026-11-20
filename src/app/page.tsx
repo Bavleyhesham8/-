@@ -19,6 +19,7 @@ import { listMeatSalesForAdministrator } from "@/lib/meat-sales-data";
 import { listCustodyDataForCurrentUser } from "@/lib/custody-data";
 import { listStaffDataForCurrentUser } from "@/lib/staff-data";
 import { listStaffAttendanceForCurrentUser } from "@/lib/staff-attendance-data";
+import { listGateDataForCurrentUser } from "@/lib/gate-data";
 import { listAuditLogsForAdministrator } from "@/lib/audit-log-data";
 import { listLookupDataForCurrentUser } from "@/lib/lookup-data";
 import { listResidentFinanceForAdministrator } from "@/lib/resident-finance-data";
@@ -87,6 +88,9 @@ async function DashboardPage() {
   const canManageMeatSales =
     role === "admin" ||
     (role === "staff" && session.user.canManageMeatSales === true);
+  const canManageGate =
+    role === "admin" ||
+    (role === "staff" && session.user.canManageGate === true);
   const allowedScreens = session.user.allowedScreens
     ? session.user.allowedScreens.split(",").filter(Boolean)
     : [];
@@ -133,6 +137,7 @@ async function DashboardPage() {
     residentFinance,
     treatment,
     residentCustodyCharges,
+    gate,
   ] =
     await Promise.all([
       needsResidents ? listResidentsForCurrentUser() : Promise.resolve([]),
@@ -167,6 +172,9 @@ async function DashboardPage() {
       canViewResidentCustodyCharges
         ? listResidentCustodyChargesForCurrentUser()
         : Promise.resolve([]),
+      canAccessScreen("gate")
+        ? listGateDataForCurrentUser()
+        : Promise.resolve(undefined),
     ]);
   const staffAttendance = canAccessScreen("staff-attendance")
     ? await listStaffAttendanceForCurrentUser()
@@ -198,6 +206,7 @@ async function DashboardPage() {
         canManageWarehouse,
         canManageCustody,
         canManageMeatSales,
+        canManageGate,
         allowedScreens,
       }}
       initialCanteen={canteen.bundle}
@@ -206,11 +215,13 @@ async function DashboardPage() {
       initialCustody={custody}
       initialStaffData={staffData}
       initialStaffAttendance={staffAttendance}
+      initialGateData={gate}
       initialAuditLogs={auditLogs}
       initialLookups={lookups}
       initialResidentFinance={residentFinance}
       initialTreatment={treatment}
       initialResidentCustodyCharges={residentCustodyCharges}
+      sessionExpiresAt={session.session.expiresAt.toISOString()}
     />
   );
 }

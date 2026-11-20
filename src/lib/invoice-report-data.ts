@@ -4,11 +4,13 @@ import { and, asc, eq, gte, ilike, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import {
+  canteenProducts,
   invoiceCategories,
   legacyResidents,
   residentInvoiceLines,
   residentInvoiceVoids,
   residentInvoices,
+  residentPurchases,
   residents,
 } from "@/db/schema";
 import { requireAnyScreenAccess } from "@/lib/auth-session";
@@ -66,7 +68,7 @@ export async function getInvoiceReport(
   await requireAnyScreenAccess("sales", "invoice-reports");
   const database = getDatabase();
 
-  const [baseCategories, legacyRows] = await Promise.all([
+  const [baseCategories, legacyRows, itemNamesResult] = await Promise.all([
     database
       .select({ id: invoiceCategories.id, name: invoiceCategories.name })
       .from(invoiceCategories)
@@ -75,6 +77,26 @@ export async function getInvoiceReport(
       .selectDistinct({ name: residentInvoiceLines.alternateCategory })
       .from(residentInvoiceLines)
       .where(sql`trim(${residentInvoiceLines.alternateCategory}) <> ''`),
+    Promise.all([
+      database
+        .selectDistinct({ name: canteenProducts.name })
+        .from(canteenProducts)
+        .where(sql`trim(${canteenProducts.name}) <> ''`),
+      database
+        .selectDistinct({ name: residentPurchases.itemName })
+        .from(residentPurchases)
+        .where(sql`trim(${residentPurchases.itemName}) <> ''`),
+      database
+        .selectDistinct({ name: residentInvoiceLines.itemName })
+        .from(residentInvoiceLines)
+        .where(sql`trim(${residentInvoiceLines.itemName}) <> ''`),
+    ]).then(([cp, rp, ril]) => {
+      const set = new Set<string>();
+      for (const r of cp) if (r.name?.trim()) set.add(r.name.trim().normalize("NFC"));
+      for (const r of rp) if (r.name?.trim()) set.add(r.name.trim().normalize("NFC"));
+      for (const r of ril) if (r.name?.trim()) set.add(r.name.trim().normalize("NFC"));
+      return Array.from(set).sort((a, b) => a.localeCompare(b, "ar"));
+    }),
   ]);
   const legacyNames = [...new Set(legacyRows.map((row) => row.name.trim().normalize("NFC")).filter(Boolean))]
     .filter((name) => !baseCategories.some((category) => category.name.trim().normalize("NFC") === name));
@@ -156,6 +178,7 @@ export async function getInvoiceReport(
 
   return {
     categories,
+    itemNames: itemNamesResult,
     rows: rows.map((row) => ({
       invoiceNumber: row.invoiceNumber,
       invoiceDate: row.invoiceDate,

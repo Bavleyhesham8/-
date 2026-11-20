@@ -58,6 +58,7 @@ export async function getResidentStayReport(
     session.user.role === "admin" || session.user.role === "viewer"
       ? session.user.role
       : "staff",
+    session.user.allowedScreens,
   );
 
   const conditions = [

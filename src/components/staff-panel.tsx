@@ -7,6 +7,7 @@ import {
   saveStaffEmployeeAction,
   saveStaffProfileAction,
 } from "@/app/actions/staff";
+import { hasScreenAccess } from "@/lib/access-control";
 import { localDateValue } from "@/lib/date-format";
 import type { DemoUser } from "@/lib/demo-data";
 import type {
@@ -220,7 +221,13 @@ export default function StaffPanel({
   onLookupsChange,
 }: Props) {
   const isAdministrator = currentUser.role === "admin";
-  const canViewAllStaff = isAdministrator || currentUser.role === "viewer";
+  const canViewAllStaff =
+    isAdministrator ||
+    hasScreenAccess(
+      currentUser.role,
+      currentUser.allowedScreens ?? [],
+      "staff",
+    );
   const [section, setSection] = useState<Section>("profile");
   const [editingProfileNumber, setEditingProfileNumber] = useState<
     number | null

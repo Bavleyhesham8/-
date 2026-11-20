@@ -20,6 +20,7 @@ type ViewType =
   | "meat-sales"
   | "staff"
   | "staff-attendance"
+  | "gate"
   | "lookups"
   | "tracking"
   | "access";
@@ -131,6 +132,7 @@ const classicColumns: MenuColumn[] = [
     items: [
       { label: "الموظفون", targetView: "staff", itemColor: "blue" },
       { label: "الحضور والانصراف", targetView: "staff-attendance", itemColor: "blue" },
+      { label: "بوابة الدخول والخروج", targetView: "gate", itemColor: "blue" },
       {
         label: "إدارة القوائم المرجعية",
         targetView: "lookups",

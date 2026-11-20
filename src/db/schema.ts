@@ -65,6 +65,7 @@ export const user = pgTable("user", {
   canManageWarehouse: boolean("can_manage_warehouse").notNull().default(false),
   canManageCustody: boolean("can_manage_custody").notNull().default(false),
   canManageMeatSales: boolean("can_manage_meat_sales").notNull().default(false),
+  canManageGate: boolean("can_manage_gate").notNull().default(false),
   allowedScreens: text("allowed_screens").notNull().default(""),
 });
 
@@ -1455,6 +1456,83 @@ export const staffAttendance = pgTable(
     uniqueIndex("staff_attendance_one_open_per_employee_idx")
       .on(table.employeeNumber)
       .where(sql`${table.clockOutAt} is null`),
+  ],
+);
+
+export const gateVisitors = pgTable(
+  "gate_visitors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    nationalId: text("national_id").notNull().default(""),
+    phone: text("phone").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    uniqueIndex("gate_visitors_national_id_unique")
+      .on(table.nationalId)
+      .where(sql`${table.nationalId} <> ''`),
+    index("gate_visitors_name_idx").on(table.name),
+    index("gate_visitors_created_by_idx").on(table.createdBy),
+  ],
+);
+
+export const gateVisits = pgTable(
+  "gate_visits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    personKind: text("person_kind").notNull(),
+    residentId: uuid("resident_id").references(() => residents.id, {
+      onDelete: "set null",
+    }),
+    employeeNumber: integer("employee_number").references(
+      () => staffEmployees.employeeNumber,
+      { onDelete: "set null" },
+    ),
+    visitorId: uuid("visitor_id").references(() => gateVisitors.id, {
+      onDelete: "set null",
+    }),
+    personName: text("person_name").notNull(),
+    nationalId: text("national_id").notNull().default(""),
+    entryAt: timestamp("entry_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    exitAt: timestamp("exit_at", { withTimezone: true }),
+    notes: text("notes").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    index("gate_visits_entry_at_idx").on(table.entryAt),
+    index("gate_visits_exit_at_idx").on(table.exitAt),
+    index("gate_visits_resident_id_idx").on(table.residentId),
+    index("gate_visits_employee_number_idx").on(table.employeeNumber),
+    index("gate_visits_visitor_id_idx").on(table.visitorId),
+    index("gate_visits_created_by_idx").on(table.createdBy),
+    check(
+      "gate_visits_person_kind_check",
+      sql`${table.personKind} IN ('resident', 'employee', 'visitor')`,
+    ),
+    check(
+      "gate_visits_exit_after_entry_check",
+      sql`${table.exitAt} IS NULL OR ${table.exitAt} >= ${table.entryAt}`,
+    ),
   ],
 );
 

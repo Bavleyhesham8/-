@@ -61,8 +61,10 @@ import { demoResidentFinance } from "@/lib/resident-finance-demo-data";
 import type { ResidentFinanceBundle } from "@/lib/resident-finance-types";
 import StaffPanel from "@/components/staff-panel";
 import StaffAttendancePanel from "@/components/staff-attendance-panel";
+import GatePanel from "@/components/gate-panel";
 import type { StaffBundle } from "@/lib/staff-types";
 import type { StaffAttendanceBundle } from "@/lib/staff-attendance-types";
+import type { GateBundle } from "@/lib/gate-types";
 import LookupManagerPanel from "@/components/lookup-manager-panel";
 import { demoLookupData } from "@/lib/lookup-demo-data";
 import type { LookupData } from "@/lib/lookup-types";
@@ -101,6 +103,7 @@ type View =
   | "meat-sales"
   | "staff"
   | "staff-attendance"
+  | "gate"
   | "lookups"
   | "tracking"
   | "access"
@@ -190,6 +193,7 @@ const navItems: NavItem[] = [
   { id: "treatment", key: "treatment", label: "العلاج", icon: "pill", group: "الخدمات والموظفون والإدارة" },
   { id: "staff", key: "staff", label: "الموظفون", icon: "people", group: "الخدمات والموظفون والإدارة" },
   { id: "staff-attendance", key: "staff-attendance", label: "الحضور والانصراف", icon: "calendar", group: "الخدمات والموظفون والإدارة" },
+  { id: "gate", key: "gate", label: "بوابة الدخول والخروج", icon: "door", group: "الخدمات والموظفون والإدارة" },
   { id: "access", key: "access", label: "إدارة الوصول والتدقيق", icon: "shield", group: "الخدمات والموظفون والإدارة" },
 ];
 
@@ -816,6 +820,12 @@ const emptyLookups: LookupData = {
   villas: [],
   rooms: [],
 };
+const emptyGate: GateBundle = {
+  visits: [],
+  visitors: [],
+  residents: [],
+  employees: [],
+};
 
 type CenterDashboardProps = {
   persistent?: boolean;
@@ -829,11 +839,13 @@ type CenterDashboardProps = {
   initialMeatSales?: MeatSalesBundle;
   initialStaffData?: StaffBundle;
   initialStaffAttendance?: StaffAttendanceBundle;
+  initialGateData?: GateBundle;
   initialAuditLogs?: AuditLogEntry[];
   initialLookups?: LookupData;
   initialTreatment?: TreatmentBundle;
   initialResidentCustodyCharges?: ResidentCustodyCharge[];
   currentUser?: DemoUser;
+  sessionExpiresAt?: string;
 };
 
 function getActiveUser(user: DemoUser | undefined) {
@@ -853,11 +865,13 @@ export default function CenterDashboard({
   initialMeatSales,
   initialStaffData,
   initialStaffAttendance,
+  initialGateData,
   initialAuditLogs,
   initialLookups,
   initialTreatment,
   initialResidentCustodyCharges,
   currentUser,
+  sessionExpiresAt,
 }: CenterDashboardProps = {}) {
   const router = useRouter();
   const [residents, setResidents] = useState(
@@ -895,6 +909,7 @@ export default function CenterDashboard({
     initialStaffData ?? (persistent ? emptyStaff : demoStaffBundle),
   );
   const staffAttendance = initialStaffAttendance ?? emptyStaffAttendance;
+  const gate = initialGateData ?? emptyGate;
   const [lookups, setLookups] = useState(
     initialLookups ?? (persistent ? emptyLookups : demoLookupData),
   );
@@ -948,63 +963,38 @@ export default function CenterDashboard({
     return () => window.clearTimeout(timeout);
   }, [message]);
 
-  const activeUser = getActiveUser(currentUser ?? users[0]);
-  const activeInventory = useMemo(() => {
-    if (activeUser.role === "admin" || activeUser.canManageWarehouse) {
-      return inventory;
-    }
-    const grantedCategoryIds = new Set(
-      activeUser.inventoryCategoryIds ?? [],
-    );
-    const grantedItems = inventory.items.filter((item) =>
-      grantedCategoryIds.has(item.categoryId),
-    );
-    return {
-      categories: inventory.categories.filter((category) =>
-        grantedCategoryIds.has(category.id),
-      ),
-      items: grantedItems,
-      movements: inventory.movements.filter((movement) =>
-        grantedCategoryIds.has(movement.categoryId),
-      ),
+  // الجلسة تنتهي بعد 30 دقيقة من تسجيل الدخول حتى لو بقيت الصفحة مفتوحة.
+  useEffect(() => {
+    if (!sessionExpiresAt) return;
+    const expiresAt = Date.parse(sessionExpiresAt);
+    if (!Number.isFinite(expiresAt)) return;
+    let signingOut = false;
+    const checkExpiry = () => {
+      if (signingOut || Date.now() < expiresAt) return;
+      signingOut = true;
+      void authClient
+        .signOut()
+        .catch(() => undefined)
+        .finally(() => router.replace("/sign-in"));
     };
-  }, [activeUser, inventory]);
+    checkExpiry();
+    const interval = window.setInterval(checkExpiry, 30_000);
+    return () => window.clearInterval(interval);
+  }, [router, sessionExpiresAt]);
+
+  const activeUser = getActiveUser(currentUser ?? users[0]);
+  // التصفية حسب فئات المخزن تتم على الخادم حسب صلاحيات المستخدم،
+  // لذلك تعرض الواجهة البيانات التي وصلت فعليًا.
+  const activeInventory = inventory;
   const currentEmployeeNumber =
     persistent || activeUser.role === "admin"
       ? custody.linkedEmployeeNumber
       : (staffData.accountLinks.find(
           (link) => link.userId === activeUser.id,
         )?.employeeNumber ?? null);
-  const activeCustody = useMemo(() => {
-    if (persistent || activeUser.role === "admin") return custody;
-    if (currentEmployeeNumber === null) {
-      return {
-        ...custody,
-        employees: [],
-        records: [],
-        linkedEmployeeNumber: null,
-      };
-    }
-
-    return {
-      ...custody,
-      employees: [],
-      records: custody.records.filter(
-        (record) =>
-          record.recipientEmployeeNumber === currentEmployeeNumber ||
-          record.details.some(
-            (detail) =>
-              detail.currentEmployeeNumber === currentEmployeeNumber ||
-              detail.events.some(
-                (event) =>
-                  event.fromEmployeeNumber === currentEmployeeNumber ||
-                  event.toEmployeeNumber === currentEmployeeNumber,
-              ),
-          ),
-      ),
-      linkedEmployeeNumber: currentEmployeeNumber,
-    };
-  }, [activeUser, currentEmployeeNumber, custody, persistent]);
+  // شاشة العهد تمنح عرض كل السجلات لكل من لديه صلاحية الشاشة،
+  // والتعديل يظل مشروطًا بصلاحية إدارة العهد.
+  const activeCustody = custody;
   const canEdit =
     activeUser.role === "admin" ||
     (activeUser.role === "staff" && Boolean(activeUser.canEdit));
@@ -1026,6 +1016,9 @@ export default function CenterDashboard({
   const canManageCanteen =
     activeUser.role === "admin" ||
     (activeUser.role === "staff" && Boolean(activeUser.canManageCanteen));
+  const canManageGate =
+    activeUser.role === "admin" ||
+    (activeUser.role === "staff" && Boolean(activeUser.canManageGate));
 
   // الشاشة لا تُعرض إلا إذا كانت هناك بيانات وصلاحية فعلية لعرضها،
   // حتى لا يصل المستخدم إلى تبويب فارغ.
@@ -1036,6 +1029,7 @@ export default function CenterDashboard({
       case "rooms":
       case "staff":
       case "staff-attendance":
+      case "gate":
       case "lookups":
       case "tracking":
       case "resident-reports":
@@ -1069,7 +1063,6 @@ export default function CenterDashboard({
   const canViewResidentReferences = canViewResidentChurchData(
     activeUser.role,
     activeUser.allowedScreens ?? [],
-    activeUser.canEdit,
   );
   const selectedResident =
     residents.find((resident) => resident.id === selectedId) ?? null;
@@ -1398,6 +1391,7 @@ export default function CenterDashboard({
     "meat-sales": "الثلاجة",
     staff: "الموظفون",
     "staff-attendance": "الحضور والانصراف",
+    gate: "بوابة الدخول والخروج",
     lookups: "البيانات المرجعية",
     tracking: "التتبع العام",
     access: "إدارة الوصول",
@@ -1573,6 +1567,8 @@ export default function CenterDashboard({
                       : "عرض ملفك الشخصي وسجل إجازاتك المرتبط بحسابك."
                   : view === "staff-attendance"
                     ? "تسجيل الحضور والانصراف مع سجل زمني لكل موظف."
+                  : view === "gate"
+                    ? "تسجيل دخول وخروج النزلاء والموظفين والزوار مع سجل زمني لكل زيارة."
                   : persistent
                     ? "إدارة السجلات والإقامة المحفوظة في قاعدة البيانات."
                     : "متابعة سجلات تجريبية وإدارة الإقامة."}
@@ -1958,6 +1954,14 @@ export default function CenterDashboard({
               bundle={staffAttendance}
               role={activeUser.role}
               persistent={persistent}
+            />
+          )}
+
+          {view === "gate" && isScreenAllowed("gate") && (
+            <GatePanel
+              bundle={gate}
+              persistent={persistent}
+              canManage={canManageGate}
             />
           )}
 

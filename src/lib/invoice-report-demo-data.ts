@@ -31,6 +31,7 @@ export function getDemoInvoiceReport(): InvoiceReportData {
       { id: 1, name: "مشتريات النزيل" },
       { id: 2, name: "مبيعات الكانتين" },
     ],
+    itemNames: ["مياه معبأة", "وجبة", "مصاريف عامة"],
     rows: [
       {
         invoiceNumber: 9001,

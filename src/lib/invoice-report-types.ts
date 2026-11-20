@@ -26,6 +26,7 @@ export type InvoiceReportRow = {
 export type InvoiceReportData = {
   categories: InvoiceReportCategory[];
   rows: InvoiceReportRow[];
+  itemNames?: string[];
 };
 
 export type InvoiceReportFilters = {

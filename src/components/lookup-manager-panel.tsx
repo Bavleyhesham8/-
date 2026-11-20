@@ -199,7 +199,6 @@ export default function LookupManagerPanel({
   const canViewResidentReferences = canViewResidentChurchData(
     currentUser.role,
     currentUser.allowedScreens ?? [],
-    currentUser.canEdit,
   );
   const canViewPeriodReport =
     isAdministrator ||
