@@ -225,6 +225,13 @@
       "when": 1795197600000,
       "tag": "0031_gate_system_and_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795239990153,
+      "tag": "0032_gate_visitor_details",
+      "breakpoints": true
     }
   ]
 }

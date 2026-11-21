@@ -826,6 +826,56 @@ const emptyGate: GateBundle = {
   residents: [],
   employees: [],
 };
+const demoGate: GateBundle = {
+  visits: [
+    {
+      id: "gate-visit-demo-1",
+      personKind: "visitor",
+      personId: "gate-visitor-demo-1",
+      personName: "زائر تجريبي",
+      nationalId: "",
+      jobTitle: "فنى",
+      carNumber: "1234",
+      carType: "سيارة ملاكى",
+      entryAt: "2026-11-20T10:00:00.000Z",
+      exitAt: "2026-11-20T11:30:00.000Z",
+      notes: "زيارة تجريبية",
+      createdAt: "2026-11-20T10:00:00.000Z",
+    },
+  ],
+  visitors: [
+    {
+      id: "gate-visitor-demo-1",
+      name: "زائر تجريبي",
+      nationalId: "",
+      phone: "01000000000",
+      jobTitle: "فنى",
+      carNumber: "1234",
+      carType: "سيارة ملاكى",
+      notes: "زيارة تجريبية",
+      visitCount: 1,
+      lastVisitAt: "2026-11-20T10:00:00.000Z",
+    },
+  ],
+  residents: demoResidents
+    .filter((resident) => !resident.archived)
+    .map((resident) => ({
+      kind: "resident",
+      id: resident.id,
+      name: resident.name,
+      nationalId: resident.nationalId ?? "",
+      jobTitle: "نزيل",
+      meta: `نزيل · ملف ${resident.fileNumber}`,
+    })),
+  employees: demoStaffBundle.employees.map((employee) => ({
+    kind: "employee",
+    id: String(employee.employeeNumber),
+    name: employee.employeeName,
+    nationalId: "",
+    jobTitle: "موظف",
+    meta: `موظف · رقم ${employee.employeeNumber}`,
+  })),
+};
 
 type CenterDashboardProps = {
   persistent?: boolean;
@@ -909,7 +959,7 @@ export default function CenterDashboard({
     initialStaffData ?? (persistent ? emptyStaff : demoStaffBundle),
   );
   const staffAttendance = initialStaffAttendance ?? emptyStaffAttendance;
-  const gate = initialGateData ?? emptyGate;
+  const gate = initialGateData ?? (persistent ? emptyGate : demoGate);
   const [lookups, setLookups] = useState(
     initialLookups ?? (persistent ? emptyLookups : demoLookupData),
   );
@@ -972,6 +1022,7 @@ export default function CenterDashboard({
     const checkExpiry = () => {
       if (signingOut || Date.now() < expiresAt) return;
       signingOut = true;
+      document.cookie = "qithara-demo-session=; path=/; max-age=0; SameSite=Lax";
       void authClient
         .signOut()
         .catch(() => undefined)
@@ -979,10 +1030,17 @@ export default function CenterDashboard({
     };
     checkExpiry();
     const interval = window.setInterval(checkExpiry, 30_000);
-    return () => window.clearInterval(interval);
+    document.addEventListener("visibilitychange", checkExpiry);
+    window.addEventListener("focus", checkExpiry);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", checkExpiry);
+      window.removeEventListener("focus", checkExpiry);
+    };
   }, [router, sessionExpiresAt]);
 
   const activeUser = getActiveUser(currentUser ?? users[0]);
+  const activeRole = activeUser.role;
   // التصفية حسب فئات المخزن تتم على الخادم حسب صلاحيات المستخدم،
   // لذلك تعرض الواجهة البيانات التي وصلت فعليًا.
   const activeInventory = inventory;
@@ -1103,27 +1161,25 @@ export default function CenterDashboard({
       .map((resident) => `${resident.villa}-${resident.room}`),
   ).size;
 
-  const visibleResidents = useMemo(() => {
+  const visibleResidents = residents.filter((resident) => {
     const query = search.trim().toLocaleLowerCase("ar");
-    return residents.filter((resident) => {
-      const matchesFilter =
-        filter === "archived"
-          ? resident.archived
-          : !resident.archived &&
-            (filter === "all" || resident.status === filter);
-      const searchableFields =
-        activeUser.role === "admin"
-          ? [resident.name, resident.fileNumber, resident.phone]
-          : [resident.name, resident.fileNumber];
-      const matchesSearch =
-        !query ||
-        searchableFields
-          .join(" ")
-          .toLocaleLowerCase("ar")
-          .includes(query);
-      return matchesFilter && matchesSearch;
-    });
-  }, [activeUser.role, filter, residents, search]);
+    const matchesFilter =
+      filter === "archived"
+        ? resident.archived
+        : !resident.archived &&
+          (filter === "all" || resident.status === filter);
+    const searchableFields =
+      activeRole === "admin"
+        ? [resident.name, resident.fileNumber, resident.phone]
+        : [resident.name, resident.fileNumber];
+    const matchesSearch =
+      !query ||
+      searchableFields
+        .join(" ")
+        .toLocaleLowerCase("ar")
+        .includes(query);
+    return matchesFilter && matchesSearch;
+  });
 
   const roomGroups = useMemo(() => {
     const groups = new Map<string, Resident[]>();

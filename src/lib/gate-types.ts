@@ -6,6 +6,9 @@ export type GateVisit = {
   personId: string | null;
   personName: string;
   nationalId: string;
+  jobTitle: string;
+  carNumber: string;
+  carType: string;
   entryAt: string;
   exitAt: string | null;
   notes: string;
@@ -17,6 +20,9 @@ export type GateVisitorProfile = {
   name: string;
   nationalId: string;
   phone: string;
+  jobTitle: string;
+  carNumber: string;
+  carType: string;
   notes: string;
   visitCount: number;
   lastVisitAt: string | null;
@@ -27,6 +33,9 @@ export type GatePersonOption = {
   id: string;
   name: string;
   nationalId: string;
+  jobTitle?: string;
+  carNumber?: string;
+  carType?: string;
   meta: string;
 };
 

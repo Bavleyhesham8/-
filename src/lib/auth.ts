@@ -35,7 +35,11 @@ function createAuth() {
     session: {
       // تنتهي الجلسة بعد 30 دقيقة من تسجيل الدخول
       expiresIn: 60 * 30,
-      updateAge: 60 * 30,
+      // Keep this at least as long as expiresIn so requests cannot slide the
+      // expiration window forward during an active session.
+      // Do not refresh the session while it is still valid. This keeps the
+      // 30-minute lifetime fixed from sign-in instead of sliding on requests.
+      updateAge: 60 * 60,
     },
     user: {
       additionalFields: {

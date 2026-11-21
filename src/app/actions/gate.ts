@@ -23,6 +23,9 @@ const createVisitSchema = z
     visitorName: z.string().trim().min(1).max(200).optional(),
     nationalId: z.string().trim().max(64).optional(),
     phone: z.string().trim().max(64).optional(),
+    jobTitle: z.string().trim().max(200).optional(),
+    carNumber: z.string().trim().max(64).optional(),
+    carType: z.string().trim().max(120).optional(),
     entryAt: isoDateTime,
     exitAt: z.union([z.literal(""), isoDateTime]).optional(),
     notes: z.string().trim().max(1000).optional(),
@@ -42,6 +45,9 @@ const updateVisitSchema = z
     entryAt: isoDateTime,
     exitAt: z.union([z.literal(""), isoDateTime]),
     notes: z.string().trim().max(1000).optional(),
+    jobTitle: z.string().trim().max(200).optional(),
+    carNumber: z.string().trim().max(64).optional(),
+    carType: z.string().trim().max(120).optional(),
   })
   .strict();
 
@@ -53,6 +59,9 @@ function toVisit(row: {
   visitorId: string | null;
   personName: string;
   nationalId: string;
+  jobTitle: string;
+  carNumber: string;
+  carType: string;
   entryAt: Date;
   exitAt: Date | null;
   notes: string;
@@ -70,6 +79,9 @@ function toVisit(row: {
       row.visitorId,
     personName: row.personName,
     nationalId: row.nationalId,
+    jobTitle: row.jobTitle,
+    carNumber: row.carNumber,
+    carType: row.carType,
     entryAt: row.entryAt.toISOString(),
     exitAt: row.exitAt ? row.exitAt.toISOString() : null,
     notes: row.notes,
@@ -98,7 +110,10 @@ export async function createGateVisitAction(
   try {
     const visit = await getDatabase().transaction(async (transaction) => {
       let personName = "";
-      let nationalId = data.nationalId ?? "";
+      let nationalId = data.nationalId?.trim() ?? "";
+      let jobTitle = data.jobTitle?.trim() ?? "";
+      let carNumber = data.carNumber?.trim() ?? "";
+      let carType = data.carType?.trim() ?? "";
       let residentId: string | null = null;
       let employeeNumber: number | null = null;
       let visitorId: string | null = null;
@@ -119,6 +134,7 @@ export async function createGateVisitAction(
         residentId = resident.id;
         personName = resident.name;
         nationalId = resident.nationalId ?? nationalId;
+        jobTitle = "نزيل";
 
         const [openVisit] = await transaction
           .select({ id: gateVisits.id })
@@ -154,6 +170,7 @@ export async function createGateVisitAction(
         if (!employee) return null;
         employeeNumber = employee.employeeNumber;
         personName = employee.employeeName;
+        jobTitle = jobTitle || "موظف";
 
         const [openVisit] = await transaction
           .select({ id: gateVisits.id })
@@ -175,6 +192,10 @@ export async function createGateVisitAction(
               id: gateVisitors.id,
               name: gateVisitors.name,
               nationalId: gateVisitors.nationalId,
+              phone: gateVisitors.phone,
+              jobTitle: gateVisitors.jobTitle,
+              carNumber: gateVisitors.carNumber,
+              carType: gateVisitors.carType,
             })
             .from(gateVisitors)
             .where(eq(gateVisitors.id, visitorIdParsed.data))
@@ -183,9 +204,34 @@ export async function createGateVisitAction(
           visitorId = visitor.id;
           personName = visitor.name;
           nationalId = visitor.nationalId || nationalId;
+          jobTitle = jobTitle || visitor.jobTitle;
+          carNumber = carNumber || visitor.carNumber;
+          carType = carType || visitor.carType;
+          await transaction
+            .update(gateVisitors)
+            .set({
+              jobTitle,
+              carNumber,
+              carType,
+              phone: data.phone?.trim() || visitor.phone,
+              updatedAt: new Date(),
+            })
+            .where(eq(gateVisitors.id, visitor.id));
         } else {
           const visitorName = data.visitorName?.trim();
           if (!visitorName) return null;
+
+          let existingVisitor:
+            | {
+                id: string;
+                name: string;
+                nationalId: string;
+                phone: string;
+                jobTitle: string;
+                carNumber: string;
+                carType: string;
+              }
+            | undefined;
 
           if (nationalId) {
             const [existing] = await transaction
@@ -193,24 +239,44 @@ export async function createGateVisitAction(
                 id: gateVisitors.id,
                 name: gateVisitors.name,
                 nationalId: gateVisitors.nationalId,
+                phone: gateVisitors.phone,
+                jobTitle: gateVisitors.jobTitle,
+                carNumber: gateVisitors.carNumber,
+                carType: gateVisitors.carType,
               })
               .from(gateVisitors)
               .where(eq(gateVisitors.nationalId, nationalId))
               .limit(1);
-            if (existing) {
-              visitorId = existing.id;
-              personName = existing.name;
-              nationalId = existing.nationalId;
-            }
+            existingVisitor = existing;
           }
 
-          if (!visitorId) {
+          if (existingVisitor) {
+            visitorId = existingVisitor.id;
+            personName = existingVisitor.name;
+            nationalId = existingVisitor.nationalId;
+            jobTitle = jobTitle || existingVisitor.jobTitle;
+            carNumber = carNumber || existingVisitor.carNumber;
+            carType = carType || existingVisitor.carType;
+            await transaction
+              .update(gateVisitors)
+              .set({
+                jobTitle,
+                carNumber,
+                carType,
+                phone: data.phone?.trim() || existingVisitor.phone,
+                updatedAt: new Date(),
+              })
+              .where(eq(gateVisitors.id, existingVisitor.id));
+          } else {
             const [created] = await transaction
               .insert(gateVisitors)
               .values({
                 name: visitorName,
                 nationalId,
-                phone: data.phone ?? "",
+                phone: data.phone?.trim() ?? "",
+                jobTitle,
+                carNumber,
+                carType,
                 notes: data.notes ?? "",
                 createdBy: session.user.id,
               })
@@ -248,6 +314,9 @@ export async function createGateVisitAction(
           visitorId,
           personName,
           nationalId,
+          jobTitle,
+          carNumber,
+          carType,
           entryAt,
           exitAt,
           notes: data.notes ?? "",
@@ -368,6 +437,9 @@ export async function updateGateVisitAction(
       entryAt,
       exitAt,
       notes: parsed.data.notes ?? "",
+      jobTitle: parsed.data.jobTitle?.trim() ?? "",
+      carNumber: parsed.data.carNumber?.trim() ?? "",
+      carType: parsed.data.carType?.trim() ?? "",
       updatedAt: new Date(),
     })
     .where(eq(gateVisits.id, parsed.data.id))
@@ -381,7 +453,7 @@ export async function updateGateVisitAction(
     action: "update",
     entity: "gate_visits",
     entityId: updated.id,
-    metadata: { fields: "entryAt,exitAt,notes" },
+    metadata: { fields: "entryAt,exitAt,notes,jobTitle,carNumber,carType" },
   });
   return { ok: true, visit: toVisit(updated) };
 }

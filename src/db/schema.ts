@@ -1466,6 +1466,9 @@ export const gateVisitors = pgTable(
     name: text("name").notNull(),
     nationalId: text("national_id").notNull().default(""),
     phone: text("phone").notNull().default(""),
+    jobTitle: text("job_title").notNull().default(""),
+    carNumber: text("car_number").notNull().default(""),
+    carType: text("car_type").notNull().default(""),
     notes: text("notes").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1503,6 +1506,9 @@ export const gateVisits = pgTable(
     }),
     personName: text("person_name").notNull(),
     nationalId: text("national_id").notNull().default(""),
+    jobTitle: text("job_title").notNull().default(""),
+    carNumber: text("car_number").notNull().default(""),
+    carType: text("car_type").notNull().default(""),
     entryAt: timestamp("entry_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -12,8 +12,9 @@ import type {
   GatePersonKind,
   GatePersonOption,
   GateVisit,
-  GateVisitorProfile,
 } from "@/lib/gate-types";
+import { normalizeArabicName } from "@/lib/resident-matching";
+import { printCurrentView } from "@/lib/print";
 
 type Props = {
   bundle: GateBundle;
@@ -32,6 +33,56 @@ const kindClasses: Record<GatePersonKind, string> = {
   employee: "bg-sky-50 text-sky-800 border-sky-200",
   visitor: "bg-amber-50 text-amber-800 border-amber-200",
 };
+
+const OTHER_OPTION = "__other__";
+
+// الوظائف المتاحة في البوابة. أول خيارين أسماء جاهزة تُملأ تلقائيًا في خانة الاسم.
+const jobOptions = [
+  "ابونا/ يسطس ناصف",
+  "المستشار/سامى ناشد",
+  "دكتور",
+  "مدير معالجين",
+  "معالج",
+  "مشرف",
+  "موظف",
+  "عامل",
+  "مدير المركز",
+  "مدير البيت",
+  "رئيس مجلس الإدارة",
+  "خدام",
+  "محاسب",
+  "اخصائى اجتماعى / اخصائية اجتماعية",
+  "نزيل",
+  "اهل النزيل",
+  "مهندس",
+  "فنى",
+  "شيف",
+  "مساعد شيف",
+  "كهريائى",
+  "سائق",
+] as const;
+
+const readyJobNames = new Set(["ابونا/ يسطس ناصف", "المستشار/سامى ناشد"]);
+
+const carTypeOptions = [
+  "سيارة ملاكى",
+  "سيارة اجرة",
+  "باص",
+  "مكروباص",
+  "دراجة بخارية",
+  "جرار",
+] as const;
+
+function splitOption(value: string, options: readonly string[]) {
+  const trimmed = value.trim();
+  if (!trimmed) return { selection: "", custom: "" };
+  if (options.includes(trimmed)) return { selection: trimmed, custom: "" };
+  return { selection: OTHER_OPTION, custom: trimmed };
+}
+
+function resolveOption(selection: string, custom: string) {
+  return selection === OTHER_OPTION ? custom.trim() : selection;
+}
 
 const dateTimeFormatter = new Intl.DateTimeFormat("ar-EG", {
   dateStyle: "medium",
@@ -91,6 +142,11 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
   const [visitorName, setVisitorName] = useState("");
   const [nationalId, setNationalId] = useState("");
   const [phone, setPhone] = useState("");
+  const [jobSelection, setJobSelection] = useState("");
+  const [jobCustom, setJobCustom] = useState("");
+  const [carNumber, setCarNumber] = useState("");
+  const [carTypeSelection, setCarTypeSelection] = useState("");
+  const [carTypeCustom, setCarTypeCustom] = useState("");
   const [entryAt, setEntryAt] = useState(nowLocalInput);
   const [exitAt, setExitAt] = useState("");
   const [notes, setNotes] = useState("");
@@ -99,12 +155,18 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
   const [messageIsError, setMessageIsError] = useState(false);
   const [historySearch, setHistorySearch] = useState("");
   const [historyKind, setHistoryKind] = useState<"all" | GatePersonKind>("all");
+  const [historyJob, setHistoryJob] = useState("all");
   const [historyFrom, setHistoryFrom] = useState("");
   const [historyTo, setHistoryTo] = useState("");
   const [editingVisit, setEditingVisit] = useState<GateVisit | null>(null);
   const [editEntryAt, setEditEntryAt] = useState("");
   const [editExitAt, setEditExitAt] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editJobSelection, setEditJobSelection] = useState("");
+  const [editJobCustom, setEditJobCustom] = useState("");
+  const [editCarNumber, setEditCarNumber] = useState("");
+  const [editCarTypeSelection, setEditCarTypeSelection] = useState("");
+  const [editCarTypeCustom, setEditCarTypeCustom] = useState("");
 
   const visitorOptions = useMemo<GatePersonOption[]>(
     () =>
@@ -113,6 +175,9 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
         id: visitor.id,
         name: visitor.name,
         nationalId: visitor.nationalId,
+        jobTitle: visitor.jobTitle,
+        carNumber: visitor.carNumber,
+        carType: visitor.carType,
         meta: visitor.phone
           ? `زائر · ${visitor.phone}`
           : `زائر · ${visitor.visitCount} زيارة`,
@@ -126,14 +191,20 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
   );
 
   const filteredPeople = useMemo(() => {
-    const query = personQuery.trim().toLocaleLowerCase("ar");
+    const query = normalizeArabicName(personQuery);
     if (!query) return allPeople.slice(0, 10);
     return allPeople
       .filter((person) =>
-        [person.name, person.nationalId, person.meta]
-          .join(" ")
-          .toLocaleLowerCase("ar")
-          .includes(query),
+        normalizeArabicName(
+          [
+            person.name,
+            person.nationalId,
+            person.jobTitle ?? "",
+            person.carNumber ?? "",
+            person.carType ?? "",
+            person.meta,
+          ].join(" "),
+        ).includes(query),
       )
       .slice(0, 10);
   }, [allPeople, personQuery]);
@@ -162,24 +233,39 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
   ).length;
 
   const historyRows = useMemo(() => {
-    const query = historySearch.trim().toLocaleLowerCase("ar");
+    const query = normalizeArabicName(historySearch);
     return visits.filter((visit) => {
       const entryDate = visit.entryAt.slice(0, 10);
       if (historyKind !== "all" && visit.personKind !== historyKind) return false;
+      if (historyJob !== "all" && visit.jobTitle !== historyJob) return false;
       if (historyFrom && entryDate < historyFrom) return false;
       if (historyTo && entryDate > historyTo) return false;
       if (
         query &&
-        ![visit.personName, visit.nationalId, visit.notes]
-          .join(" ")
-          .toLocaleLowerCase("ar")
-          .includes(query)
+        !normalizeArabicName(
+          [
+            visit.personName,
+            visit.nationalId,
+            visit.jobTitle,
+            visit.carNumber,
+            visit.carType,
+            visit.notes,
+          ].join(" "),
+        ).includes(query)
       ) {
         return false;
       }
       return true;
     });
-  }, [historyFrom, historyKind, historySearch, historyTo, visits]);
+  }, [historyFrom, historyJob, historyKind, historySearch, historyTo, visits]);
+
+  const historyJobOptions = useMemo(
+    () =>
+      [...new Set(visits.map((visit) => visit.jobTitle).filter(Boolean))].sort(
+        (left, right) => left.localeCompare(right, "ar"),
+      ),
+    [visits],
+  );
 
   function resetCheckInForm() {
     setSelectedPerson(null);
@@ -188,6 +274,11 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
     setVisitorName("");
     setNationalId("");
     setPhone("");
+    setJobSelection("");
+    setJobCustom("");
+    setCarNumber("");
+    setCarTypeSelection("");
+    setCarTypeCustom("");
     setEntryAt(nowLocalInput());
     setExitAt("");
     setNotes("");
@@ -200,6 +291,13 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
     setVisitorName(person.name);
     setNationalId(person.nationalId);
     setPhone("");
+    const job = splitOption(person.jobTitle ?? "", jobOptions);
+    setJobSelection(job.selection);
+    setJobCustom(job.custom);
+    setCarNumber(person.carNumber ?? "");
+    const carType = splitOption(person.carType ?? "", carTypeOptions);
+    setCarTypeSelection(carType.selection);
+    setCarTypeCustom(carType.custom);
   }
 
   function showMessage(text: string, isError = false) {
@@ -218,6 +316,9 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
             name: visit.personName,
             nationalId: visit.nationalId,
             phone: "",
+            jobTitle: visit.jobTitle,
+            carNumber: visit.carNumber,
+            carType: visit.carType,
             notes: visit.notes,
             visitCount: 1,
             lastVisitAt: visit.entryAt,
@@ -229,6 +330,9 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
         visitor.id === visit.personId
           ? {
               ...visitor,
+              jobTitle: visit.jobTitle || visitor.jobTitle,
+              carNumber: visit.carNumber || visitor.carNumber,
+              carType: visit.carType || visitor.carType,
               visitCount: visitor.visitCount + 1,
               lastVisitAt: visit.entryAt,
             }
@@ -248,6 +352,14 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
       showMessage("أدخل اسم الزائر الجديد.", true);
       return;
     }
+    if (jobSelection === OTHER_OPTION && !jobCustom.trim()) {
+      showMessage("اكتب الوظيفة في الخانة المخصصة.", true);
+      return;
+    }
+    if (carTypeSelection === OTHER_OPTION && !carTypeCustom.trim()) {
+      showMessage("اكتب نوع السيارة في الخانة المخصصة.", true);
+      return;
+    }
     if (!entryAt) {
       showMessage("أدخل وقت الدخول.", true);
       return;
@@ -255,6 +367,8 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
 
     const entryIso = new Date(entryAt).toISOString();
     const exitIso = exitAt ? new Date(exitAt).toISOString() : "";
+    const resolvedJobTitle = resolveOption(jobSelection, jobCustom);
+    const resolvedCarType = resolveOption(carTypeSelection, carTypeCustom);
     if (exitIso && exitIso <= entryIso) {
       showMessage("وقت الخروج يجب أن يكون بعد وقت الدخول.", true);
       return;
@@ -272,6 +386,9 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
           nationalId: addingVisitor
             ? nationalId.trim()
             : selectedPerson!.nationalId,
+          jobTitle: resolvedJobTitle,
+          carNumber: carNumber.trim(),
+          carType: resolvedCarType,
           entryAt: entryIso,
           exitAt: exitIso || null,
           notes: notes.trim(),
@@ -291,6 +408,9 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
               visitorName: visitorName.trim(),
               nationalId: nationalId.trim(),
               phone: phone.trim(),
+              jobTitle: resolvedJobTitle,
+              carNumber: carNumber.trim(),
+              carType: resolvedCarType,
               entryAt: entryIso,
               exitAt: exitIso,
               notes: notes.trim(),
@@ -298,6 +418,9 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
           : {
               personKind: selectedPerson!.kind,
               personId: selectedPerson!.id,
+              jobTitle: resolvedJobTitle,
+              carNumber: carNumber.trim(),
+              carType: resolvedCarType,
               entryAt: entryIso,
               exitAt: exitIso,
               notes: notes.trim(),
@@ -356,13 +479,30 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
     setEditEntryAt(toLocalInput(visit.entryAt));
     setEditExitAt(toLocalInput(visit.exitAt));
     setEditNotes(visit.notes);
+    const job = splitOption(visit.jobTitle, jobOptions);
+    setEditJobSelection(job.selection);
+    setEditJobCustom(job.custom);
+    setEditCarNumber(visit.carNumber);
+    const carType = splitOption(visit.carType, carTypeOptions);
+    setEditCarTypeSelection(carType.selection);
+    setEditCarTypeCustom(carType.custom);
   }
 
   async function saveEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canManage || !editingVisit || saving) return;
+    if (editJobSelection === OTHER_OPTION && !editJobCustom.trim()) {
+      showMessage("اكتب الوظيفة في الخانة المخصصة.", true);
+      return;
+    }
+    if (editCarTypeSelection === OTHER_OPTION && !editCarTypeCustom.trim()) {
+      showMessage("اكتب نوع السيارة في الخانة المخصصة.", true);
+      return;
+    }
     const entryIso = new Date(editEntryAt).toISOString();
     const exitIso = editExitAt ? new Date(editExitAt).toISOString() : "";
+    const resolvedJobTitle = resolveOption(editJobSelection, editJobCustom);
+    const resolvedCarType = resolveOption(editCarTypeSelection, editCarTypeCustom);
     if (exitIso && exitIso <= entryIso) {
       showMessage("وقت الخروج يجب أن يكون بعد وقت الدخول.", true);
       return;
@@ -380,6 +520,9 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
                   entryAt: entryIso,
                   exitAt: exitIso || null,
                   notes: editNotes.trim(),
+                  jobTitle: resolvedJobTitle,
+                  carNumber: editCarNumber.trim(),
+                  carType: resolvedCarType,
                 }
               : item,
           ),
@@ -393,6 +536,9 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
         entryAt: entryIso,
         exitAt: exitIso,
         notes: editNotes.trim(),
+        jobTitle: resolvedJobTitle,
+        carNumber: editCarNumber.trim(),
+        carType: resolvedCarType,
       });
       if (!result.ok) {
         showMessage(result.error, true);
@@ -441,7 +587,7 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
     <section className="space-y-5" dir="rtl">
       {!persistent && (
         <div
-          className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900"
+          className="gate-demo-note rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900"
           role="status"
         >
           هذه بيانات تجريبية؛ تسجيل الزيارات الفعلي يحتاج تشغيل وضع قاعدة
@@ -458,7 +604,7 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
 
       <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         <form
-          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
+          className="gate-check-in rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
           onSubmit={submitCheckIn}
         >
           <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
@@ -561,6 +707,11 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
                   setVisitorName("");
                   setNationalId("");
                   setPhone("");
+                  setJobSelection("");
+                  setJobCustom("");
+                  setCarNumber("");
+                  setCarTypeSelection("");
+                  setCarTypeCustom("");
                   setEntryAt(nowLocalInput());
                 }}
                 disabled={!canManage}
@@ -613,6 +764,81 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
                 </p>
               </div>
             )}
+
+            <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5 text-sm font-semibold text-slate-700">
+                الوظيفة / الصفة
+                <select
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                  value={jobSelection}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setJobSelection(value);
+                    if (addingVisitor && readyJobNames.has(value)) {
+                      setVisitorName(value);
+                    }
+                  }}
+                  disabled={!canManage}
+                >
+                  <option value="">اختر الوظيفة</option>
+                  {jobOptions.map((job) => (
+                    <option key={job} value={job}>
+                      {job}
+                    </option>
+                  ))}
+                  <option value={OTHER_OPTION}>أخرى (اكتبها)</option>
+                </select>
+                {jobSelection === OTHER_OPTION && (
+                  <input
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                    value={jobCustom}
+                    onChange={(event) => setJobCustom(event.target.value)}
+                    placeholder="اكتب الوظيفة"
+                    disabled={!canManage}
+                  />
+                )}
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm font-semibold text-slate-700">
+                رقم السيارة
+                <input
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                  value={carNumber}
+                  onChange={(event) => setCarNumber(event.target.value)}
+                  placeholder="مثال: 1234 / أ ب ج"
+                  disabled={!canManage}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm font-semibold text-slate-700">
+                نوع السيارة
+                <select
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                  value={carTypeSelection}
+                  onChange={(event) => setCarTypeSelection(event.target.value)}
+                  disabled={!canManage}
+                >
+                  <option value="">بدون سيارة</option>
+                  {carTypeOptions.map((carType) => (
+                    <option key={carType} value={carType}>
+                      {carType}
+                    </option>
+                  ))}
+                  <option value={OTHER_OPTION}>أخرى (اكتبها)</option>
+                </select>
+                {carTypeSelection === OTHER_OPTION && (
+                  <input
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                    value={carTypeCustom}
+                    onChange={(event) => setCarTypeCustom(event.target.value)}
+                    placeholder="اكتب نوع السيارة"
+                    disabled={!canManage}
+                  />
+                )}
+              </label>
+              <p className="self-end rounded-lg bg-white/70 px-3 py-2 text-xs leading-5 text-slate-600">
+                اختيار «ابونا/ يسطس ناصف» أو «المستشار/سامى ناشد» يملأ خانة
+                الاسم تلقائيًا. يمكن البحث لاحقًا بالوظيفة أو رقم السيارة.
+              </p>
+            </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5 text-sm font-semibold text-slate-700">
@@ -671,7 +897,7 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
           </div>
         </form>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="gate-open-visits rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-4">
             <div>
               <h3 className="text-lg font-bold text-slate-900">
@@ -731,17 +957,32 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 sm:px-5">
-          <div>
-            <h3 className="font-bold text-slate-900">سجل الزيارات</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              كل عمليات الدخول والخروج مع إمكانية البحث والتصفية.
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-slate-900">سجل الزيارات</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                كل عمليات الدخول والخروج مع إمكانية البحث والتصفية والطباعة.
+              </p>
+            </div>
+            <button
+              className="gate-report-actions rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-bold text-teal-900 transition hover:bg-teal-100"
+              type="button"
+              onClick={printCurrentView}
+            >
+              طباعة التقرير
+            </button>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <p className="hidden text-sm font-semibold text-slate-700 print:block">
+            إجمالي الزيارات المطابقة: {historyRows.length.toLocaleString("ar-EG")}
+            {historyFrom ? ` — من ${historyFrom}` : ""}
+            {historyTo ? ` — إلى ${historyTo}` : ""}
+            {historyJob !== "all" ? ` — الوظيفة: ${historyJob}` : ""}
+          </p>
+          <div className="gate-report-filters grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <input
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
               type="search"
-              placeholder="بحث بالاسم أو الرقم القومي..."
+              placeholder="بحث بالاسم أو الوظيفة أو رقم السيارة..."
               value={historySearch}
               onChange={(event) => setHistorySearch(event.target.value)}
             />
@@ -756,6 +997,18 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
               <option value="resident">النزلاء</option>
               <option value="employee">الموظفون</option>
               <option value="visitor">الزوار</option>
+            </select>
+            <select
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={historyJob}
+              onChange={(event) => setHistoryJob(event.target.value)}
+            >
+              <option value="all">كل الوظائف</option>
+              {historyJobOptions.map((job) => (
+                <option key={job} value={job}>
+                  {job}
+                </option>
+              ))}
             </select>
             <input
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
@@ -774,13 +1027,16 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
           </div>
         </div>
 
-        <div className="table-scroll">
-          <table className="min-w-[900px] w-full text-right text-sm">
+        <div className="table-scroll gate-report-table-wrap">
+          <table className="gate-report-table w-full text-right text-sm">
             <thead>
               <tr>
                 <th className="px-4 py-3">الشخص</th>
                 <th className="px-4 py-3">النوع</th>
                 <th className="px-4 py-3">الرقم القومي</th>
+                <th className="px-4 py-3">الوظيفة</th>
+                <th className="px-4 py-3">رقم السيارة</th>
+                <th className="px-4 py-3">نوع السيارة</th>
                 <th className="px-4 py-3">الدخول</th>
                 <th className="px-4 py-3">الخروج</th>
                 <th className="px-4 py-3">المدة</th>
@@ -791,29 +1047,38 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
             <tbody>
               {historyRows.map((visit) => (
                 <tr key={visit.id}>
-                  <td className="px-4 py-3 font-semibold text-slate-800">
+                  <td data-label="الشخص" className="px-4 py-3 font-semibold text-slate-800">
                     {visit.personName}
                   </td>
-                  <td className="px-4 py-3">
+                  <td data-label="النوع" className="px-4 py-3">
                     <span
                       className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${kindClasses[visit.personKind]}`}
                     >
                       {kindLabels[visit.personKind]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td data-label="الرقم القومي" className="px-4 py-3 text-slate-600">
                     {visit.nationalId || "—"}
                   </td>
-                  <td className="px-4 py-3">{formatDateTime(visit.entryAt)}</td>
-                  <td className="px-4 py-3">{formatDateTime(visit.exitAt)}</td>
-                  <td className="px-4 py-3">
+                  <td data-label="الوظيفة" className="px-4 py-3 text-slate-600">
+                    {visit.jobTitle || "—"}
+                  </td>
+                  <td data-label="رقم السيارة" className="px-4 py-3 text-slate-600">
+                    {visit.carNumber || "—"}
+                  </td>
+                  <td data-label="نوع السيارة" className="px-4 py-3 text-slate-600">
+                    {visit.carType || "—"}
+                  </td>
+                  <td data-label="الدخول" className="px-4 py-3">{formatDateTime(visit.entryAt)}</td>
+                  <td data-label="الخروج" className="px-4 py-3">{formatDateTime(visit.exitAt)}</td>
+                  <td data-label="المدة" className="px-4 py-3">
                     {durationLabel(visit.entryAt, visit.exitAt)}
                   </td>
-                  <td className="max-w-56 truncate px-4 py-3 text-slate-600">
+                  <td data-label="ملاحظات" className="max-w-56 truncate px-4 py-3 text-slate-600">
                     {visit.notes || "—"}
                   </td>
                   {canManage && (
-                    <td className="px-4 py-3">
+                    <td data-label="الإجراءات" className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">
                         <button
                           className="table-action"
@@ -850,7 +1115,7 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
                 <tr>
                   <td
                     className="px-4 py-8 text-center text-slate-500"
-                    colSpan={canManage ? 8 : 7}
+                    colSpan={canManage ? 11 : 10}
                   >
                     لا توجد زيارات مطابقة.
                   </td>
@@ -903,6 +1168,67 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
                   value={editExitAt}
                   onChange={(event) => setEditExitAt(event.target.value)}
                 />
+              </label>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5 text-sm font-semibold text-slate-700">
+                الوظيفة / الصفة
+                <select
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                  value={editJobSelection}
+                  onChange={(event) => setEditJobSelection(event.target.value)}
+                >
+                  <option value="">اختر الوظيفة</option>
+                  {jobOptions.map((job) => (
+                    <option key={job} value={job}>
+                      {job}
+                    </option>
+                  ))}
+                  <option value={OTHER_OPTION}>أخرى (اكتبها)</option>
+                </select>
+                {editJobSelection === OTHER_OPTION && (
+                  <input
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                    value={editJobCustom}
+                    onChange={(event) => setEditJobCustom(event.target.value)}
+                    placeholder="اكتب الوظيفة"
+                  />
+                )}
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm font-semibold text-slate-700">
+                رقم السيارة
+                <input
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                  value={editCarNumber}
+                  onChange={(event) => setEditCarNumber(event.target.value)}
+                  placeholder="مثال: 1234 / أ ب ج"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm font-semibold text-slate-700">
+                نوع السيارة
+                <select
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                  value={editCarTypeSelection}
+                  onChange={(event) =>
+                    setEditCarTypeSelection(event.target.value)
+                  }
+                >
+                  <option value="">بدون سيارة</option>
+                  {carTypeOptions.map((carType) => (
+                    <option key={carType} value={carType}>
+                      {carType}
+                    </option>
+                  ))}
+                  <option value={OTHER_OPTION}>أخرى (اكتبها)</option>
+                </select>
+                {editCarTypeSelection === OTHER_OPTION && (
+                  <input
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2.5"
+                    value={editCarTypeCustom}
+                    onChange={(event) => setEditCarTypeCustom(event.target.value)}
+                    placeholder="اكتب نوع السيارة"
+                  />
+                )}
               </label>
             </div>
             <label className="mt-3 flex flex-col gap-1.5 text-sm font-semibold text-slate-700">

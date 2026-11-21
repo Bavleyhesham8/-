@@ -15,7 +15,7 @@ const DEMO_USERS = [
 
 function setDemoCookie(userId: string) {
   // وضع العرض التجريبي فقط: يحدد الحساب التجريبي الذي سيفتحه التطبيق.
-  document.cookie = `qithara-demo-session=${encodeURIComponent(userId)}; path=/; max-age=86400; SameSite=Lax`;
+  document.cookie = `qithara-demo-session=${encodeURIComponent(userId)}; path=/; max-age=1800; SameSite=Lax`;
 }
 
 export default function SignInForm({ mode = "persistent" }: { mode?: Mode }) {
