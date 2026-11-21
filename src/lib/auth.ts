@@ -23,7 +23,16 @@ function createAuth() {
     appName: "مركز قيثارة داود",
     baseURL,
     secret,
-    trustedOrigins: [baseURL],
+    trustedOrigins: async () => {
+      const origins = [baseURL];
+      const deploymentHost = process.env.VERCEL_URL;
+
+      if (deploymentHost) {
+        origins.push(`https://${deploymentHost}`);
+      }
+
+      return origins;
+    },
     database: drizzleAdapter(getDatabase(), {
       provider: "pg",
       schema: authSchema,
