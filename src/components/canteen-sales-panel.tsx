@@ -8,6 +8,7 @@ import {
   createResidentInvoiceAction,
   deleteCanteenSalesItemAction,
   deleteInvoiceCategoryAction,
+  deleteResidentInvoiceAction,
   recordInvoicePaymentAction,
   saveCanteenSalesItemAction,
   saveInvoiceCategoryAction,
@@ -109,6 +110,8 @@ export default function CanteenSalesPanel({
   const [voidTargetId, setVoidTargetId] = useState<number | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [confirmRefund, setConfirmRefund] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [historyResidentId, setHistoryResidentId] = useState("");
   const [historyItemName, setHistoryItemName] = useState("");
   const [historyCategoryId, setHistoryCategoryId] = useState("");
@@ -793,6 +796,56 @@ export default function CanteenSalesPanel({
       setConfirmRefund(false);
     } catch {
       setError("تعذر إلغاء الحركة.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitDelete(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (deleteTargetId === null) return;
+    if (!confirmDelete) {
+      setError("أكد الحذف النهائي للحركة أولًا.");
+      return;
+    }
+    const invoice = sales.invoices.find(
+      (entry) => entry.invoiceNumber === deleteTargetId,
+    );
+    if (!invoice) return;
+
+    setError("");
+    setSaving(true);
+    try {
+      let movementIds = invoice.lines.flatMap((line) =>
+        line.stockMovementId === null ? [] : [line.stockMovementId],
+      );
+      if (persistent) {
+        const result = await deleteResidentInvoiceAction(deleteTargetId);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        movementIds = result.movementIds;
+      }
+
+      onSalesChange((current) => ({
+        ...current,
+        invoices: current.invoices.filter(
+          (entry) => entry.invoiceNumber !== deleteTargetId,
+        ),
+      }));
+      onCanteenChange((current) => ({
+        ...current,
+        movements: current.movements.filter(
+          (movement) => !movementIds.includes(movement.id),
+        ),
+      }));
+      setDeleteTargetId(null);
+      setConfirmDelete(false);
+      setVoidTargetId(null);
+      setPaymentTargetId(null);
+    } catch {
+      setError("تعذر حذف الحركة.");
     } finally {
       setSaving(false);
     }
@@ -1614,10 +1667,26 @@ export default function CanteenSalesPanel({
                       setVoidTargetId(invoice.invoiceNumber);
                       setVoidReason("");
                       setConfirmRefund(false);
+                      setDeleteTargetId(null);
                       setError("");
                     }}
                   >
                     إلغاء الحركة
+                  </button>
+                )}
+                {deleteTargetId !== invoice.invoiceNumber && (
+                  <button
+                    className="table-action table-action-danger"
+                    type="button"
+                    onClick={() => {
+                      setDeleteTargetId(invoice.invoiceNumber);
+                      setConfirmDelete(false);
+                      setVoidTargetId(null);
+                      setPaymentTargetId(null);
+                      setError("");
+                    }}
+                  >
+                    حذف نهائي
                   </button>
                 )}
               </div>}
@@ -1693,6 +1762,45 @@ export default function CanteenSalesPanel({
                   </button>
                 </form>
               )}
+              {canManage && deleteTargetId === invoice.invoiceNumber && (
+                <form
+                  className="sales-inline-form sales-delete-form"
+                  onSubmit={submitDelete}
+                >
+                  <p className="sales-delete-warning">
+                    سيُحذف هذا البيع نهائيًا مع بنوده ومدفوعاته وسندات الصرف
+                    وحركات المخزون المرتبطة به، وسيُعاد حساب الأرصدة. لا يمكن
+                    التراجع عن الحذف.
+                  </p>
+                  <label className="toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={confirmDelete}
+                      onChange={(event) =>
+                        setConfirmDelete(event.target.checked)
+                      }
+                    />
+                    أؤكد الحذف النهائي لكل بيانات الحركة
+                  </label>
+                  <button
+                    className="danger-button"
+                    disabled={saving || !confirmDelete}
+                  >
+                    {saving ? "جارٍ الحذف..." : "تأكيد الحذف النهائي"}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => {
+                      setDeleteTargetId(null);
+                      setConfirmDelete(false);
+                    }}
+                  >
+                    تراجع
+                  </button>
+                </form>
+              )}
             </article>
           ))}
           </div>
@@ -1707,7 +1815,9 @@ export default function CanteenSalesPanel({
             تعرض الصفحة كل حركات البيع المسجلة مرتبة من الأقدم إلى الأحدث.
             البيع النقدي يُسدد كاملًا عند التسجيل؛ والبيع على الحساب يظهر
             كمدين في كشف حساب النزيل ويُسمح بالرصيد السالب. إلغاء حركة مسددة
-            يسجل رد المبلغ بعد تأكيد تنفيذه.
+            يسجل رد المبلغ بعد تأكيد تنفيذه، أما الحذف النهائي فيزيل الحركة
+            وكل مدفوعاتها وسندات صرفها وحركات المخزون المرتبطة بها ويعيد حساب
+            الأرصدة.
           </p>
         </div>
       )}

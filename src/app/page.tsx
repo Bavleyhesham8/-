@@ -29,6 +29,10 @@ import { hasScreenAccess } from "@/lib/access-control";
 import CenterDashboard from "@/components/center-dashboard";
 import SetupRequired from "@/app/setup-required";
 
+function demoSessionExpiresAt() {
+  return new Date(Date.now() + 30 * 60 * 1000).toISOString();
+}
+
 export default function Home() {
   return (
     <Suspense fallback={<DashboardLoading />}>
@@ -60,7 +64,7 @@ async function DashboardPage() {
       <CenterDashboard
         currentUser={demoUser}
         initialUsers={demoUsers}
-        sessionExpiresAt={new Date(Date.now() + 30 * 60 * 1000).toISOString()}
+        sessionExpiresAt={demoSessionExpiresAt()}
       />
     );
   }

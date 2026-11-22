@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
 import {
@@ -1102,6 +1102,193 @@ export async function voidResidentInvoiceAction(
         error instanceof Error
           ? error.message
           : "تعذر حفظ حركة الكانتين. تحقق من صحة البيانات وصلاحيات الحساب.",
+    };
+  }
+}
+
+/**
+ * حذف حركة بيع نهائيًا مع كل آثارها: البنود والمدفوعات وسندات الصرف
+ * وحركات المخزون المرتبطة بها، ثم إعادة حساب أرصدة الأصناف المتأثرة.
+ */
+export async function deleteResidentInvoiceAction(
+  invoiceNumberInput: number,
+): Promise<{ ok: true; movementIds: number[] } | { ok: false; error: string }> {
+  const session = await requireStaffPermission("canIssueInvoices");
+  const invoiceNumber = z.number().int().positive().safeParse(invoiceNumberInput);
+  if (!invoiceNumber.success) {
+    return { ok: false, error: "رقم الحركة غير صحيح." };
+  }
+
+  const database = getDatabase();
+  try {
+    const result = await database.transaction(async (transaction) => {
+      const [invoice] = await transaction
+        .select({ invoiceNumber: residentInvoices.invoiceNumber })
+        .from(residentInvoices)
+        .where(eq(residentInvoices.invoiceNumber, invoiceNumber.data))
+        .limit(1)
+        .for("update");
+      if (!invoice) return { error: "لم يتم العثور على الحركة." } as const;
+
+      const lines = await transaction
+        .select({ id: residentInvoiceLines.id })
+        .from(residentInvoiceLines)
+        .where(eq(residentInvoiceLines.invoiceNumber, invoice.invoiceNumber));
+      const lineIds = lines.map((line) => line.id);
+
+      const movementLinks = lineIds.length
+        ? await transaction
+            .select({ movementId: invoiceStockMovementLinks.movementId })
+            .from(invoiceStockMovementLinks)
+            .where(inArray(invoiceStockMovementLinks.invoiceLineId, lineIds))
+        : [];
+      const movementIds = [
+        ...new Set(movementLinks.map((link) => link.movementId)),
+      ];
+
+      const voucherLinks = movementIds.length
+        ? await transaction
+            .select({ voucherId: canteenStockMovementLinks.voucherId })
+            .from(canteenStockMovementLinks)
+            .where(inArray(canteenStockMovementLinks.movementId, movementIds))
+        : [];
+      const voucherIds = [
+        ...new Set(voucherLinks.map((link) => link.voucherId)),
+      ];
+
+      const itemNumbers = movementIds.length
+        ? [
+            ...new Set(
+              (
+                await transaction
+                  .select({ itemNumber: canteenStockLedger.itemNumber })
+                  .from(canteenStockLedger)
+                  .where(inArray(canteenStockLedger.id, movementIds))
+              ).map((row) => row.itemNumber),
+            ),
+          ]
+        : [];
+
+      if (itemNumbers.length) {
+        const lockedProducts = await transaction
+          .select({ itemNumber: canteenProducts.itemNumber })
+          .from(canteenProducts)
+          .where(inArray(canteenProducts.itemNumber, itemNumbers))
+          .orderBy(canteenProducts.itemNumber)
+          .for("update");
+        if (lockedProducts.length !== itemNumbers.length) {
+          return { error: "تعذر قفل أصناف المخزون المرتبطة بالحركة." } as const;
+        }
+      }
+
+      if (lineIds.length) {
+        await transaction
+          .delete(invoiceStockMovementLinks)
+          .where(inArray(invoiceStockMovementLinks.invoiceLineId, lineIds));
+      }
+      if (movementIds.length) {
+        await transaction
+          .delete(canteenStockVoids)
+          .where(inArray(canteenStockVoids.movementId, movementIds));
+        await transaction
+          .delete(canteenStockMovementLinks)
+          .where(inArray(canteenStockMovementLinks.movementId, movementIds));
+      }
+      if (voucherIds.length) {
+        await transaction
+          .delete(canteenIssueLines)
+          .where(inArray(canteenIssueLines.voucherId, voucherIds));
+      }
+      if (movementIds.length) {
+        await transaction
+          .delete(canteenStockLedger)
+          .where(inArray(canteenStockLedger.id, movementIds));
+      }
+      if (voucherIds.length) {
+        await transaction
+          .delete(canteenIssueVouchers)
+          .where(inArray(canteenIssueVouchers.id, voucherIds));
+      }
+
+      await transaction
+        .delete(residentInvoicePayments)
+        .where(
+          eq(residentInvoicePayments.invoiceNumber, invoice.invoiceNumber),
+        );
+      await transaction
+        .delete(residentInvoiceVoids)
+        .where(eq(residentInvoiceVoids.invoiceNumber, invoice.invoiceNumber));
+      await transaction
+        .delete(residentInvoiceLines)
+        .where(eq(residentInvoiceLines.invoiceNumber, invoice.invoiceNumber));
+      await transaction
+        .delete(residentInvoices)
+        .where(eq(residentInvoices.invoiceNumber, invoice.invoiceNumber));
+
+      // إعادة حساب الرصيد بعد الحركة لكل الحركات المتبقية لنفس الصنف.
+      for (const itemNumber of itemNumbers) {
+        const rows = await transaction
+          .select({
+            id: canteenStockLedger.id,
+            incoming: canteenStockLedger.incoming,
+            outgoing: canteenStockLedger.outgoing,
+            balance: canteenStockLedger.balance,
+          })
+          .from(canteenStockLedger)
+          .leftJoin(
+            canteenStockVoids,
+            eq(canteenStockVoids.movementId, canteenStockLedger.id),
+          )
+          .where(
+            and(
+              eq(canteenStockLedger.itemNumber, itemNumber),
+              isNull(canteenStockVoids.movementId),
+            ),
+          )
+          .orderBy(
+            asc(
+              sql`coalesce(${canteenStockLedger.incomingDate}, ${canteenStockLedger.outgoingDate})`,
+            ),
+            asc(canteenStockLedger.id),
+          );
+        let runningBalance = 0;
+        for (const row of rows) {
+          runningBalance += (row.incoming ?? 0) - (row.outgoing ?? 0);
+          if (Math.abs(runningBalance - row.balance) > 1e-9) {
+            await transaction
+              .update(canteenStockLedger)
+              .set({ balance: runningBalance })
+              .where(eq(canteenStockLedger.id, row.id));
+          }
+        }
+      }
+
+      return { movementIds } as const;
+    });
+
+    if ("error" in result && typeof result.error === "string") {
+      return { ok: false, error: result.error };
+    }
+
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "delete",
+      entity: "residentInvoices",
+      entityId: invoiceNumber.data,
+      metadata: { fields: "invoice,lines,payments,stock" },
+    });
+
+    return { ok: true, movementIds: result.movementIds };
+  } catch (error) {
+    if (error instanceof CanteenSalesActionError) {
+      return { ok: false, error: error.message };
+    }
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "تعذر حذف حركة الكانتين. تحقق من الصلاحيات.",
     };
   }
 }

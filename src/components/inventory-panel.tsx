@@ -11,7 +11,7 @@ import {
 import { formatDate, localDateValue } from "@/lib/date-format";
 import { createDemoId } from "@/lib/inventory-demo-data";
 import PrintBrand from "@/components/print-brand";
-import { printCurrentView } from "@/lib/print";
+import { printCurrentView, printDocument } from "@/lib/print";
 import type {
   InventoryBundle,
   InventoryDirection,
@@ -82,6 +82,11 @@ export default function InventoryPanel({
 
   const items = inventory.items.filter((item) => canManage || item.active);
   const activeItems = items.filter((item) => item.active);
+  const reportItems =
+    reportItemId === "all"
+      ? items
+      : items.filter((item) => item.id === reportItemId);
+  const reportActiveItems = reportItems.filter((item) => item.active);
   const defaultCategoryId =
     inventory.categories.find(
       (category) => category.active && category.name === "مخزن الأغذية",
@@ -140,11 +145,11 @@ export default function InventoryPanel({
       movementTotals.outgoingValue += movement.quantity * movement.unitPrice;
     }
   }
-  const totalBalance = items.reduce(
+  const totalBalance = reportItems.reduce(
     (total, item) => total + (balances.get(item.id) ?? 0),
     0,
   );
-  const stockValue = items.reduce(
+  const stockValue = reportItems.reduce(
     (total, item) => total + (balances.get(item.id) ?? 0) * item.unitPrice,
     0,
   );
@@ -626,7 +631,7 @@ export default function InventoryPanel({
           { label: "الفترة", value: reportPeriodLabel },
         ]}
       />
-      <div className="panel-heading">
+      <div className="panel-heading report-summary">
         <div>
           <h3>مخزن الأغذية — الأصناف والأرصدة</h3>
           <p>
@@ -653,7 +658,7 @@ export default function InventoryPanel({
       </div>
 
       {showItemForm && canManage && (
-        <form className="inventory-form inventory-item-form" onSubmit={submitItem}>
+        <form className="inventory-form inventory-item-form no-print" onSubmit={submitItem}>
           <div className="inventory-section-heading">
             <div>
               <h4>{editingItemId ? "تعديل الصنف" : "إضافة صنف جديد"}</h4>
@@ -743,7 +748,7 @@ export default function InventoryPanel({
       )}
 
       {showBalanceAdjust && canManage && balanceAdjustItem && (
-        <form className="inventory-form" onSubmit={submitBalanceAdjust}>
+        <form className="inventory-form no-print" onSubmit={submitBalanceAdjust}>
           <div className="inventory-section-heading">
             <div>
               <h4>تعديل رصيد: {balanceAdjustItem.name}</h4>
@@ -785,7 +790,7 @@ export default function InventoryPanel({
       )}
 
       {showMovementForm && canManage && (
-        <form className="inventory-form inventory-item-form" onSubmit={submitMovement}>
+        <form className="inventory-form inventory-item-form no-print" onSubmit={submitMovement}>
           <div className="inventory-section-heading">
             <div>
               <h4>
@@ -945,10 +950,10 @@ export default function InventoryPanel({
         </div>
       ) : (
         <>
-          <div className="inventory-summary">
+          <div className="inventory-summary report-summary">
             <div className="inventory-summary-card">
               <span>الأصناف النشطة</span>
-              <strong>{activeItems.length}</strong>
+              <strong>{reportActiveItems.length}</strong>
             </div>
             <div className="inventory-summary-card">
               <span>إجمالي الرصيد</span>
@@ -980,7 +985,7 @@ export default function InventoryPanel({
             </div>
           </div>
 
-          <div className="table-wrap">
+          <div className="table-wrap report-summary">
             <table className="resident-table inventory-table">
               <thead>
                 <tr>
@@ -989,11 +994,11 @@ export default function InventoryPanel({
                   <th scope="col">الرصيد الحالي</th>
                   <th scope="col">سعر الوحدة</th>
                   <th scope="col">قيمة الرصيد</th>
-                  {canManage && <th scope="col">الإدارة</th>}
+                  {canManage && <th scope="col" className="inventory-actions-col">الإدارة</th>}
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
+                {reportItems.map((item) => (
                   <tr key={item.id}>
                     <td>{item.name}</td>
                     <td>{item.active ? "نشط" : "موقوف"}</td>
@@ -1009,7 +1014,7 @@ export default function InventoryPanel({
                       ج.م
                     </td>
                     {canManage && (
-                      <td>
+                      <td className="inventory-actions-col">
                         <button
                           className="table-action"
                           type="button"
@@ -1044,6 +1049,7 @@ export default function InventoryPanel({
             </table>
           </div>
 
+          <div className="report-detail inventory-movement-report">
           <div className="panel-heading inventory-history-heading">
             <div>
               <h3>حركة مخزن الأغذية</h3>
@@ -1056,7 +1062,7 @@ export default function InventoryPanel({
               <button className="secondary-button" type="button" onClick={() => printCurrentView({ section: "summary" })}>
                 طباعة الملخص فقط
               </button>
-              <button className="secondary-button" type="button" onClick={() => printCurrentView({ section: "detail" })}>
+              <button className="secondary-button" type="button" onClick={() => printDocument(document.querySelector<HTMLElement>(".inventory-movement-report"), { section: "detail" })}>
                 طباعة الحركات فقط
               </button>
             </div>
@@ -1071,6 +1077,15 @@ export default function InventoryPanel({
             <label className="form-field">من تاريخ<input type="date" value={reportStart} onChange={(event) => setReportStart(event.target.value)} /></label>
             <label className="form-field">إلى تاريخ<input type="date" value={reportEnd} onChange={(event) => setReportEnd(event.target.value)} /></label>
           </div>
+          <p className="inventory-report-print-note">
+            الصنف: <strong>{reportItemName}</strong> — الفترة:{" "}
+            <strong>{reportPeriodLabel}</strong> — عدد الحركات:{" "}
+            <strong>{numberFormatter.format(visibleMovements.length)}</strong> —
+            إجمالي الوارد:{" "}
+            <strong>{numberFormatter.format(movementTotals.incoming)}</strong> —
+            إجمالي المنصرف:{" "}
+            <strong>{numberFormatter.format(movementTotals.outgoing)}</strong>
+          </p>
           <div className="table-wrap">
             <table className="resident-table inventory-table">
               <thead>
@@ -1084,7 +1099,7 @@ export default function InventoryPanel({
                   <th scope="col">جهة الصرف</th>
                   <th scope="col">المستلم</th>
                   <th scope="col">ملاحظات</th>
-                  {canManage && <th scope="col">إدارة</th>}
+                  {canManage && <th scope="col" className="inventory-actions-col">إدارة</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1110,7 +1125,7 @@ export default function InventoryPanel({
                     <td>{movement.recipient || "—"}</td>
                     <td>{movement.note || "—"}</td>
                     {canManage && (
-                      <td>
+                      <td className="inventory-actions-col">
                         {!movement.voided && (
                           <>
                             <button
@@ -1146,6 +1161,7 @@ export default function InventoryPanel({
                 )}
               </tbody>
             </table>
+          </div>
           </div>
         </>
       )}

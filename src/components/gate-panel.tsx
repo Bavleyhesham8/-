@@ -967,7 +967,7 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
             <button
               className="gate-report-actions rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-bold text-teal-900 transition hover:bg-teal-100"
               type="button"
-              onClick={printCurrentView}
+              onClick={() => printCurrentView({ orientation: "landscape" })}
             >
               طباعة التقرير
             </button>
@@ -976,7 +976,9 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
             إجمالي الزيارات المطابقة: {historyRows.length.toLocaleString("ar-EG")}
             {historyFrom ? ` — من ${historyFrom}` : ""}
             {historyTo ? ` — إلى ${historyTo}` : ""}
+            {historyKind !== "all" ? ` — النوع: ${kindLabels[historyKind]}` : ""}
             {historyJob !== "all" ? ` — الوظيفة: ${historyJob}` : ""}
+            {historySearch.trim() ? ` — البحث: ${historySearch.trim()}` : ""}
           </p>
           <div className="gate-report-filters grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <input
@@ -1041,7 +1043,7 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
                 <th className="px-4 py-3">الخروج</th>
                 <th className="px-4 py-3">المدة</th>
                 <th className="px-4 py-3">ملاحظات</th>
-                {canManage && <th className="px-4 py-3">الإجراءات</th>}
+                {canManage && <th className="gate-report-actions-col px-4 py-3">الإجراءات</th>}
               </tr>
             </thead>
             <tbody>
@@ -1078,7 +1080,7 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
                     {visit.notes || "—"}
                   </td>
                   {canManage && (
-                    <td data-label="الإجراءات" className="px-4 py-3">
+                    <td data-label="الإجراءات" className="gate-report-actions-col px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">
                         <button
                           className="table-action"
@@ -1128,7 +1130,7 @@ export default function GatePanel({ bundle, persistent, canManage }: Props) {
 
       {editingVisit && canManage && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+          className="no-print fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) setEditingVisit(null);

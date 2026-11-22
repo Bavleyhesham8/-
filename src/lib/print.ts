@@ -5,6 +5,7 @@ export type PrintSection = "both" | "summary" | "detail";
 export type PrintOptions = {
   section?: PrintSection;
   title?: string;
+  orientation?: "portrait" | "landscape";
 };
 
 let activePrintFrame: HTMLIFrameElement | null = null;
@@ -81,15 +82,23 @@ function applyPrintPreferences(clone: HTMLElement, options: PrintOptions) {
 
 function keepOneBrand(clone: HTMLElement) {
   const globalBrand = clone.querySelector(".dashboard-global-print-brand");
-  if (globalBrand) {
-    clone.querySelectorAll(".print-brand").forEach((brand) => {
-      if (!globalBrand.contains(brand)) brand.remove();
-    });
+  const reportBrands = Array.from(clone.querySelectorAll(".print-brand")).filter(
+    (brand) => !globalBrand?.contains(brand),
+  );
+
+  // تقرير واحد يطبع ترويسته الخاصة (وفيها عوامل التصفية المطبقة)، أما
+  // التقارير متعددة البطاقات فتبقى الترويسة العامة لتجنب تكرارها.
+  if (reportBrands.length === 1) {
+    globalBrand?.remove();
     return;
   }
 
-  const brands = Array.from(clone.querySelectorAll(".print-brand"));
-  brands.slice(1).forEach((brand) => brand.remove());
+  if (globalBrand) {
+    reportBrands.forEach((brand) => brand.remove());
+    return;
+  }
+
+  reportBrands.slice(1).forEach((brand) => brand.remove());
 }
 
 function buildSingleRecordClone(source: HTMLElement) {
@@ -305,6 +314,12 @@ async function printClone(
 
   copyStyles(frameDocument);
 
+  if (options.orientation) {
+    const orientationStyle = frameDocument.createElement("style");
+    orientationStyle.textContent = `@media print { @page { size: A4 ${options.orientation}; margin: 8mm; } }`;
+    frameDocument.head.appendChild(orientationStyle);
+  }
+
   const wrapper = frameDocument.createElement("div");
   wrapper.className =
     mode === "view" ? "dashboard-print-area print-view-document" : "dashboard-print-area";
@@ -351,7 +366,9 @@ function resolvePrintOptions(
   value?: PrintOptions | { nativeEvent?: unknown } | null,
 ): PrintOptions {
   if (!value || typeof value !== "object") return {};
-  if ("section" in value || "title" in value) return value as PrintOptions;
+  if ("section" in value || "title" in value || "orientation" in value) {
+    return value as PrintOptions;
+  }
   return {};
 }
 
