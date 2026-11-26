@@ -11,7 +11,7 @@ import {
 import { formatDate, localDateValue } from "@/lib/date-format";
 import { createDemoId } from "@/lib/inventory-demo-data";
 import PrintBrand from "@/components/print-brand";
-import { printCurrentView, printDocument } from "@/lib/print";
+import { printCurrentView } from "@/lib/print";
 import type {
   InventoryBundle,
   InventoryDirection,
@@ -1062,7 +1062,7 @@ export default function InventoryPanel({
               <button className="secondary-button" type="button" onClick={() => printCurrentView({ section: "summary" })}>
                 طباعة الملخص فقط
               </button>
-              <button className="secondary-button" type="button" onClick={() => printDocument(document.querySelector<HTMLElement>(".inventory-movement-report"), { section: "detail" })}>
+              <button className="secondary-button" type="button" onClick={() => printCurrentView({ section: "detail" })}>
                 طباعة الحركات فقط
               </button>
             </div>

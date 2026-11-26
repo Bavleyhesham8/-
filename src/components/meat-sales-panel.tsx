@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   createMeatSaleAction,
   recordRefrigeratorReceiptAction,
   saveRefrigeratorProductAction,
+  updateMeatSaleAction,
   voidMeatSaleAction,
 } from "@/app/actions/meat-sales";
 import PrintBrand from "@/components/print-brand";
@@ -104,6 +105,23 @@ export default function MeatSalesPanel({
   const [reportItemNumber, setReportItemNumber] = useState("all");
   const [appliedReportItemNumber, setAppliedReportItemNumber] = useState("all");
   const [reportError, setReportError] = useState("");
+
+  // يبدأ التقرير افتراضيًا من أول حركة مسجلة. عند إضافة حركة أقدم من ذلك
+  // (مثل رصيد افتتاحي بتاريخ سابق) نوسّع المدى تلقائيًا، ما لم يكن المستخدم
+  // قد اختار بداية يدوية للتقرير.
+  const earliestRecordedDate = firstRecordedDate(sales);
+  const previousEarliestRecordedDate = useRef(earliestRecordedDate);
+  useEffect(() => {
+    const previous = previousEarliestRecordedDate.current;
+    previousEarliestRecordedDate.current = earliestRecordedDate;
+    if (earliestRecordedDate >= previous) return;
+    setReportStartDate((current) =>
+      current === previous ? earliestRecordedDate : current,
+    );
+    setAppliedReportStartDate((current) =>
+      current === previous ? earliestRecordedDate : current,
+    );
+  }, [earliestRecordedDate]);
   const [saleDate, setSaleDate] = useState(localDateValue());
   const [permitNumber, setPermitNumber] = useState("");
   const [beneficiary, setBeneficiary] = useState("");
@@ -121,6 +139,17 @@ export default function MeatSalesPanel({
   const [voidTargetId, setVoidTargetId] = useState<number | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [confirmRefund, setConfirmRefund] = useState(false);
+  const [productOpeningDate, setProductOpeningDate] = useState(localDateValue());
+  const [editingInvoiceNumber, setEditingInvoiceNumber] = useState<
+    number | null
+  >(null);
+  const [editSaleDate, setEditSaleDate] = useState("");
+  const [editBeneficiary, setEditBeneficiary] = useState("");
+  const [editPermitNumber, setEditPermitNumber] = useState("");
+  const [editDiscount, setEditDiscount] = useState("0");
+  const [editPaid, setEditPaid] = useState("0");
+  const [editLines, setEditLines] = useState<DraftLine[]>([]);
+  const [editError, setEditError] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -283,6 +312,52 @@ export default function MeatSalesPanel({
     discountValid &&
     netTotal > 0;
 
+  const preparedEditLines = editLines.map((line) => {
+    const itemNumber = Number(line.itemNumber);
+    const product = sales.products.find(
+      (item) => item.itemNumber === itemNumber,
+    );
+    const price = Number(line.price);
+    const quantity = Number(line.quantity);
+    const total = price * quantity;
+    return {
+      draft: line,
+      product,
+      price,
+      quantity,
+      total,
+      valid:
+        !!product &&
+        Number.isFinite(price) &&
+        price >= 0 &&
+        Number.isFinite(quantity) &&
+        quantity > 0 &&
+        Number.isFinite(total),
+    };
+  });
+  const editSubtotal = preparedEditLines.reduce(
+    (sum, line) => sum + (line.valid ? line.total : 0),
+    0,
+  );
+  const editDiscountValue = Number(editDiscount || "0");
+  const editDiscountValid =
+    Number.isFinite(editDiscountValue) &&
+    editDiscountValue >= 0 &&
+    editDiscountValue <= editSubtotal + 1e-9;
+  const editNetTotal = editSubtotal - (editDiscountValid ? editDiscountValue : 0);
+  const editPaidValue = Number(editPaid || "0");
+  const canSaveInvoiceEdit =
+    editingInvoiceNumber !== null &&
+    !!editSaleDate &&
+    !!editBeneficiary.trim() &&
+    preparedEditLines.every((line) => line.valid) &&
+    editSubtotal > 0 &&
+    editDiscountValid &&
+    editNetTotal > 0 &&
+    Number.isFinite(editPaidValue) &&
+    editPaidValue >= 0 &&
+    editPaidValue <= editNetTotal + 1e-9;
+
   function updateDraft(index: number, patch: Partial<DraftLine>) {
     setDraftLines((current) =>
       current.map((line, lineIndex) =>
@@ -307,15 +382,16 @@ export default function MeatSalesPanel({
     event.preventDefault();
     setError("");
     const price = Number(productPrice);
-    const quantity = Number(catalogQuantity);
+    const quantity = Number(catalogQuantity || "0");
     if (
       !productName.trim() ||
       !Number.isFinite(price) ||
       price < 0 ||
       !Number.isFinite(quantity) ||
-      quantity < 0
+      quantity < 0 ||
+      (quantity > 0 && !productOpeningDate)
     ) {
-      setError("أدخل اسم الصنف والسعر وكمية الدليل بصورة صحيحة.");
+      setError("أدخل اسم الصنف والسعر والكمية الافتتاحية بصورة صحيحة.");
       return;
     }
     if (
@@ -335,6 +411,7 @@ export default function MeatSalesPanel({
           itemCategory: productName,
           price,
           quantity,
+          receivedDate: quantity > 0 ? productOpeningDate : undefined,
         });
         if (!result.ok) {
           setError(result.error);
@@ -344,13 +421,16 @@ export default function MeatSalesPanel({
           ...current,
           catalog: [...current.catalog, result.catalogItem],
           products: [...current.products, result.product],
+          movements: result.movement
+            ? [result.movement, ...current.movements]
+            : current.movements,
         }));
       } else {
         const catalogItem = {
           id: Math.max(0, ...sales.catalog.map((item) => item.id)) + 1,
           itemCategory: productName.trim().normalize("NFC"),
           price,
-          quantity,
+          quantity: 0,
         };
         const itemNumber =
           Math.max(2000, ...sales.products.map((item) => item.itemNumber)) + 1;
@@ -368,11 +448,39 @@ export default function MeatSalesPanel({
               beneficiary: "",
             },
           ],
+          movements:
+            quantity > 0
+              ? [
+                  {
+                    id:
+                      Math.max(
+                        0,
+                        ...current.movements.map((item) => item.id),
+                      ) + 1,
+                    itemNumber,
+                    itemCategory: catalogItem.itemCategory,
+                    direction: "in",
+                    quantity,
+                    price,
+                    total: quantity * price,
+                    outgoing: null,
+                    receivedDate: productOpeningDate,
+                    outgoingDate: null,
+                    issuePermitNumber: null,
+                    recipient: "",
+                    needsReview: false,
+                    voided: false,
+                    voidReason: "",
+                  },
+                  ...current.movements,
+                ]
+              : current.movements,
         }));
       }
       setProductName("");
       setProductPrice("");
       setCatalogQuantity("0");
+      setProductOpeningDate(localDateValue());
     } catch {
       setError("تعذر حفظ صنف الثلاجة.");
     } finally {
@@ -695,6 +803,252 @@ export default function MeatSalesPanel({
     }
   }
 
+  function startInvoiceEdit(invoice: MeatSaleInvoice) {
+    if (invoice.voided) return;
+    setEditingInvoiceNumber(invoice.invoiceNumber);
+    setEditSaleDate(invoice.saleDate);
+    setEditBeneficiary(invoice.beneficiary);
+    setEditPermitNumber(
+      invoice.issuePermitNumber === null
+        ? ""
+        : String(invoice.issuePermitNumber),
+    );
+    setEditDiscount(String(invoice.discount));
+    setEditPaid(String(invoice.paid));
+    setEditLines(
+      invoice.lines.length
+        ? invoice.lines.map((line) => ({
+            itemNumber: String(line.refrigeratorItemNumber),
+            price: String(line.price),
+            quantity: String(line.quantity),
+          }))
+        : [{ itemNumber: "", price: "", quantity: "1" }],
+    );
+    setEditError("");
+    setError("");
+    setVoidTargetId(null);
+  }
+
+  function cancelInvoiceEdit() {
+    setEditingInvoiceNumber(null);
+    setEditLines([]);
+    setEditError("");
+  }
+
+  function updateEditLine(index: number, patch: Partial<DraftLine>) {
+    setEditLines((current) =>
+      current.map((line, lineIndex) =>
+        lineIndex === index ? { ...line, ...patch } : line,
+      ),
+    );
+  }
+
+  function selectEditProduct(index: number, value: string) {
+    const itemNumber = Number(value);
+    const product = sales.products.find(
+      (item) => item.itemNumber === itemNumber,
+    );
+    const catalogItem = product
+      ? sales.catalog.find((item) => item.id === product.catalogId)
+      : null;
+    updateEditLine(index, {
+      itemNumber: value,
+      price: catalogItem ? String(catalogItem.price) : "",
+    });
+  }
+
+  async function submitInvoiceEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (editingInvoiceNumber === null) return;
+    setEditError("");
+    const parsedPermit = editPermitNumber.trim()
+      ? Number(editPermitNumber)
+      : null;
+    if (
+      !canSaveInvoiceEdit ||
+      (parsedPermit !== null &&
+        (!Number.isFinite(parsedPermit) || parsedPermit <= 0))
+    ) {
+      setEditError("راجع التاريخ والمستفيد والبنود والمبالغ.");
+      return;
+    }
+
+    const adjustedBalances = new Map(balances);
+    const currentInvoice = sales.invoices.find(
+      (invoice) => invoice.invoiceNumber === editingInvoiceNumber,
+    );
+    for (const line of currentInvoice?.lines ?? []) {
+      adjustedBalances.set(
+        line.refrigeratorItemNumber,
+        (adjustedBalances.get(line.refrigeratorItemNumber) ?? 0) + line.quantity,
+      );
+    }
+    const requested = new Map<number, number>();
+    for (const line of preparedEditLines) {
+      if (!line.product) continue;
+      requested.set(
+        line.product.itemNumber,
+        (requested.get(line.product.itemNumber) ?? 0) + line.quantity,
+      );
+    }
+    for (const [itemNumber, quantity] of requested) {
+      if (quantity > (adjustedBalances.get(itemNumber) ?? 0) + 1e-9) {
+        const product = sales.products.find(
+          (item) => item.itemNumber === itemNumber,
+        );
+        setEditError(
+          `الرصيد المتاح غير كافٍ للصنف ${product?.itemCategory ?? ""}.`,
+        );
+        return;
+      }
+    }
+
+    const saleItems = preparedEditLines.map((line) => ({
+      itemNumber: line.product?.itemNumber ?? 0,
+      price: line.price,
+      quantity: line.quantity,
+    }));
+    setSaving(true);
+    try {
+      if (persistent) {
+        const result = await updateMeatSaleAction({
+          invoiceNumber: editingInvoiceNumber,
+          saleDate: editSaleDate,
+          issuePermitNumber: parsedPermit,
+          beneficiary: editBeneficiary.trim(),
+          discount: editDiscountValue,
+          paid: editPaidValue,
+          items: saleItems,
+        });
+        if (!result.ok) {
+          setEditError(result.error);
+          return;
+        }
+        onSalesChange((current) => ({
+          ...current,
+          invoices: current.invoices.map((invoice) =>
+            invoice.invoiceNumber === editingInvoiceNumber
+              ? result.invoice
+              : invoice,
+          ),
+          movements: [
+            ...result.movements,
+            ...current.movements.filter(
+              (movement) => !result.removedMovementIds.includes(movement.id),
+            ),
+          ],
+        }));
+      } else {
+        const oldInvoice = sales.invoices.find(
+          (invoice) => invoice.invoiceNumber === editingInvoiceNumber,
+        );
+        if (!oldInvoice) {
+          setEditError("لم يتم العثور على الفاتورة.");
+          return;
+        }
+        let nextMovementId = Math.max(
+          0,
+          ...sales.movements.map((movement) => movement.id),
+        );
+        let nextLineId = Math.max(
+          0,
+          ...sales.invoices.flatMap((invoice) =>
+            invoice.lines.map((line) => line.id),
+          ),
+        );
+        const movementRows: RefrigeratorMovement[] = [];
+        const lines: MeatSaleLine[] = [];
+        const remaining = new Map(adjustedBalances);
+        for (const line of preparedEditLines) {
+          if (!line.product) continue;
+          const balance =
+            (remaining.get(line.product.itemNumber) ?? 0) - line.quantity;
+          remaining.set(line.product.itemNumber, balance);
+          nextMovementId += 1;
+          movementRows.push({
+            id: nextMovementId,
+            itemNumber: line.product.itemNumber,
+            itemCategory: line.product.itemCategory,
+            direction: "out",
+            quantity: null,
+            price: line.price,
+            total: line.total,
+            outgoing: line.quantity,
+            receivedDate: null,
+            outgoingDate: editSaleDate,
+            issuePermitNumber: parsedPermit,
+            recipient: editBeneficiary.trim(),
+            needsReview: false,
+            voided: false,
+            voidReason: "",
+          });
+          nextLineId += 1;
+          lines.push({
+            id: nextLineId,
+            itemCategory: line.product.itemCategory,
+            price: line.price,
+            quantity: line.quantity,
+            total: line.total,
+            refrigeratorItemNumber: line.product.itemNumber,
+            movementId: nextMovementId,
+          });
+        }
+        let payments = oldInvoice.payments;
+        if (Math.abs(editPaidValue - oldInvoice.paid) > 1e-9) {
+          const adjustment: MeatSalePayment = {
+            id:
+              Math.max(
+                0,
+                ...sales.invoices.flatMap((invoice) =>
+                  invoice.payments.map((payment) => payment.id),
+                ),
+              ) + 1,
+            kind: editPaidValue > oldInvoice.paid ? "payment" : "refund",
+            amount: Math.abs(editPaidValue - oldInvoice.paid),
+            paymentDate: editSaleDate,
+          };
+          payments = [...payments, adjustment];
+        }
+        const updatedInvoice: MeatSaleInvoice = {
+          invoiceNumber: oldInvoice.invoiceNumber,
+          saleDate: editSaleDate,
+          issuePermitNumber: parsedPermit,
+          beneficiary: editBeneficiary.trim(),
+          lines,
+          subtotal: editSubtotal,
+          discount: editDiscountValue,
+          total: editNetTotal,
+          paid: editPaidValue,
+          voided: false,
+          voidReason: "",
+          payments,
+        };
+        const oldMovementIds = oldInvoice.lines.flatMap((line) =>
+          line.movementId === null ? [] : [line.movementId],
+        );
+        onSalesChange((current) => ({
+          ...current,
+          invoices: current.invoices.map((invoice) =>
+            invoice.invoiceNumber === oldInvoice.invoiceNumber
+              ? updatedInvoice
+              : invoice,
+          ),
+          movements: [
+            ...movementRows,
+            ...current.movements.filter(
+              (movement) => !oldMovementIds.includes(movement.id),
+            ),
+          ],
+        }));
+      }
+      cancelInvoiceEdit();
+    } catch {
+      setEditError("تعذر حفظ تعديل فاتورة الثلاجة.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="content-panel inventory-panel meat-sales-panel">
       <div className="panel-heading">
@@ -788,19 +1142,27 @@ export default function MeatSalesPanel({
               />
             </label>
             <label className="form-field">
-              الكمية (حقل الدليل الأصلي)
+              الكمية الافتتاحية (اختياري)
               <input
                 type="number"
                 min="0"
                 step="any"
-                required
                 value={catalogQuantity}
                 onChange={(event) => setCatalogQuantity(event.target.value)}
               />
             </label>
+            <label className="form-field">
+              تاريخ الرصيد الافتتاحي
+              <input
+                type="date"
+                required={Number(catalogQuantity) > 0}
+                value={productOpeningDate}
+                onChange={(event) => setProductOpeningDate(event.target.value)}
+              />
+            </label>
             <p className="access-note sales-wide">
-              رصيد الثلاجة الفعلي يُحسب من إيصالات الوارد وحركات البيع، ولا
-              يُستنتج من كمية دليل الأصناف.
+              رصيد الثلاجة الفعلي يُحسب من إيصالات الوارد وحركات البيع. أي كمية
+              افتتاحية تُسجَّل كحركة وارد وتظهر مباشرة في الأرصدة.
             </p>
             <button className="primary-button" disabled={saving}>
               إضافة الصنف إلى الثلاجة
@@ -813,27 +1175,33 @@ export default function MeatSalesPanel({
                   <th scope="col">ID</th>
                   <th scope="col">اسم الصنف</th>
                   <th scope="col">السعر</th>
-                  <th scope="col">الكمية</th>
                   <th scope="col">رقم الصنف بالثلاجة</th>
+                  <th scope="col">الرصيد الحالي</th>
+                  <th scope="col">قيمة الرصيد</th>
                 </tr>
               </thead>
               <tbody>
-                {sales.catalog.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.id}</td>
-                    <td>{item.itemCategory}</td>
-                    <td>{numberFormatter.format(item.price)}</td>
-                    <td>{numberFormatter.format(item.quantity)}</td>
-                    <td>
-                      {sales.products.find(
-                        (product) => product.catalogId === item.id,
-                      )?.itemNumber ?? "—"}
-                    </td>
-                  </tr>
-                ))}
+                {sales.catalog.map((item) => {
+                  const product = sales.products.find(
+                    (entry) => entry.catalogId === item.id,
+                  );
+                  const balance = product
+                    ? (balances.get(product.itemNumber) ?? 0)
+                    : 0;
+                  return (
+                    <tr key={item.id}>
+                      <td>{item.id}</td>
+                      <td>{item.itemCategory}</td>
+                      <td>{numberFormatter.format(item.price)}</td>
+                      <td>{product?.itemNumber ?? "—"}</td>
+                      <td>{numberFormatter.format(balance)}</td>
+                      <td>{numberFormatter.format(balance * item.price)} ج.م</td>
+                    </tr>
+                  );
+                })}
                 {!sales.catalog.length && (
                   <tr>
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       <div className="empty-state">لا توجد أصناف مسجلة.</div>
                     </td>
                   </tr>
@@ -1212,6 +1580,15 @@ export default function MeatSalesPanel({
                   </span>
                   <strong>{meatSaleStatus(invoice)}</strong>
                   {invoice.voided && <span>{invoice.voidReason}</span>}
+                  {canManage && !invoice.voided && (
+                    <button
+                      className="secondary-button no-print"
+                      type="button"
+                      onClick={() => startInvoiceEdit(invoice)}
+                    >
+                      تعديل الفاتورة
+                    </button>
+                  )}
                   <button
                     className="secondary-button no-print"
                     type="button"
@@ -1224,6 +1601,184 @@ export default function MeatSalesPanel({
                   </button>
                 </div>
               </div>
+              {canManage && editingInvoiceNumber === invoice.invoiceNumber && (
+                <form
+                  className="inventory-form sales-form no-print"
+                  onSubmit={submitInvoiceEdit}
+                >
+                  <h4>تعديل فاتورة الثلاجة رقم {invoice.invoiceNumber}</h4>
+                  <label className="form-field">
+                    تاريخ البيع
+                    <input
+                      type="date"
+                      required
+                      value={editSaleDate}
+                      onChange={(event) => setEditSaleDate(event.target.value)}
+                    />
+                  </label>
+                  <label className="form-field">
+                    المستفيد
+                    <input
+                      required
+                      maxLength={160}
+                      value={editBeneficiary}
+                      onChange={(event) => setEditBeneficiary(event.target.value)}
+                    />
+                  </label>
+                  <label className="form-field">
+                    إذن الصرف (اختياري)
+                    <input
+                      type="number"
+                      min="1"
+                      step="any"
+                      value={editPermitNumber}
+                      onChange={(event) => setEditPermitNumber(event.target.value)}
+                    />
+                  </label>
+                  <label className="form-field">
+                    الخصم
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editDiscount}
+                      onChange={(event) => setEditDiscount(event.target.value)}
+                    />
+                  </label>
+                  <div className="sales-lines">
+                    {editLines.map((line, index) => {
+                      const prepared = preparedEditLines[index];
+                      return (
+                        <div className="sales-line" key={index}>
+                          <label className="form-field">
+                            الصنف
+                            <select
+                              required
+                              value={line.itemNumber}
+                              onChange={(event) =>
+                                selectEditProduct(index, event.target.value)
+                              }
+                            >
+                              <option value="">اختر الصنف</option>
+                              {sales.products.map((product) => (
+                                <option
+                                  key={product.itemNumber}
+                                  value={product.itemNumber}
+                                >
+                                  {product.itemCategory} — {product.itemNumber}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="form-field">
+                            السعر
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              required
+                              value={line.price}
+                              onChange={(event) =>
+                                updateEditLine(index, {
+                                  price: event.target.value,
+                                })
+                              }
+                            />
+                          </label>
+                          <label className="form-field">
+                            الكمية
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              required
+                              value={line.quantity}
+                              onChange={(event) =>
+                                updateEditLine(index, {
+                                  quantity: event.target.value,
+                                })
+                              }
+                            />
+                          </label>
+                          <span className="sales-line-total">
+                            الإجمالي:{" "}
+                            {prepared?.valid
+                              ? numberFormatter.format(prepared.total)
+                              : "تحقق من السعر والكمية"}
+                          </span>
+                          {editLines.length > 1 && (
+                            <button
+                              className="table-action"
+                              type="button"
+                              disabled={saving}
+                              onClick={() =>
+                                setEditLines((current) =>
+                                  current.filter(
+                                    (_, lineIndex) => lineIndex !== index,
+                                  ),
+                                )
+                              }
+                            >
+                              حذف البند
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={saving || editLines.length >= 100}
+                    onClick={() =>
+                      setEditLines((current) => [
+                        ...current,
+                        { itemNumber: "", price: "", quantity: "1" },
+                      ])
+                    }
+                  >
+                    إضافة بند
+                  </button>
+                  <label className="form-field">
+                    المسدد
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editPaid}
+                      onChange={(event) => setEditPaid(event.target.value)}
+                    />
+                  </label>
+                  <div className="sales-total sales-wide">
+                    الإجمالي قبل الخصم: {numberFormatter.format(editSubtotal)} —
+                    الصافي: {numberFormatter.format(editNetTotal)} — المتبقي:{" "}
+                    {numberFormatter.format(
+                      Math.max(0, editNetTotal - editPaidValue),
+                    )}
+                  </div>
+                  {editError && (
+                    <p className="form-error" role="alert">
+                      {editError}
+                    </p>
+                  )}
+                  <div className="action-group">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={saving}
+                      onClick={cancelInvoiceEdit}
+                    >
+                      تراجع
+                    </button>
+                    <button
+                      className="primary-button"
+                      disabled={saving || !canSaveInvoiceEdit}
+                    >
+                      {saving ? "جارٍ الحفظ..." : "حفظ تعديل الفاتورة"}
+                    </button>
+                  </div>
+                </form>
+              )}
               <div className="table-wrap">
                 <table className="resident-table inventory-table">
                   <thead>
@@ -1680,6 +2235,18 @@ export default function MeatSalesPanel({
                       >
                         طباعة الفاتورة
                       </button>
+                      {canManage && !invoice.voided && (
+                        <button
+                          className="table-action no-print"
+                          type="button"
+                          onClick={() => {
+                            setSection("history");
+                            startInvoiceEdit(invoice);
+                          }}
+                        >
+                          تعديل
+                        </button>
+                      )}
                     </td>
                   </tr>
                   );

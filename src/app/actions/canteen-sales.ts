@@ -155,6 +155,22 @@ export async function saveCanteenSalesItemAction(
         if (matched) {
           canteenItemNumber = matched.itemNumber;
           linkedProductNumber = matched.itemNumber;
+        } else {
+          // دليل واحد للكانتين: أي صنف بيع جديد يُنشأ له صنف مخزون مقابل
+          // بالاسم والسعر نفسه، حتى لا تظهر أصناف بيع بلا رصيد أو ارتباط.
+          const [createdProduct] = await transaction
+            .insert(canteenProducts)
+            .values({
+              name,
+              price: parsed.data.price,
+              needsReview: false,
+            })
+            .returning({ itemNumber: canteenProducts.itemNumber });
+          if (!createdProduct) {
+            return { error: "تعذر إنشاء صنف المخزون المرتبط." } as const;
+          }
+          canteenItemNumber = createdProduct.itemNumber;
+          linkedProductNumber = createdProduct.itemNumber;
         }
       }
 

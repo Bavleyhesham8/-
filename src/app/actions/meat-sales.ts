@@ -39,7 +39,8 @@ const dateSchema = z
 const productSchema = z.object({
   itemCategory: z.string().trim().min(1).max(160),
   price: z.number().finite().min(0).max(1_000_000_000),
-  quantity: z.number().finite().min(0).max(1_000_000_000),
+  quantity: z.number().finite().min(0).max(1_000_000_000).optional().default(0),
+  receivedDate: dateSchema.optional(),
 });
 
 const receiptSchema = z.object({
@@ -66,6 +67,11 @@ const saleSchema = z.object({
     .max(100),
 });
 
+const updateSaleSchema = saleSchema.extend({
+  invoiceNumber: z.number().int().positive(),
+  paid: z.number().finite().min(0).max(1_000_000_000),
+});
+
 class MeatSalesActionError extends Error {}
 
 export async function saveRefrigeratorProductAction(
@@ -75,6 +81,7 @@ export async function saveRefrigeratorProductAction(
       ok: true;
       catalogItem: RefrigeratorCatalogItem;
       product: RefrigeratorProduct;
+      movement: RefrigeratorMovement | null;
     }
   | { ok: false; error: string }
 > {
@@ -92,7 +99,7 @@ export async function saveRefrigeratorProductAction(
         .values({
           itemCategory,
           price: parsed.data.price,
-          quantity: parsed.data.quantity,
+          quantity: 0,
         })
         .onConflictDoNothing()
         .returning({
@@ -122,7 +129,46 @@ export async function saveRefrigeratorProductAction(
       if (!product) {
         throw new MeatSalesActionError("تعذر تسجيل صنف الثلاجة.");
       }
-      return { catalogItem, product } as const;
+
+      let movement: RefrigeratorMovement | null = null;
+      if (parsed.data.quantity > 0) {
+        const receivedDate =
+          parsed.data.receivedDate ?? new Date().toISOString().slice(0, 10);
+        const [receipt] = await transaction
+          .insert(refrigeratorStockLedger)
+          .values({
+            itemCategory,
+            quantity: parsed.data.quantity,
+            price: parsed.data.price,
+            total: parsed.data.quantity * parsed.data.price,
+            itemNumber: product.itemNumber,
+            direction: "in",
+            receivedDate,
+            createdBy: session.user.id,
+          })
+          .returning({ id: refrigeratorStockLedger.id });
+        if (!receipt) {
+          throw new MeatSalesActionError("تعذر تسجيل رصيد الصنف الافتتاحي.");
+        }
+        movement = {
+          id: receipt.id,
+          itemNumber: product.itemNumber,
+          itemCategory,
+          direction: "in",
+          quantity: parsed.data.quantity,
+          price: parsed.data.price,
+          total: parsed.data.quantity * parsed.data.price,
+          outgoing: null,
+          receivedDate,
+          outgoingDate: null,
+          issuePermitNumber: null,
+          recipient: "",
+          needsReview: false,
+          voided: false,
+          voidReason: "",
+        };
+      }
+      return { catalogItem, product, movement } as const;
     });
     if ("error" in result && typeof result.error === "string") {
       return { ok: false, error: result.error };
@@ -142,6 +188,7 @@ export async function saveRefrigeratorProductAction(
         voucherNumber: result.product.voucherNumber ?? null,
         beneficiary: result.product.beneficiary,
       },
+      movement: result.movement,
     };
   } catch (error) {
     if (error instanceof MeatSalesActionError) {
@@ -470,6 +517,344 @@ export async function createMeatSaleAction(
       ok: true,
       invoice: result.invoice,
       movements: result.movements,
+    };
+  } catch (error) {
+    if (error instanceof MeatSalesActionError) {
+      return { ok: false, error: error.message };
+    }
+    throw error;
+  }
+}
+
+export async function updateMeatSaleAction(
+  input: unknown,
+): Promise<
+  | {
+      ok: true;
+      invoice: MeatSaleInvoice;
+      movements: RefrigeratorMovement[];
+      removedMovementIds: number[];
+    }
+  | { ok: false; error: string }
+> {
+  const session = await requireStaffPermission("canManageMeatSales");
+  const parsed = updateSaleSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "راجع التاريخ والمستفيد وبنود الفاتورة." };
+  }
+
+  const database = getDatabase();
+  try {
+    const result = await database.transaction(async (transaction) => {
+      const [invoiceRow] = await transaction
+        .select({ invoiceNumber: meatSalesInvoices.invoiceNumber })
+        .from(meatSalesInvoices)
+        .where(
+          eq(meatSalesInvoices.invoiceNumber, parsed.data.invoiceNumber),
+        )
+        .limit(1)
+        .for("update");
+      if (!invoiceRow) {
+        return { error: "لم يتم العثور على الفاتورة." } as const;
+      }
+
+      const [existingVoid] = await transaction
+        .select({ invoiceNumber: meatSaleVoids.invoiceNumber })
+        .from(meatSaleVoids)
+        .where(eq(meatSaleVoids.invoiceNumber, invoiceRow.invoiceNumber))
+        .limit(1);
+      if (existingVoid) {
+        return {
+          error: "لا يمكن تعديل فاتورة ملغاة. أعد تسجيلها كفاتورة جديدة.",
+        } as const;
+      }
+
+      const existingLines = await transaction
+        .select({
+          lineId: meatSalesInvoiceLines.id,
+          itemNumber: meatSalesInvoiceLines.refrigeratorItemNumber,
+          movementId: meatSaleStockMovementLinks.movementId,
+        })
+        .from(meatSalesInvoiceLines)
+        .leftJoin(
+          meatSaleStockMovementLinks,
+          eq(
+            meatSaleStockMovementLinks.invoiceLineId,
+            meatSalesInvoiceLines.id,
+          ),
+        )
+        .where(eq(meatSalesInvoiceLines.invoiceNumber, invoiceRow.invoiceNumber));
+      const oldMovementIds = existingLines.flatMap((line) =>
+        line.movementId === null ? [] : [line.movementId],
+      );
+      const oldItemNumbers = existingLines.map((line) => line.itemNumber);
+      const newItemNumbers = parsed.data.items.map((item) => item.itemNumber);
+      const itemNumbers = [
+        ...new Set([...oldItemNumbers, ...newItemNumbers]),
+      ].sort((left, right) => left - right);
+
+      const products = await transaction
+        .select({
+          itemNumber: refrigeratorItems.itemNumber,
+          itemCategory: refrigeratorItems.itemCategory,
+        })
+        .from(refrigeratorItems)
+        .where(inArray(refrigeratorItems.itemNumber, itemNumbers))
+        .orderBy(refrigeratorItems.itemNumber)
+        .for("update");
+      if (products.length !== itemNumbers.length) {
+        return { error: "لم يتم العثور على أحد أصناف الثلاجة." } as const;
+      }
+      const productByNumber = new Map(
+        products.map((product) => [product.itemNumber, product]),
+      );
+
+      const paymentRows = await transaction
+        .select({
+          id: meatSalePayments.id,
+          kind: meatSalePayments.kind,
+          amount: meatSalePayments.amount,
+          paymentDate: meatSalePayments.paymentDate,
+        })
+        .from(meatSalePayments)
+        .where(eq(meatSalePayments.invoiceNumber, invoiceRow.invoiceNumber))
+        .orderBy(meatSalePayments.id);
+      const netPaid = paymentRows.reduce(
+        (sum, payment) =>
+          sum + (payment.kind === "payment" ? payment.amount : -payment.amount),
+        0,
+      );
+
+      const subtotal = parsed.data.items.reduce(
+        (sum, item) => sum + item.price * item.quantity,
+        0,
+      );
+      if (!Number.isFinite(subtotal) || subtotal <= 0) {
+        return { error: "إجمالي الفاتورة غير صالح." } as const;
+      }
+      const discount = parsed.data.discount;
+      if (discount > subtotal + 1e-9) {
+        return { error: "الخصم أكبر من إجمالي الفاتورة." } as const;
+      }
+      const total = subtotal - discount;
+      if (!Number.isFinite(total) || total <= 0) {
+        return { error: "صافي الفاتورة بعد الخصم غير صالح." } as const;
+      }
+      if (parsed.data.paid > total + 1e-9) {
+        return {
+          error: "المبلغ المسدد أكبر من صافي الفاتورة المستحقة.",
+        } as const;
+      }
+
+      const lineIds = existingLines.map((line) => line.lineId);
+      if (lineIds.length) {
+        await transaction
+          .delete(meatSaleStockMovementLinks)
+          .where(inArray(meatSaleStockMovementLinks.invoiceLineId, lineIds));
+      }
+      await transaction
+        .delete(meatSalesInvoiceLines)
+        .where(
+          eq(meatSalesInvoiceLines.invoiceNumber, invoiceRow.invoiceNumber),
+        );
+      if (oldMovementIds.length) {
+        await transaction
+          .delete(refrigeratorStockVoids)
+          .where(inArray(refrigeratorStockVoids.movementId, oldMovementIds));
+        await transaction
+          .delete(refrigeratorStockLedger)
+          .where(inArray(refrigeratorStockLedger.id, oldMovementIds));
+      }
+
+      await transaction
+        .update(meatSalesInvoices)
+        .set({
+          saleDate: parsed.data.saleDate,
+          issuePermitNumber: parsed.data.issuePermitNumber,
+          beneficiary: parsed.data.beneficiary,
+          discount,
+        })
+        .where(
+          eq(meatSalesInvoices.invoiceNumber, invoiceRow.invoiceNumber),
+        );
+
+      const ledger = await transaction
+        .select({
+          itemNumber: refrigeratorStockLedger.itemNumber,
+          quantity: refrigeratorStockLedger.quantity,
+          outgoing: refrigeratorStockLedger.outgoing,
+        })
+        .from(refrigeratorStockLedger)
+        .leftJoin(
+          refrigeratorStockVoids,
+          eq(
+            refrigeratorStockVoids.movementId,
+            refrigeratorStockLedger.id,
+          ),
+        )
+        .where(
+          and(
+            inArray(refrigeratorStockLedger.itemNumber, newItemNumbers),
+            isNull(refrigeratorStockVoids.movementId),
+            eq(refrigeratorStockLedger.needsReview, false),
+          ),
+        );
+      const balances = new Map<number, number>();
+      for (const movement of ledger) {
+        balances.set(
+          movement.itemNumber,
+          (balances.get(movement.itemNumber) ?? 0) +
+            (movement.quantity ?? 0) -
+            (movement.outgoing ?? 0),
+        );
+      }
+      const requested = new Map<number, number>();
+      for (const item of parsed.data.items) {
+        requested.set(
+          item.itemNumber,
+          (requested.get(item.itemNumber) ?? 0) + item.quantity,
+        );
+      }
+      for (const [itemNumber, quantity] of requested) {
+        if (quantity > (balances.get(itemNumber) ?? 0) + 1e-9) {
+          return {
+            error: `الرصيد المتاح غير كافٍ للصنف ${productByNumber.get(itemNumber)?.itemCategory ?? itemNumber}.`,
+          } as const;
+        }
+      }
+
+      const movements: RefrigeratorMovement[] = [];
+      const lines: MeatSaleLine[] = [];
+      for (const item of parsed.data.items) {
+        const product = productByNumber.get(item.itemNumber);
+        if (!product) {
+          throw new MeatSalesActionError("تعذر العثور على صنف الفاتورة.");
+        }
+        const lineTotal = item.price * item.quantity;
+        const [line] = await transaction
+          .insert(meatSalesInvoiceLines)
+          .values({
+            itemCategory: product.itemCategory,
+            price: item.price,
+            quantity: item.quantity,
+            total: lineTotal,
+            saleDate: parsed.data.saleDate,
+            invoiceNumber: invoiceRow.invoiceNumber,
+            refrigeratorItemNumber: item.itemNumber,
+          })
+          .returning({ id: meatSalesInvoiceLines.id });
+        if (!line) {
+          throw new MeatSalesActionError("تعذر حفظ أحد بنود فاتورة اللحوم.");
+        }
+
+        const [stockMovement] = await transaction
+          .insert(refrigeratorStockLedger)
+          .values({
+            itemCategory: product.itemCategory,
+            price: item.price,
+            total: lineTotal,
+            outgoing: item.quantity,
+            outgoingDate: parsed.data.saleDate,
+            issuePermitNumber: parsed.data.issuePermitNumber,
+            recipient: parsed.data.beneficiary,
+            itemNumber: item.itemNumber,
+            direction: "out",
+            createdBy: session.user.id,
+          })
+          .returning({ id: refrigeratorStockLedger.id });
+        if (!stockMovement) {
+          throw new MeatSalesActionError("تعذر خصم الصنف من مخزون الثلاجة.");
+        }
+        await transaction
+          .insert(meatSaleStockMovementLinks)
+          .values({ invoiceLineId: line.id, movementId: stockMovement.id });
+        movements.push({
+          id: stockMovement.id,
+          itemNumber: item.itemNumber,
+          itemCategory: product.itemCategory,
+          direction: "out",
+          quantity: null,
+          price: item.price,
+          total: lineTotal,
+          outgoing: item.quantity,
+          receivedDate: null,
+          outgoingDate: parsed.data.saleDate,
+          issuePermitNumber: parsed.data.issuePermitNumber,
+          recipient: parsed.data.beneficiary,
+          needsReview: false,
+          voided: false,
+          voidReason: "",
+        });
+        lines.push({
+          id: line.id,
+          itemCategory: product.itemCategory,
+          price: item.price,
+          quantity: item.quantity,
+          total: lineTotal,
+          refrigeratorItemNumber: item.itemNumber,
+          movementId: stockMovement.id,
+        });
+      }
+
+      let adjustment: MeatSalePayment | null = null;
+      const paidDifference = parsed.data.paid - netPaid;
+      if (Math.abs(paidDifference) > 1e-9) {
+        const [createdAdjustment] = await transaction
+          .insert(meatSalePayments)
+          .values({
+            invoiceNumber: invoiceRow.invoiceNumber,
+            kind: paidDifference > 0 ? "payment" : "refund",
+            amount: Math.abs(paidDifference),
+            paymentDate: parsed.data.saleDate,
+            createdBy: session.user.id,
+          })
+          .returning({
+            id: meatSalePayments.id,
+            kind: meatSalePayments.kind,
+            amount: meatSalePayments.amount,
+            paymentDate: meatSalePayments.paymentDate,
+          });
+        if (!createdAdjustment) {
+          throw new MeatSalesActionError("تعذر تعديل سداد الفاتورة.");
+        }
+        adjustment = createdAdjustment;
+      }
+
+      const invoice: MeatSaleInvoice = {
+        invoiceNumber: invoiceRow.invoiceNumber,
+        saleDate: parsed.data.saleDate,
+        issuePermitNumber: parsed.data.issuePermitNumber,
+        beneficiary: parsed.data.beneficiary,
+        lines,
+        subtotal,
+        discount,
+        total,
+        paid: parsed.data.paid,
+        voided: false,
+        voidReason: "",
+        payments: adjustment ? [...paymentRows, adjustment] : paymentRows,
+      };
+      return {
+        invoice,
+        movements,
+        removedMovementIds: oldMovementIds,
+      } as const;
+    });
+    if ("error" in result && typeof result.error === "string") {
+      return { ok: false, error: result.error };
+    }
+    await recordAuditEvent({
+      actorUserId: session.user.id,
+      action: "update",
+      entity: "meatSalesInvoices",
+      entityId: result.invoice.invoiceNumber,
+      metadata: { fields: "saleDate,items,discount,paid" },
+    });
+    return {
+      ok: true,
+      invoice: result.invoice,
+      movements: result.movements,
+      removedMovementIds: result.removedMovementIds,
     };
   } catch (error) {
     if (error instanceof MeatSalesActionError) {

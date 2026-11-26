@@ -10,6 +10,7 @@ import {
   canteenStockLedger,
   canteenStockMovementLinks,
   canteenStockVoids,
+  invoiceCategories,
   invoiceStockMovementLinks,
   residentPurchases,
   user,
@@ -24,6 +25,7 @@ import type {
   CanteenMovement,
   CanteenProduct,
 } from "@/lib/canteen-types";
+import type { CanteenSalesItem } from "@/lib/canteen-sales-types";
 
 const itemSchema = z.object({
   itemNumber: z.number().int().positive().nullable().optional(),
@@ -131,7 +133,12 @@ export async function grantStaffCanteenAccessAction(
 export async function saveCanteenProductAction(
   input: unknown,
 ): Promise<
-  | { ok: true; product: CanteenProduct; movement: CanteenMovement | null }
+  | {
+      ok: true;
+      product: CanteenProduct;
+      movement: CanteenMovement | null;
+      salesItem: CanteenSalesItem | null;
+    }
   | { ok: false; error: string }
 > {
   const session = await requireCanteenManagement();
@@ -205,6 +212,16 @@ export async function saveCanteenProductAction(
           .update(residentPurchases)
           .set({ canteenItemNumber: product.itemNumber })
           .where(eq(residentPurchases.id, matchingPurchase.id));
+      } else {
+        // كل صنف مخزون جديد يصبح صنف بيع متاحًا في شاشة الكانتين،
+        // حتى تبقى قائمة الأصناف واحدة في التسجيل والبيع والمخزون.
+        await transaction.insert(residentPurchases).values({
+          itemName: product.name,
+          price: product.price,
+          canteenItemNumber: product.itemNumber,
+          addToResidentAccount: false,
+          createdBy: session.user.id,
+        });
       }
       // كل الصفوف التي تحمل الاسم نفسه (بما فيها الصف المرتبط للتو)
       // تعرض اسم وسعر صنف المخزون الجديد.
@@ -256,7 +273,36 @@ export async function saveCanteenProductAction(
           };
         }
       }
-      return { product, balance: openingQuantity, movement: openingMovement };
+      const [salesItemRow] = await transaction
+        .select({
+          id: residentPurchases.id,
+          name: residentPurchases.itemName,
+          price: residentPurchases.price,
+          addToResidentAccount: residentPurchases.addToResidentAccount,
+          canteenItemNumber: residentPurchases.canteenItemNumber,
+          categoryId: residentPurchases.categoryId,
+          categoryName: invoiceCategories.name,
+        })
+        .from(residentPurchases)
+        .leftJoin(
+          invoiceCategories,
+          eq(invoiceCategories.id, residentPurchases.categoryId),
+        )
+        .where(eq(residentPurchases.canteenItemNumber, product.itemNumber))
+        .orderBy(asc(residentPurchases.id))
+        .limit(1);
+      const salesItem: CanteenSalesItem | null = salesItemRow
+        ? {
+            ...salesItemRow,
+            categoryName: salesItemRow.categoryName ?? "",
+          }
+        : null;
+      return {
+        product,
+        balance: openingQuantity,
+        movement: openingMovement,
+        salesItem,
+      };
     }
 
     const [previousProduct] = await transaction
@@ -306,6 +352,14 @@ export async function saveCanteenProductAction(
           .update(residentPurchases)
           .set({ canteenItemNumber: product.itemNumber })
           .where(eq(residentPurchases.id, candidate.id));
+      } else {
+        await transaction.insert(residentPurchases).values({
+          itemName: product.name,
+          price: product.price,
+          canteenItemNumber: product.itemNumber,
+          addToResidentAccount: false,
+          createdBy: session.user.id,
+        });
       }
     }
     await transaction
@@ -388,7 +442,36 @@ export async function saveCanteenProductAction(
       }
       nextBalance = parsed.data.balance;
     }
-    return { product, balance: nextBalance, movement: adjustmentMovement };
+    const [salesItemRow] = await transaction
+      .select({
+        id: residentPurchases.id,
+        name: residentPurchases.itemName,
+        price: residentPurchases.price,
+        addToResidentAccount: residentPurchases.addToResidentAccount,
+        canteenItemNumber: residentPurchases.canteenItemNumber,
+        categoryId: residentPurchases.categoryId,
+        categoryName: invoiceCategories.name,
+      })
+      .from(residentPurchases)
+      .leftJoin(
+        invoiceCategories,
+        eq(invoiceCategories.id, residentPurchases.categoryId),
+      )
+      .where(eq(residentPurchases.canteenItemNumber, product.itemNumber))
+      .orderBy(asc(residentPurchases.id))
+      .limit(1);
+    const salesItem: CanteenSalesItem | null = salesItemRow
+      ? {
+          ...salesItemRow,
+          categoryName: salesItemRow.categoryName ?? "",
+        }
+      : null;
+    return {
+      product,
+      balance: nextBalance,
+      movement: adjustmentMovement,
+      salesItem,
+    };
   });
 
   if (!result) {
@@ -405,6 +488,7 @@ export async function saveCanteenProductAction(
     ok: true,
     product: { ...result.product, balance: result.balance },
     movement: result.movement ?? null,
+    salesItem: result.salesItem,
   };
 }
 

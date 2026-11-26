@@ -10,10 +10,11 @@ import type {
   CanteenMovement,
   CanteenProduct,
 } from "@/lib/canteen-types";
-import type { CanteenSalesBundle } from "@/lib/canteen-sales-types";
+import type { CanteenSalesBundle, CanteenSalesItem } from "@/lib/canteen-sales-types";
 
 type CanteenPanelProps = {
   canteen: CanteenBundle;
+  salesItems: CanteenSalesItem[];
   persistent: boolean;
   canManage: boolean;
   onCanteenChange: (update: (current: CanteenBundle) => CanteenBundle) => void;
@@ -48,6 +49,7 @@ function currentBalance(
 
 export default function CanteenPanel({
   canteen,
+  salesItems,
   persistent,
   canManage,
   onCanteenChange,
@@ -71,11 +73,24 @@ export default function CanteenPanel({
   const [incomingPrice, setIncomingPrice] = useState("");
   const [incomingDate, setIncomingDate] = useState(localDateValue());
 
-  function syncLinkedSalesItems(product: CanteenProduct, previousName?: string) {
-    onSalesChange?.((current) => ({
-      ...current,
-      items: syncSalesItemsAfterProduct(current.items, product, previousName),
-    }));
+  function syncLinkedSalesItems(
+    product: CanteenProduct,
+    previousName?: string,
+    salesItem?: CanteenSalesItem | null,
+  ) {
+    onSalesChange?.((current) => {
+      let items = syncSalesItemsAfterProduct(
+        current.items,
+        product,
+        previousName,
+      );
+      if (salesItem) {
+        items = items.some((item) => item.id === salesItem.id)
+          ? items.map((item) => (item.id === salesItem.id ? salesItem : item))
+          : [...items, salesItem];
+      }
+      return { ...current, items };
+    });
   }
 
   const balances = useMemo(() => {
@@ -88,6 +103,43 @@ export default function CanteenPanel({
     }
     return result;
   }, [canteen.movements, canteen.products]);
+
+  const movementOptions = useMemo(() => {
+    const options: Array<{
+      value: string;
+      name: string;
+      price: number;
+      stockItemNumber: number | null;
+      saleItemId: number | null;
+    }> = [];
+    const stockNumbers = new Set(
+      canteen.products.map((product) => product.itemNumber),
+    );
+    for (const product of canteen.products) {
+      options.push({
+        value: `stock:${product.itemNumber}`,
+        name: product.name,
+        price: product.price,
+        stockItemNumber: product.itemNumber,
+        saleItemId: null,
+      });
+    }
+    // أصناف الكانتين المسجلة في شاشة المبيعات تظهر أيضًا في تسجيل الحركة
+    // حتى لا يختلف دليل الأصناف بين الشاشتين.
+    for (const item of salesItems) {
+      if (item.canteenItemNumber !== null && stockNumbers.has(item.canteenItemNumber)) {
+        continue;
+      }
+      options.push({
+        value: `sale:${item.id}`,
+        name: item.name,
+        price: item.price,
+        stockItemNumber: item.canteenItemNumber,
+        saleItemId: item.id,
+      });
+    }
+    return options;
+  }, [canteen.products, salesItems]);
 
   const totals = useMemo(() => {
     const remaining = canteen.products.reduce(
@@ -207,7 +259,11 @@ export default function CanteenPanel({
             movements,
           };
         });
-        syncLinkedSalesItems(savedProduct, previousProductName);
+        syncLinkedSalesItems(
+          savedProduct,
+          previousProductName,
+          result.salesItem,
+        );
       } else {
         const itemNumber =
           editingProductNumber ??
@@ -260,7 +316,28 @@ export default function CanteenPanel({
               : current.movements,
           };
         });
-        syncLinkedSalesItems(savedProduct, previousProductName);
+        const matchingSalesItem = salesItems.find(
+          (item) =>
+            item.canteenItemNumber === itemNumber ||
+            item.name.trim().toLowerCase() === name.toLowerCase(),
+        );
+        const demoSalesItem: CanteenSalesItem | null = matchingSalesItem
+          ? null
+          : {
+              id: Math.max(0, ...salesItems.map((item) => item.id)) + 1,
+              name,
+              price,
+              addToResidentAccount: false,
+              canteenItemNumber: itemNumber,
+              categoryId: null,
+              categoryName: "",
+              needsReview: false,
+            };
+        syncLinkedSalesItems(
+          savedProduct,
+          previousProductName,
+          demoSalesItem,
+        );
       }
       resetForm();
     } catch {
@@ -279,10 +356,20 @@ export default function CanteenPanel({
       setError("أدخل كمية وسعرًا صحيحين للوارد.");
       return;
     }
-    let existing = incomingItemNumber && incomingItemNumber !== "new"
-      ? canteen.products.find((item) => item.itemNumber === Number(incomingItemNumber))
-      : canteen.products.find((item) => item.name.trim().toLowerCase() === incomingNewName.trim().toLowerCase());
-    const name = existing?.name ?? incomingNewName.trim().normalize("NFC");
+    const selectedOption = movementOptions.find(
+      (option) => option.value === incomingItemNumber,
+    );
+    let existing =
+      selectedOption?.stockItemNumber !== null &&
+      selectedOption?.stockItemNumber !== undefined
+        ? canteen.products.find(
+            (item) => item.itemNumber === selectedOption.stockItemNumber,
+          )
+        : undefined;
+    const name =
+      existing?.name ??
+      selectedOption?.name ??
+      incomingNewName.trim().normalize("NFC");
     if (!name) {
       setError("اختر صنفًا أو اكتب اسم الصنف الجديد.");
       return;
@@ -305,7 +392,11 @@ export default function CanteenPanel({
             ...current,
             products: [...current.products, productResult.product],
           }));
-          syncLinkedSalesItems(productResult.product);
+          syncLinkedSalesItems(
+            productResult.product,
+            undefined,
+            productResult.salesItem,
+          );
         } else if (existing.price !== price) {
           const productResult = await saveCanteenProductAction({
             itemNumber: existing.itemNumber,
@@ -317,7 +408,11 @@ export default function CanteenPanel({
               ...current,
               products: current.products.map((item) => item.itemNumber === itemNumber ? productResult.product : item),
             }));
-            syncLinkedSalesItems(productResult.product);
+            syncLinkedSalesItems(
+              productResult.product,
+              undefined,
+              productResult.salesItem,
+            );
           }
         }
         const movementResult = await recordCanteenMovementAction({
@@ -343,7 +438,24 @@ export default function CanteenPanel({
             : [...current.products, product],
           movements: [...current.movements, movement],
         }));
-        syncLinkedSalesItems(product);
+        const matchingSalesItem = salesItems.find(
+          (item) =>
+            item.canteenItemNumber === itemNumber ||
+            item.name.trim().toLowerCase() === name.toLowerCase(),
+        );
+        const demoSalesItem: CanteenSalesItem | null = matchingSalesItem
+          ? null
+          : {
+              id: Math.max(0, ...salesItems.map((item) => item.id)) + 1,
+              name,
+              price,
+              addToResidentAccount: false,
+              canteenItemNumber: itemNumber,
+              categoryId: null,
+              categoryName: "",
+              needsReview: false,
+            };
+        syncLinkedSalesItems(product, undefined, demoSalesItem);
       }
       setIncomingItemNumber(""); setIncomingNewName(""); setIncomingQuantity("");
       setIncomingPrice(""); setIncomingDate(localDateValue()); setShowIncomingForm(false);
@@ -410,22 +522,25 @@ export default function CanteenPanel({
               onChange={(event) => {
                 const val = event.target.value;
                 setIncomingItemNumber(val);
-                if (val === "new") {
+                const option = movementOptions.find(
+                  (entry) => entry.value === val,
+                );
+                if (option) {
+                  setIncomingNewName(option.name);
+                  setIncomingPrice(String(option.price));
+                } else {
                   setIncomingNewName("");
                   setIncomingPrice("");
-                } else {
-                  const item = canteen.products.find((p) => p.itemNumber === Number(val));
-                  if (item) {
-                    setIncomingNewName(item.name);
-                    setIncomingPrice(String(item.price));
-                  }
                 }
               }}
             >
-              <option value="">-- اختر الصنف من مخزون الكانتين --</option>
-              {canteen.products.map((item) => (
-                <option key={item.itemNumber} value={item.itemNumber}>
-                  {item.name} — سعر: {item.price} ج.م (رقم {item.itemNumber})
+              <option value="">-- اختر الصنف من دليل الكانتين --</option>
+              {movementOptions.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.name} — سعر: {item.price} ج.م
+                  {item.stockItemNumber === null
+                    ? " — صنف بيع"
+                    : ` (رقم ${item.stockItemNumber})`}
                 </option>
               ))}
               <option value="new">+ صنف جديد (كتابة اسم جديد)...</option>

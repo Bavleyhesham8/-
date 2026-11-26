@@ -1933,6 +1933,7 @@ export default function CenterDashboard({
           {view === "canteen" && isScreenAllowed("canteen") && (
             <CanteenPanel
               canteen={canteen}
+              salesItems={sales.items}
               persistent={persistent}
               canManage={canManageCanteen}
               onCanteenChange={setCanteen}
