@@ -112,9 +112,6 @@ const MAX_PRESCRIPTION_INPUT_BYTES = 4 * 1024 * 1024;
 const MAX_PRESCRIPTION_OUTPUT_BYTES = 3 * 1024 * 1024;
 
 async function storePrescription(file: File) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    throw new Error("PRESCRIPTION_STORAGE_NOT_CONFIGURED");
-  }
   if (!file.type.startsWith("image/")) {
     throw new Error("PRESCRIPTION_INVALID_TYPE");
   }
