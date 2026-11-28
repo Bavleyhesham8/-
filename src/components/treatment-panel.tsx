@@ -38,6 +38,7 @@ type VoidTarget = {
 const numberFormatter = new Intl.NumberFormat("ar-EG", {
   maximumFractionDigits: 2,
 });
+const maxLegacyResidentNumber = 2_147_483_647;
 
 export default function TreatmentPanel({
   bundle,
@@ -348,7 +349,11 @@ export default function TreatmentPanel({
               setSelectedResidentId(resident?.id ?? "");
               if (resident) {
                 const parsedResNum = Number(resident.residentNumber);
-                if (Number.isInteger(parsedResNum) && parsedResNum > 0) {
+                if (
+                  Number.isSafeInteger(parsedResNum) &&
+                  parsedResNum > 0 &&
+                  parsedResNum <= maxLegacyResidentNumber
+                ) {
                   setSelectedResidentNumber(String(parsedResNum));
                   return;
                 }
@@ -362,7 +367,11 @@ export default function TreatmentPanel({
                   return;
                 }
                 const fileDigits = Number(resident.fileNumber?.replace(/\D/g, ""));
-                if (Number.isInteger(fileDigits) && fileDigits > 0) {
+                if (
+                  Number.isSafeInteger(fileDigits) &&
+                  fileDigits > 0 &&
+                  fileDigits <= maxLegacyResidentNumber
+                ) {
                   setSelectedResidentNumber(String(fileDigits));
                   return;
                 }
