@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import {
   editTreatmentEntryAction,
   saveTreatmentInvoiceAction,
@@ -69,6 +69,20 @@ export default function TreatmentPanel({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const prescriptionInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  function useCapturedPrescription() {
+    const cameraInput = cameraInputRef.current;
+    const capturedFile = cameraInput?.files?.[0];
+    const prescriptionInput = prescriptionInputRef.current;
+    if (!capturedFile || !cameraInput || !prescriptionInput) return;
+
+    const transfer = new DataTransfer();
+    transfer.items.add(capturedFile);
+    prescriptionInput.files = transfer.files;
+    cameraInput.value = "";
+  }
 
   const allEntries = useMemo(
     () => [
@@ -540,9 +554,26 @@ export default function TreatmentPanel({
 
             <button className="secondary-button" type="button" disabled={saving || lines.length >= 40} onClick={() => setLines((current) => [...current, { medicationName: "", amount: "", quantity: "1", discount: "0" }])}>إضافة بند علاج</button>
             <label className="form-field">صورة الروشتة (اختياري)
-              <input type="file" name="prescription" accept="image/jpeg,image/png,image/webp" disabled={saving} />
+              <input ref={prescriptionInputRef} type="file" name="prescription" accept="image/jpeg,image/png,image/webp" disabled={saving} />
               <span className="block text-xs text-slate-500">تُضغط الصورة وتُحفظ في Vercel Blob، وتبقى قاعدة البيانات محتفظة بمسارها فقط. الحد الأقصى 4 ميجابايت.</span>
             </label>
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              aria-label="التقاط صورة الروشتة بالكاميرا"
+              onChange={useCapturedPrescription}
+            />
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={saving}
+              onClick={() => cameraInputRef.current?.click()}
+            >
+              التقاط صورة بالكاميرا
+            </button>
 
             <div className="space-y-1 rounded-lg border border-teal-200 bg-teal-50/80 px-4 py-2">
               <div className="flex items-center justify-between">
