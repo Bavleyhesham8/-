@@ -55,6 +55,7 @@ export async function listCanteenForCurrentUser(): Promise<{
       id: canteenProducts.id,
       name: canteenProducts.name,
       price: canteenProducts.price,
+      barcode: canteenProducts.barcode,
       itemNumber: canteenProducts.itemNumber,
       needsReview: canteenProducts.needsReview,
     })

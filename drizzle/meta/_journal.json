@@ -239,6 +239,13 @@
       "when": 1795853636008,
       "tag": "0033_treatment_invoices_and_stay_deposits",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795888000000,
+      "tag": "0034_canteen_barcode",
+      "breakpoints": true
     }
   ]
 }

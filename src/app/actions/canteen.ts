@@ -31,6 +31,7 @@ const itemSchema = z.object({
   itemNumber: z.number().int().positive().nullable().optional(),
   name: z.string().trim().min(1).max(160),
   price: z.number().finite().min(0).max(1_000_000_000).default(0),
+  barcode: z.string().trim().max(120).optional().default(""),
   quantity: z.number().finite().min(0).max(1_000_000_000).optional(),
   balance: z.number().finite().min(0).max(1_000_000_000).optional(),
 });
@@ -147,6 +148,7 @@ export async function saveCanteenProductAction(
     return { ok: false, error: "أدخل اسمًا وسعرًا وكمية صحيحة للصنف." };
   }
   const name = parsed.data.name.normalize("NFC");
+  const barcode = parsed.data.barcode.trim();
   const database = getDatabase();
   const [duplicate] = await database
     .select({ itemNumber: canteenProducts.itemNumber })
@@ -156,6 +158,19 @@ export async function saveCanteenProductAction(
       : and(eq(canteenProducts.name, name), ne(canteenProducts.itemNumber, parsed.data.itemNumber)))
     .limit(1);
   if (duplicate) return { ok: false, error: "اسم الصنف مستخدم بالفعل." };
+
+  if (barcode) {
+    const [barcodeConflict] = await database
+      .select({ itemNumber: canteenProducts.itemNumber })
+      .from(canteenProducts)
+      .where(parsed.data.itemNumber == null
+        ? eq(canteenProducts.barcode, barcode)
+        : and(eq(canteenProducts.barcode, barcode), ne(canteenProducts.itemNumber, parsed.data.itemNumber)))
+      .limit(1);
+    if (barcodeConflict) {
+      return { ok: false, error: "الباركود مستخدم بالفعل لصنف آخر." };
+    }
+  }
 
   if (parsed.data.itemNumber != null) {
     const [salesItemConflict] = await database
@@ -178,7 +193,7 @@ export async function saveCanteenProductAction(
     }
   }
 
-  const values = { name, price: parsed.data.price, needsReview: false };
+  const values = { name, price: parsed.data.price, barcode, needsReview: false };
   const result = await database.transaction(async (transaction) => {
     if (parsed.data.itemNumber == null) {
       const [product] = await transaction
@@ -188,6 +203,7 @@ export async function saveCanteenProductAction(
           id: canteenProducts.id,
           name: canteenProducts.name,
           price: canteenProducts.price,
+          barcode: canteenProducts.barcode,
           itemNumber: canteenProducts.itemNumber,
           needsReview: canteenProducts.needsReview,
         });
@@ -218,6 +234,7 @@ export async function saveCanteenProductAction(
         await transaction.insert(residentPurchases).values({
           itemName: product.name,
           price: product.price,
+          barcode: product.barcode,
           canteenItemNumber: product.itemNumber,
           addToResidentAccount: false,
           createdBy: session.user.id,
@@ -227,7 +244,7 @@ export async function saveCanteenProductAction(
       // تعرض اسم وسعر صنف المخزون الجديد.
       await transaction
         .update(residentPurchases)
-        .set({ itemName: product.name, price: product.price })
+        .set({ itemName: product.name, price: product.price, barcode: product.barcode })
         .where(
           or(
             eq(residentPurchases.canteenItemNumber, product.itemNumber),
@@ -278,6 +295,7 @@ export async function saveCanteenProductAction(
           id: residentPurchases.id,
           name: residentPurchases.itemName,
           price: residentPurchases.price,
+          barcode: residentPurchases.barcode,
           addToResidentAccount: residentPurchases.addToResidentAccount,
           canteenItemNumber: residentPurchases.canteenItemNumber,
           categoryId: residentPurchases.categoryId,
@@ -320,6 +338,7 @@ export async function saveCanteenProductAction(
         id: canteenProducts.id,
         name: canteenProducts.name,
         price: canteenProducts.price,
+        barcode: canteenProducts.barcode,
         itemNumber: canteenProducts.itemNumber,
         needsReview: canteenProducts.needsReview,
       });
@@ -356,6 +375,7 @@ export async function saveCanteenProductAction(
         await transaction.insert(residentPurchases).values({
           itemName: product.name,
           price: product.price,
+          barcode: product.barcode,
           canteenItemNumber: product.itemNumber,
           addToResidentAccount: false,
           createdBy: session.user.id,
@@ -364,7 +384,7 @@ export async function saveCanteenProductAction(
     }
     await transaction
       .update(residentPurchases)
-      .set({ itemName: product.name, price: product.price })
+      .set({ itemName: product.name, price: product.price, barcode: product.barcode })
       .where(
         or(
           eq(residentPurchases.canteenItemNumber, product.itemNumber),
@@ -447,6 +467,7 @@ export async function saveCanteenProductAction(
         id: residentPurchases.id,
         name: residentPurchases.itemName,
         price: residentPurchases.price,
+        barcode: residentPurchases.barcode,
         addToResidentAccount: residentPurchases.addToResidentAccount,
         canteenItemNumber: residentPurchases.canteenItemNumber,
         categoryId: residentPurchases.categoryId,

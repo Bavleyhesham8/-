@@ -14,12 +14,26 @@ export function syncProductsAfterSalesItem(
   item: CanteenSalesItem,
 ): CanteenProduct[] {
   if (item.canteenItemNumber === null) return products;
+  const nextBarcode = item.barcode;
   let changed = false;
   const next = products.map((product) => {
     if (product.itemNumber !== item.canteenItemNumber) return product;
-    if (product.name === item.name && product.price === item.price) return product;
+    const barcodeChanged =
+      nextBarcode !== undefined && (product.barcode ?? "") !== nextBarcode;
+    if (
+      product.name === item.name &&
+      product.price === item.price &&
+      !barcodeChanged
+    ) {
+      return product;
+    }
     changed = true;
-    return { ...product, name: item.name, price: item.price };
+    return {
+      ...product,
+      name: item.name,
+      price: item.price,
+      ...(nextBarcode !== undefined ? { barcode: nextBarcode } : {}),
+    };
   });
   return changed ? next : products;
 }
@@ -48,6 +62,7 @@ export function syncSalesItemsAfterProduct(
         )
         .sort((left, right) => left.id - right.id)[0]?.id ?? null);
 
+  const nextBarcode = product.barcode;
   let changed = false;
   const next = items.map((item) => {
     const linked = item.canteenItemNumber === product.itemNumber;
@@ -61,9 +76,12 @@ export function syncSalesItemsAfterProduct(
       : item.id === candidateId
         ? product.itemNumber
         : null;
+    const barcodeChanged =
+      nextBarcode !== undefined && (item.barcode ?? "") !== nextBarcode;
     if (
       item.name === product.name &&
       item.price === product.price &&
+      !barcodeChanged &&
       item.canteenItemNumber === nextItemNumber
     ) {
       return item;
@@ -74,6 +92,7 @@ export function syncSalesItemsAfterProduct(
       canteenItemNumber: nextItemNumber,
       name: product.name,
       price: product.price,
+      ...(nextBarcode !== undefined ? { barcode: nextBarcode } : {}),
     };
   });
   return changed ? next : items;
@@ -96,6 +115,7 @@ export function syncSalesItemsAfterSalesItem(
       if (
         entry.name === item.name &&
         entry.price === item.price &&
+        (entry.barcode ?? "") === (item.barcode ?? "") &&
         entry.canteenItemNumber === item.canteenItemNumber &&
         entry.categoryId === item.categoryId &&
         entry.categoryName === item.categoryName &&
@@ -110,9 +130,22 @@ export function syncSalesItemsAfterSalesItem(
       normalizedName(entry.name) === oldName ||
       normalizedName(entry.name) === newName;
     if (!matches) return entry;
-    if (entry.name === item.name && entry.price === item.price) return entry;
+    const barcodeChanged =
+      item.barcode !== undefined && (entry.barcode ?? "") !== item.barcode;
+    if (
+      entry.name === item.name &&
+      entry.price === item.price &&
+      !barcodeChanged
+    ) {
+      return entry;
+    }
     changed = true;
-    return { ...entry, name: item.name, price: item.price };
+    return {
+      ...entry,
+      name: item.name,
+      price: item.price,
+      ...(item.barcode !== undefined ? { barcode: item.barcode } : {}),
+    };
   });
   return changed ? next : items;
 }

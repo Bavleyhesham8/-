@@ -2,6 +2,7 @@ export type CanteenSalesItem = {
   id: number;
   name: string;
   price: number;
+  barcode?: string;
   addToResidentAccount: boolean;
   canteenItemNumber: number | null;
   categoryId: number | null;

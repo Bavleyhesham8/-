@@ -865,11 +865,15 @@ export const canteenProducts = pgTable(
     id: serial("ID").notNull().unique(),
     name: text("اسم الصنف").notNull(),
     price: doublePrecision("السعر").notNull().default(0),
+    barcode: text("barcode").notNull().default(""),
     itemNumber: serial("رقم الصنف").primaryKey(),
     needsReview: boolean("needs_review").notNull().default(false),
   },
   (table) => [
     index("canteen_products_needs_review_idx").on(table.needsReview),
+    uniqueIndex("canteen_products_barcode_unique")
+      .on(table.barcode)
+      .where(sql`${table.barcode} <> ''`),
   ],
 );
 
@@ -1038,6 +1042,7 @@ export const residentPurchases = pgTable(
     id: serial("ID").primaryKey(),
     itemName: text("الصنف").notNull(),
     price: doublePrecision("السعر").notNull(),
+    barcode: text("barcode").notNull().default(""),
     addToResidentAccount: boolean("اضافة").notNull().default(false),
     canteenItemNumber: integer("canteen_item_number").references(
       () => canteenProducts.itemNumber,

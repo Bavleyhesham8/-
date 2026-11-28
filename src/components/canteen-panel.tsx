@@ -5,6 +5,7 @@ import { recordCanteenMovementAction, saveCanteenProductAction } from "@/app/act
 import { localDateValue } from "@/lib/date-format";
 import { syncSalesItemsAfterProduct } from "@/lib/canteen-item-sync";
 import PrintBrand from "@/components/print-brand";
+import BarcodeScannerModal from "@/components/barcode-scanner-modal";
 import type {
   CanteenBundle,
   CanteenMovement,
@@ -62,16 +63,19 @@ export default function CanteenPanel({
   >(null);
   const [productName, setProductName] = useState("");
   const [productPrice, setProductPrice] = useState("");
+  const [productBarcode, setProductBarcode] = useState("");
   const [productQuantity, setProductQuantity] = useState("");
   const [productBalance, setProductBalance] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showIncomingForm, setShowIncomingForm] = useState(false);
   const [incomingItemNumber, setIncomingItemNumber] = useState("");
+  const [incomingBarcodeQuery, setIncomingBarcodeQuery] = useState("");
   const [incomingNewName, setIncomingNewName] = useState("");
   const [incomingQuantity, setIncomingQuantity] = useState("");
   const [incomingPrice, setIncomingPrice] = useState("");
   const [incomingDate, setIncomingDate] = useState(localDateValue());
+  const [scannerTarget, setScannerTarget] = useState<null | "product" | "incoming">(null);
 
   function syncLinkedSalesItems(
     product: CanteenProduct,
@@ -109,6 +113,7 @@ export default function CanteenPanel({
       value: string;
       name: string;
       price: number;
+      barcode: string;
       stockItemNumber: number | null;
       saleItemId: number | null;
     }> = [];
@@ -120,6 +125,7 @@ export default function CanteenPanel({
         value: `stock:${product.itemNumber}`,
         name: product.name,
         price: product.price,
+        barcode: product.barcode ?? "",
         stockItemNumber: product.itemNumber,
         saleItemId: null,
       });
@@ -134,6 +140,7 @@ export default function CanteenPanel({
         value: `sale:${item.id}`,
         name: item.name,
         price: item.price,
+        barcode: item.barcode ?? "",
         stockItemNumber: item.canteenItemNumber,
         saleItemId: item.id,
       });
@@ -163,6 +170,7 @@ export default function CanteenPanel({
     setEditingProductNumber(null);
     setProductName("");
     setProductPrice("");
+    setProductBarcode("");
     setProductQuantity("");
     setProductBalance("");
     setError("");
@@ -172,6 +180,7 @@ export default function CanteenPanel({
     setEditingProductNumber(null);
     setProductName("");
     setProductPrice("");
+    setProductBarcode("");
     setProductQuantity("");
     setProductBalance("");
     setShowProductForm(true);
@@ -183,12 +192,31 @@ export default function CanteenPanel({
     setEditingProductNumber(product.itemNumber);
     setProductName(product.name);
     setProductPrice(String(product.price));
+    setProductBarcode(product.barcode ?? "");
     setProductQuantity("");
     setProductBalance(
       String(balances.get(product.itemNumber) ?? product.balance ?? 0),
     );
     setShowProductForm(true);
     setError("");
+  }
+
+  function selectIncomingByBarcode(codeInput: string) {
+    const code = codeInput.trim();
+    if (!code) return "";
+    const matched = movementOptions.find(
+      (entry) => entry.barcode.trim() === code,
+    );
+    if (!matched) {
+      setError(`لم يتم العثور على صنف بالباركود: ${code}`);
+      return "";
+    }
+    setError("");
+    setIncomingItemNumber(matched.value);
+    setIncomingNewName(matched.name);
+    setIncomingPrice(String(matched.price));
+    setIncomingBarcodeQuery("");
+    return `تم اختيار: ${matched.name}`;
   }
 
   async function submitProduct(event: FormEvent<HTMLFormElement>) {
@@ -234,6 +262,7 @@ export default function CanteenPanel({
           itemNumber: editingProductNumber,
           name,
           price,
+          barcode: productBarcode.trim(),
           quantity: editingProductNumber === null ? quantity : undefined,
           balance: editingProductNumber === null ? undefined : balance,
         });
@@ -274,6 +303,7 @@ export default function CanteenPanel({
           itemNumber,
           name,
           price,
+          barcode: productBarcode.trim(),
           balance: editingProductNumber === null ? quantity : balance,
           needsReview: false,
         };
@@ -514,6 +544,31 @@ export default function CanteenPanel({
 
       {canManage && showIncomingForm && (
         <form className="inventory-form" onSubmit={submitIncoming}>
+          <div className="form-field">
+            <span>بحث / مسح بالباركود</span>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="امسح أو اكتب الباركود لاختيار الصنف..."
+                value={incomingBarcodeQuery}
+                onChange={(event) => setIncomingBarcodeQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    selectIncomingByBarcode(incomingBarcodeQuery);
+                  }
+                }}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setScannerTarget("incoming")}
+              >
+                📷 مسح بالكاميرا
+              </button>
+            </div>
+          </div>
           <label className="form-field">
             الصنف
             <select
@@ -588,6 +643,26 @@ export default function CanteenPanel({
               onChange={(event) => setProductPrice(event.target.value)}
             />
           </label>
+          <div className="form-field">
+            <span>الباركود (اختياري)</span>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <input
+                type="text"
+                maxLength={120}
+                placeholder="امسح أو اكتب رقم الباركود..."
+                value={productBarcode}
+                onChange={(event) => setProductBarcode(event.target.value)}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setScannerTarget("product")}
+              >
+                📷 مسح بالكاميرا
+              </button>
+            </div>
+          </div>
           {editingProductNumber === null ? (
             <label className="form-field">
               الكمية الافتتاحية
@@ -687,6 +762,11 @@ export default function CanteenPanel({
                   <td>{product.itemNumber}</td>
                   <td>
                     <span>{product.name}</span>
+                    {product.barcode ? (
+                      <div className="text-[11px] text-slate-500">
+                        باركود: {product.barcode}
+                      </div>
+                    ) : null}
                   </td>
                   <td>{numberFormatter.format(product.price)} ج.م</td>
                   <td>{numberFormatter.format(balance)}</td>
@@ -715,6 +795,25 @@ export default function CanteenPanel({
           </tbody>
         </table>
       </div>
+
+      <BarcodeScannerModal
+        open={scannerTarget !== null}
+        title={
+          scannerTarget === "incoming"
+            ? "مسح باركود الوارد"
+            : "مسح باركود الصنف"
+        }
+        onScan={(code) => {
+          if (scannerTarget === "product") {
+            setProductBarcode(code);
+            return `تم التقاط الباركود: ${code}`;
+          }
+          if (scannerTarget === "incoming") {
+            return selectIncomingByBarcode(code);
+          }
+        }}
+        onClose={() => setScannerTarget(null)}
+      />
     </section>
   );
 }

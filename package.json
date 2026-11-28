@@ -20,6 +20,7 @@
     "bcryptjs": "^3.0.3",
     "better-auth": "^1.7.18",
     "drizzle-orm": "^0.45.4",
+    "html5-qrcode": "^2.3.8",
     "next": "16.4.5",
     "react": "19.3.0",
     "react-dom": "19.3.0",

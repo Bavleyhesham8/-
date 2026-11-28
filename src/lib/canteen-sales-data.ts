@@ -3,6 +3,7 @@ import "server-only";
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
+  canteenProducts,
   invoiceCategories,
   residentInvoiceLines,
   residentInvoicePayments,
@@ -30,6 +31,7 @@ export async function listCanteenSalesForAdministrator(): Promise<CanteenSalesBu
         id: residentPurchases.id,
         name: residentPurchases.itemName,
         price: residentPurchases.price,
+        barcode: sql<string>`coalesce(nullif(${residentPurchases.barcode}, ''), ${canteenProducts.barcode}, '')`,
         addToResidentAccount: residentPurchases.addToResidentAccount,
         canteenItemNumber: residentPurchases.canteenItemNumber,
         categoryId: residentPurchases.categoryId,
@@ -37,6 +39,10 @@ export async function listCanteenSalesForAdministrator(): Promise<CanteenSalesBu
         needsReview: residentPurchases.needsReview,
       })
       .from(residentPurchases)
+      .leftJoin(
+        canteenProducts,
+        eq(canteenProducts.itemNumber, residentPurchases.canteenItemNumber),
+      )
       .leftJoin(
         invoiceCategories,
         eq(invoiceCategories.id, residentPurchases.categoryId),

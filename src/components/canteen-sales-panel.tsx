@@ -1,6 +1,7 @@
 "use client";
 
 import PrintBrand from "@/components/print-brand";
+import BarcodeScannerModal from "@/components/barcode-scanner-modal";
 import { printCurrentView, printSingleRecord } from "@/lib/print";
 
 import { useId, useMemo, useState, type FormEvent } from "react";
@@ -95,9 +96,12 @@ export default function CanteenSalesPanel({
   const catalogDatalistId = useId();
   const [itemName, setItemName] = useState("");
   const [itemPrice, setItemPrice] = useState("");
+  const [itemBarcode, setItemBarcode] = useState("");
   const [itemStockNumber, setItemStockNumber] = useState("");
   const [itemAddFlag, setItemAddFlag] = useState(false);
   const [itemCategoryId, setItemCategoryId] = useState("");
+  const [saleBarcodeQuery, setSaleBarcodeQuery] = useState("");
+  const [scannerTarget, setScannerTarget] = useState<null | "sale" | "catalog">(null);
   const [saleCategoryFilter, setSaleCategoryFilter] = useState("");
   const [catalogCategoryFilter, setCatalogCategoryFilter] = useState("");
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -258,6 +262,7 @@ export default function CanteenSalesPanel({
     setResidentId(firstResident?.id ?? "");
     setResidentPickerValue(firstResident?.name ?? "");
     setInvoiceDate(localDateValue());
+    setSaleBarcodeQuery("");
     setDraftLines([
       {
         catalogId: "",
@@ -266,6 +271,61 @@ export default function CanteenSalesPanel({
         alternateCategory: "",
       },
     ]);
+  }
+
+  function findSalesItemByBarcode(code: string) {
+    const direct = sales.items.find(
+      (entry) => (entry.barcode ?? "").trim() === code,
+    );
+    if (direct) return direct;
+    const stockMatch = canteen.products.find(
+      (product) => (product.barcode ?? "").trim() === code,
+    );
+    if (!stockMatch) return undefined;
+    return sales.items.find(
+      (entry) => entry.canteenItemNumber === stockMatch.itemNumber,
+    );
+  }
+
+  function handleSaleBarcode(codeInput: string) {
+    const code = codeInput.trim();
+    if (!code) return "";
+    const item = findSalesItemByBarcode(code);
+    if (!item) {
+      setError(`لم يتم العثور على صنف بيع بالباركود: ${code}`);
+      return "";
+    }
+    setError("");
+    setSaleBarcodeQuery("");
+    const nextLine: DraftLine = {
+      catalogId: String(item.id),
+      quantity: "1",
+      categoryId: item.categoryId ? String(item.categoryId) : "",
+      alternateCategory: "",
+    };
+    if (saleMode === "single") {
+      setDraftLines([nextLine]);
+      return `تم اختيار: ${item.name}`;
+    }
+    setDraftLines((current) => {
+      const existingIndex = current.findIndex(
+        (line) => line.catalogId === String(item.id),
+      );
+      if (existingIndex !== -1) {
+        return current.map((line, idx) => {
+          if (idx !== existingIndex) return line;
+          const prevQty = Number(line.quantity);
+          const nextQty = Number.isFinite(prevQty) && prevQty > 0 ? prevQty + 1 : 1;
+          return { ...line, quantity: String(nextQty) };
+        });
+      }
+      if (current.length === 1 && !current[0].catalogId) {
+        return [nextLine];
+      }
+      if (current.length >= 100) return current;
+      return [...current, nextLine];
+    });
+    return `تمت إضافة: ${item.name}`;
   }
 
   async function submitInvoice(event: FormEvent<HTMLFormElement>) {
@@ -479,6 +539,7 @@ export default function CanteenSalesPanel({
           id: editingItemId,
           name: itemName,
           price,
+          barcode: itemBarcode.trim(),
           addToResidentAccount: itemAddFlag,
           canteenItemNumber,
           categoryId,
@@ -509,6 +570,7 @@ export default function CanteenSalesPanel({
           id: editingItemId ?? Math.max(0, ...sales.items.map((entry) => entry.id)) + 1,
           name: itemName.trim().normalize("NFC"),
           price,
+          barcode: itemBarcode.trim(),
           addToResidentAccount: itemAddFlag,
           canteenItemNumber,
           categoryId,
@@ -534,6 +596,7 @@ export default function CanteenSalesPanel({
       setEditingItemId(null);
       setItemName("");
       setItemPrice("");
+      setItemBarcode("");
       setItemStockNumber("");
       setItemAddFlag(false);
       setItemCategoryId("");
@@ -606,6 +669,7 @@ export default function CanteenSalesPanel({
         setEditingItemId(null);
         setItemName("");
         setItemPrice("");
+        setItemBarcode("");
         setItemStockNumber("");
         setItemAddFlag(false);
         setItemCategoryId("");
@@ -982,6 +1046,32 @@ export default function CanteenSalesPanel({
             </select>
           </label>
 
+          <div className="form-field">
+            <span>مسح / إدخال الباركود</span>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="امسح باركود الصنف أو اكتبه ثم اضغط Enter..."
+                value={saleBarcodeQuery}
+                onChange={(event) => setSaleBarcodeQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleSaleBarcode(saleBarcodeQuery);
+                  }
+                }}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setScannerTarget("sale")}
+              >
+                📷 مسح بالكاميرا
+              </button>
+            </div>
+          </div>
+
           <div className="sales-lines">
             {preparedLines.map((line, index) => (
               <div className="sales-line" key={index}>
@@ -1173,6 +1263,7 @@ export default function CanteenSalesPanel({
                   if (matched) {
                     setItemStockNumber(String(matched.itemNumber));
                     setItemPrice(String(matched.price));
+                    if (matched.barcode) setItemBarcode(matched.barcode);
                   }
                 }}
               />
@@ -1193,6 +1284,26 @@ export default function CanteenSalesPanel({
                 onChange={(event) => setItemPrice(event.target.value)}
               />
             </label>
+            <div className="form-field">
+              <span>الباركود (اختياري)</span>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <input
+                  type="text"
+                  maxLength={120}
+                  placeholder="امسح أو اكتب رقم الباركود..."
+                  value={itemBarcode}
+                  onChange={(event) => setItemBarcode(event.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setScannerTarget("catalog")}
+                >
+                  📷 مسح بالكاميرا
+                </button>
+              </div>
+            </div>
             <label className="form-field">
               فئة الصنف *
               <select
@@ -1222,6 +1333,7 @@ export default function CanteenSalesPanel({
                     if (matched) {
                       if (!itemName) setItemName(matched.name);
                       setItemPrice(String(matched.price));
+                      if (matched.barcode) setItemBarcode(matched.barcode);
                     }
                   }
                 }}
@@ -1317,7 +1429,14 @@ export default function CanteenSalesPanel({
                   )
                   .map((item) => (
                   <tr key={item.id}>
-                    <td>{item.name}</td>
+                    <td>
+                      <span>{item.name}</span>
+                      {item.barcode ? (
+                        <div className="text-[11px] text-slate-500">
+                          باركود: {item.barcode}
+                        </div>
+                      ) : null}
+                    </td>
                     <td>{item.categoryName || "بدون فئة"}</td>
                     <td>{numberFormatter.format(item.price)}</td>
                     <td>{item.addToResidentAccount ? "نعم" : "لا"}</td>
@@ -1337,6 +1456,7 @@ export default function CanteenSalesPanel({
                             setEditingItemId(item.id);
                             setItemName(item.name);
                             setItemPrice(String(item.price));
+                            setItemBarcode(item.barcode ?? "");
                             setItemStockNumber(item.canteenItemNumber?.toString() ?? "");
                             setItemAddFlag(item.addToResidentAccount);
                             setItemCategoryId(item.categoryId?.toString() ?? "");
@@ -1821,6 +1941,28 @@ export default function CanteenSalesPanel({
           </p>
         </div>
       )}
+
+      <BarcodeScannerModal
+        open={scannerTarget !== null}
+        continuous={scannerTarget === "sale" && saleMode === "grouped"}
+        title={
+          scannerTarget === "catalog"
+            ? "مسح باركود الصنف"
+            : saleMode === "grouped"
+              ? "مسح باركود المبيعات (متعدد)"
+              : "مسح باركود الصنف للبيع"
+        }
+        onScan={(code) => {
+          if (scannerTarget === "catalog") {
+            setItemBarcode(code);
+            return `تم التقاط الباركود: ${code}`;
+          }
+          if (scannerTarget === "sale") {
+            return handleSaleBarcode(code);
+          }
+        }}
+        onClose={() => setScannerTarget(null)}
+      />
     </section>
   );
 }
