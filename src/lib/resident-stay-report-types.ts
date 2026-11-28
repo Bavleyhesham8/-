@@ -8,6 +8,8 @@ export type ResidentStayReportRow = {
   villa: string;
   room: string;
   archived: boolean;
+  stayDeposit?: number;
+  stayReceiptNumbers?: string;
 };
 
 export type ResidentStayReportFilters = {

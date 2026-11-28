@@ -15,6 +15,10 @@ export const demoResidentFinance: ResidentFinanceBundle = {
           amount: 250,
           transactionDate: "2026-11-02",
           returnDate: "2026-11-16",
+          depositKind: "account",
+          stayId: null,
+          stayLabel: null,
+          receiptNumber: null,
           voided: false,
           voidReason: "",
           voidedAt: null,
@@ -23,4 +27,5 @@ export const demoResidentFinance: ResidentFinanceBundle = {
     },
   ],
   unassignedEntries: [],
+  stays: [],
 };

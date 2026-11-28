@@ -1,25 +1,44 @@
 import "server-only";
 
-import { asc, inArray, isNull } from "drizzle-orm";
+import { asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   legacyResidentDetails,
   legacyResidentHeaders,
   residents,
+  residentStays,
 } from "@/db/schema";
 import { requireScreenAccess } from "@/lib/auth-session";
+import { formatDate } from "@/lib/date-format";
 import { findResidentByName } from "@/lib/resident-matching";
 import type {
   ResidentFinanceBundle,
   ResidentFinanceEntry,
+  ResidentStayOption,
 } from "@/lib/resident-finance-types";
 
 function dateValue(value: Date | null) {
   return value?.toISOString().slice(0, 10) ?? null;
 }
 
+function buildStayLabel(stay: {
+  admissionDate: string;
+  exitDate: string | null;
+  villa: string;
+  room: string;
+}) {
+  const period = stay.exitDate
+    ? `من ${formatDate(stay.admissionDate)} إلى ${formatDate(stay.exitDate)}`
+    : `من ${formatDate(stay.admissionDate)} حتى الآن`;
+  const location = [stay.villa ? `فيلا ${stay.villa}` : "", stay.room ? `غرفة ${stay.room}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return location ? `${period} · ${location}` : period;
+}
+
 function mapEntry(
   row: typeof legacyResidentDetails.$inferSelect,
+  stayLabels: Map<string, string>,
 ): ResidentFinanceEntry {
   return {
     id: row.id,
@@ -27,6 +46,12 @@ function mapEntry(
     amount: row.amount,
     transactionDate: dateValue(row.transactionDate),
     returnDate: dateValue(row.returnDate),
+    depositKind: row.depositKind === "stay" ? "stay" : "account",
+    stayId: row.stayId,
+    stayLabel: row.stayId
+      ? (stayLabels.get(row.stayId) ?? "إقامة غير محددة")
+      : null,
+    receiptNumber: row.receiptNumber,
     voided: row.voided,
     voidReason: row.voidReason,
     voidedAt: row.voidedAt?.toISOString() ?? null,
@@ -36,11 +61,12 @@ function mapEntry(
 export async function listResidentFinanceForAdministrator(): Promise<ResidentFinanceBundle> {
   await requireScreenAccess("resident-finance");
   const database = getDatabase();
-  const [headers, residentRows] = await Promise.all([
+  const [headers, residentRows, stayRows] = await Promise.all([
     database
       .select({
         residentNumber: legacyResidentHeaders.residentNumber,
         residentName: legacyResidentHeaders.residentName,
+        residentId: legacyResidentHeaders.residentId,
       })
       .from(legacyResidentHeaders)
       .orderBy(asc(legacyResidentHeaders.residentNumber)),
@@ -52,6 +78,23 @@ export async function listResidentFinanceForAdministrator(): Promise<ResidentFin
         fileNumber: residents.fileNumber,
       })
       .from(residents),
+    database
+      .select({
+        id: residentStays.id,
+        residentId: residentStays.residentId,
+        residentName: residents.name,
+        fileNumber: residents.fileNumber,
+        admissionDate: residentStays.admissionDate,
+        exitDate: residentStays.exitDate,
+        villa: residentStays.villa,
+        room: residentStays.room,
+      })
+      .from(residentStays)
+      .innerJoin(residents, eq(residents.id, residentStays.residentId))
+      .orderBy(
+        desc(residentStays.admissionDate),
+        desc(residentStays.createdAt),
+      ),
   ]);
   const residentNumbers = headers.map((header) => header.residentNumber);
   const details = residentNumbers.length
@@ -69,13 +112,21 @@ export async function listResidentFinanceForAdministrator(): Promise<ResidentFin
     .from(legacyResidentDetails)
     .where(isNull(legacyResidentDetails.residentNumber))
     .orderBy(asc(legacyResidentDetails.id));
+
+  const stays: ResidentStayOption[] = stayRows.map((stay) => ({
+    ...stay,
+    exitDate: stay.exitDate ?? "",
+  }));
+  const stayLabels = new Map(
+    stayRows.map((stay) => [stay.id, buildStayLabel(stay)]),
+  );
   const entriesByResident = new Map<number, ResidentFinanceEntry[]>();
   for (const detail of details) {
     if (detail.residentNumber === null) {
       throw new Error("A resident detail query returned an unassigned row.");
     }
     const entries = entriesByResident.get(detail.residentNumber) ?? [];
-    entries.push(mapEntry(detail));
+    entries.push(mapEntry(detail, stayLabels));
     entriesByResident.set(detail.residentNumber, entries);
   }
 
@@ -88,12 +139,15 @@ export async function listResidentFinanceForAdministrator(): Promise<ResidentFin
       );
       return {
         ...header,
-        residentId: match?.resident.id ?? null,
+        residentId: header.residentId ?? match?.resident.id ?? null,
         matchScore: match?.score ?? null,
         matchAmbiguous: match?.ambiguous ?? false,
         entries: entriesByResident.get(header.residentNumber) ?? [],
       };
     }),
-    unassignedEntries: unassignedRows.map(mapEntry),
+    unassignedEntries: unassignedRows.map((row) =>
+      mapEntry(row, stayLabels),
+    ),
+    stays,
   };
 }

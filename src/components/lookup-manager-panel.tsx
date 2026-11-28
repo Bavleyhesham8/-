@@ -885,6 +885,8 @@ export default function LookupManagerPanel({
                   villa: resident.villa,
                   room: resident.room,
                   archived: resident.archived,
+                  stayDeposit: 0,
+                  stayReceiptNumbers: "",
                 })),
             };
         if (active) setPeriodRows(result.rows);

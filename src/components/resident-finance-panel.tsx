@@ -59,10 +59,13 @@ export default function ResidentFinancePanel({
 }: Props) {
   const [residentNumber, setResidentNumber] = useState("");
   const [residentName, setResidentName] = useState("");
-  const [selectedResidentNumber, setSelectedResidentNumber] = useState("");
+  const [selectedDepositResidentId, setSelectedDepositResidentId] = useState("");
   const [amount, setAmount] = useState("");
   const [transactionDate, setTransactionDate] = useState(localDateValue());
   const [returnDate, setReturnDate] = useState("");
+  const [depositKind, setDepositKind] = useState<"account" | "stay">("account");
+  const [selectedStayId, setSelectedStayId] = useState("");
+  const [receiptNumber, setReceiptNumber] = useState("");
   const [voidTarget, setVoidTarget] = useState<VoidTarget | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [editTarget, setEditTarget] = useState<ResidentFinanceEntry | null>(null);
@@ -116,6 +119,15 @@ export default function ResidentFinancePanel({
   const unmatchedRecords = useMemo(
     () => findUnmatchedFinanceRecords(bundle, residents),
     [bundle, residents],
+  );
+  const selectedFinanceRecord = bundle.records.find(
+    (record) => record.residentId === selectedDepositResidentId,
+  );
+  const selectedDepositResident = residents.find(
+    (resident) => resident.id === selectedDepositResidentId,
+  );
+  const residentStays = (bundle.stays ?? []).filter(
+    (stay) => stay.residentId === selectedDepositResidentId,
   );
 
   const allEntries = useMemo(
@@ -186,7 +198,6 @@ export default function ResidentFinancePanel({
           ].sort((left, right) => left.residentNumber - right.residentNumber),
         });
       }
-      setSelectedResidentNumber(String(parsedNumber));
       setResidentNumber("");
       setResidentName("");
       setMessage("تم فتح حساب مالي مستقل.");
@@ -201,18 +212,20 @@ export default function ResidentFinancePanel({
     event.preventDefault();
     setError("");
     setMessage("");
-    const parsedNumber = Number(selectedResidentNumber);
+    const parsedNumber = Number(selectedFinanceRecord?.residentNumber ?? selectedDepositResident?.residentNumber ?? selectedDepositResident?.fileNumber);
     const parsedAmount = Number(amount);
+    const selectedStay = (bundle.stays ?? []).find((stay) => stay.id === selectedStayId);
     if (
-      !Number.isInteger(parsedNumber) ||
+      !selectedDepositResident ||
       !Number.isFinite(parsedAmount) ||
       parsedAmount <= 0 ||
-      !transactionDate
+      !transactionDate ||
+      (depositKind === "stay" && !selectedStay)
     ) {
       setError("اختر نزيلًا وأدخل مبلغًا موجبًا وتاريخ الإيداع.");
       return;
     }
-    if (returnDate && returnDate < transactionDate) {
+    if (depositKind === "account" && returnDate && returnDate < transactionDate) {
       setError("تاريخ الاستحقاق لا يمكن أن يسبق تاريخ الإيداع.");
       return;
     }
@@ -221,7 +234,11 @@ export default function ResidentFinancePanel({
     try {
       if (persistent) {
         const result = await recordResidentReceiptAction({
-          residentNumber: parsedNumber,
+          ...(Number.isInteger(parsedNumber) && parsedNumber > 0 ? { residentNumber: parsedNumber } : {}),
+          residentId: selectedDepositResident.id,
+          depositKind,
+          stayId: depositKind === "stay" ? selectedStayId : null,
+          receiptNumber: depositKind === "stay" ? receiptNumber : null,
           amount: parsedAmount,
           transactionDate,
           returnDate,
@@ -232,28 +249,40 @@ export default function ResidentFinancePanel({
         }
         onBundleChange(result.bundle);
       } else {
+        const financeRecord = selectedFinanceRecord ?? {
+          residentNumber: Number.isInteger(parsedNumber) && parsedNumber > 0 ? parsedNumber : nextEntryId(bundle.records.flatMap((record) => record.entries)),
+          residentName: selectedDepositResident.name,
+          residentId: selectedDepositResident.id,
+          matchScore: 1,
+          matchAmbiguous: false,
+          entries: [],
+        };
         const entries = bundle.records.flatMap((record) => record.entries);
         const entry: ResidentFinanceEntry = {
           id: nextEntryId(entries),
-          residentNumber: parsedNumber,
+          residentNumber: financeRecord.residentNumber,
           amount: parsedAmount,
           transactionDate,
           returnDate: returnDate || null,
+          depositKind,
+          stayId: depositKind === "stay" ? selectedStayId : null,
+          stayLabel: selectedStay ? `${selectedStay.admissionDate}${selectedStay.exitDate ? ` – ${selectedStay.exitDate}` : " (حالية)"}` : null,
+          receiptNumber: depositKind === "stay" ? receiptNumber || null : null,
           voided: false,
           voidReason: "",
           voidedAt: null,
         };
         onBundleChange({
           ...bundle,
-          records: bundle.records.map((record) =>
-            record.residentNumber === parsedNumber
-              ? { ...record, entries: [...record.entries, entry] }
-              : record,
-          ),
+          records: selectedFinanceRecord
+            ? bundle.records.map((record) => record.residentId === selectedDepositResident.id ? { ...record, entries: [...record.entries, entry] } : record)
+            : [...bundle.records, { ...financeRecord, entries: [entry] }],
         });
       }
       setAmount("");
       setReturnDate("");
+      setReceiptNumber("");
+      setSelectedStayId("");
       setMessage("تم تسجيل الإيداع في الحساب.");
     } catch {
       setError("تعذر تسجيل الإيداع. تحقق من الاتصال ثم حاول مرة أخرى.");
@@ -436,25 +465,49 @@ export default function ResidentFinancePanel({
           </div>
           <form className="resident-deposit-form" onSubmit={submitReceipt}>
             <label className="form-field">
+              نوع الإيداع
+              <select value={depositKind} onChange={(event) => {
+                setDepositKind(event.target.value as "account" | "stay");
+                setSelectedStayId("");
+              }}>
+                <option value="account">إيداع في حساب النزيل</option>
+                <option value="stay">إيداع إقامة</option>
+              </select>
+            </label>
+            <label className="form-field">
               النزيل
               <select
                 required
-                value={selectedResidentNumber}
-                onChange={(event) =>
-                  setSelectedResidentNumber(event.target.value)
-                }
+                value={selectedDepositResidentId}
+                onChange={(event) => {
+                  setSelectedDepositResidentId(event.target.value);
+                  setSelectedStayId("");
+                }}
               >
                 <option value="">اختر النزيل</option>
-                {bundle.records.map((record) => (
+                {residents.map((resident) => (
                   <option
-                    key={record.residentNumber}
-                    value={record.residentNumber}
+                    key={resident.id}
+                    value={resident.id}
                   >
-                    {record.residentName || "—"} — {record.residentNumber}
+                    {resident.name} — {resident.fileNumber || resident.residentNumber}
                   </option>
                 ))}
               </select>
             </label>
+            {depositKind === "stay" && <>
+              <label className="form-field">
+                الإقامة المرتبطة
+                <select required value={selectedStayId} onChange={(event) => setSelectedStayId(event.target.value)}>
+                  <option value="">اختر الإقامة</option>
+                  {residentStays.map((stay) => <option key={stay.id} value={stay.id}>{stay.admissionDate}{stay.exitDate ? ` — ${stay.exitDate}` : " — إقامة حالية"} {[stay.villa, stay.room].filter(Boolean).join(" / ")}</option>)}
+                </select>
+              </label>
+              <label className="form-field">
+                رقم الإيصال
+                <input maxLength={100} value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} />
+              </label>
+            </>}
             <label className="form-field">
               المبلغ المودع
               <input
@@ -481,11 +534,12 @@ export default function ResidentFinancePanel({
                 type="date"
                 value={returnDate}
                 onChange={(event) => setReturnDate(event.target.value)}
+                disabled={depositKind === "stay"}
               />
             </label>
             <button
               className="primary-button"
-              disabled={saving || !bundle.records.length}
+              disabled={saving || !residents.length}
               type="submit"
             >
               تسجيل الإيداع
@@ -708,6 +762,8 @@ export default function ResidentFinancePanel({
               <th>النزيل</th>
               <th>المبلغ المودع</th>
               <th>تاريخ الإيداع</th>
+              <th>نوع الإيداع</th>
+              <th>الإقامة / رقم الإيصال</th>
               <th>الاستحقاق المتوقع</th>
               <th>الحالة</th>
               {canManage && <th>الإجراءات</th>}
@@ -723,6 +779,8 @@ export default function ResidentFinancePanel({
                     : numberFormatter.format(entry.amount)}
                 </td>
                 <td>{formatDate(entry.transactionDate ?? "")}</td>
+                <td>{entry.depositKind === "stay" ? "إيداع إقامة" : "إيداع حساب"}</td>
+                <td>{entry.depositKind === "stay" ? `${entry.stayLabel ?? ""}${entry.receiptNumber ? ` — ${entry.receiptNumber}` : ""}` : "—"}</td>
                 <td>{formatDate(entry.returnDate ?? "")}</td>
                 <td>
                   {entry.voided

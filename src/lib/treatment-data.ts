@@ -1,11 +1,12 @@
 import "server-only";
 
-import { asc, inArray, isNull } from "drizzle-orm";
+import { asc } from "drizzle-orm";
 import { getDatabase } from "@/db";
 import {
   legacyTreatmentDetails,
   legacyTreatmentHeaders,
   residents,
+  treatmentInvoices,
 } from "@/db/schema";
 import { requireScreenAccess } from "@/lib/auth-session";
 import { isDevelopmentDemoMode } from "@/lib/app-config";
@@ -20,22 +21,34 @@ function dateValue(value: Date | null) {
   return value?.toISOString().slice(0, 10) ?? null;
 }
 
+type TreatmentInvoiceRow = typeof treatmentInvoices.$inferSelect;
+
 function mapEntry(
   row: typeof legacyTreatmentDetails.$inferSelect,
+  invoice: TreatmentInvoiceRow | undefined,
 ): TreatmentDetailEntry {
   const amount = row.amount ?? 0;
   const quantity = row.quantity ?? 1;
   const discount = row.discount ?? 0;
-  const total = row.total ?? Math.max(0, amount * quantity - discount);
+  const lineTotal = row.total ?? Math.max(0, amount * quantity - discount);
 
   return {
     id: row.id,
     residentNumber: row.residentNumber,
+    invoiceId: invoice?.id ?? null,
+    invoiceNumber: invoice?.invoiceNumber ?? null,
+    invoiceDate: invoice?.invoiceDate ?? dateValue(row.treatmentDate),
+    invoiceTotal: invoice?.total ?? lineTotal,
+    invoiceVoided: invoice?.voided ?? row.voided,
+    prescriptionUrl: invoice?.prescriptionPathname
+      ? `/api/treatment-prescriptions/${invoice.id}`
+      : null,
+    notes: invoice?.notes ?? "",
     medicationName: row.medicationName,
     amount,
     quantity,
     discount,
-    total,
+    total: lineTotal,
     treatmentDate: dateValue(row.treatmentDate),
     voided: row.voided,
     voidReason: row.voidReason,
@@ -50,7 +63,7 @@ export async function listTreatmentForCurrentUser(): Promise<TreatmentBundle> {
 
   await requireScreenAccess("treatment");
   const database = getDatabase();
-  const [headers, residentRows] = await Promise.all([
+  const [headers, residentRows, invoiceRows, details] = await Promise.all([
     database
       .select({
         residentNumber: legacyTreatmentHeaders.residentNumber,
@@ -66,31 +79,35 @@ export async function listTreatmentForCurrentUser(): Promise<TreatmentBundle> {
         fileNumber: residents.fileNumber,
       })
       .from(residents),
+    database
+      .select()
+      .from(treatmentInvoices)
+      .orderBy(asc(treatmentInvoices.invoiceNumber)),
+    database
+      .select()
+      .from(legacyTreatmentDetails)
+      .orderBy(
+        asc(legacyTreatmentDetails.treatmentDate),
+        asc(legacyTreatmentDetails.id),
+      ),
   ]);
 
-  const residentNumbers = headers.map((header) => header.residentNumber);
-  const details = residentNumbers.length
-    ? await database
-        .select()
-        .from(legacyTreatmentDetails)
-        .where(inArray(legacyTreatmentDetails.residentNumber, residentNumbers))
-        .orderBy(
-          asc(legacyTreatmentDetails.treatmentDate),
-          asc(legacyTreatmentDetails.id),
-        )
-    : [];
-
-  const unassignedRows = await database
-    .select()
-    .from(legacyTreatmentDetails)
-    .where(isNull(legacyTreatmentDetails.residentNumber))
-    .orderBy(asc(legacyTreatmentDetails.id));
-
+  const invoicesById = new Map(
+    invoiceRows.map((invoice) => [invoice.id, invoice]),
+  );
   const entriesByResident = new Map<number, TreatmentDetailEntry[]>();
+  const unassignedEntries: TreatmentDetailEntry[] = [];
   for (const detail of details) {
-    if (detail.residentNumber === null) continue;
+    const invoice = detail.invoiceId
+      ? invoicesById.get(detail.invoiceId)
+      : undefined;
+    const entry = mapEntry(detail, invoice);
+    if (detail.residentNumber === null) {
+      unassignedEntries.push(entry);
+      continue;
+    }
     const entries = entriesByResident.get(detail.residentNumber) ?? [];
-    entries.push(mapEntry(detail));
+    entries.push(entry);
     entriesByResident.set(detail.residentNumber, entries);
   }
 
@@ -98,8 +115,8 @@ export async function listTreatmentForCurrentUser(): Promise<TreatmentBundle> {
     records: headers.map((header) => {
       const entries = entriesByResident.get(header.residentNumber) ?? [];
       const totalBilled = entries
-        .filter((e) => !e.voided)
-        .reduce((sum, e) => sum + e.total, 0);
+        .filter((entry) => !entry.voided)
+        .reduce((sum, entry) => sum + entry.total, 0);
       const match = findResidentByName(
         header.residentName,
         residentRows,
@@ -114,6 +131,6 @@ export async function listTreatmentForCurrentUser(): Promise<TreatmentBundle> {
         totalBilled,
       };
     }),
-    unassignedEntries: unassignedRows.map(mapEntry),
+    unassignedEntries,
   };
 }

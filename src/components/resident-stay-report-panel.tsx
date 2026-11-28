@@ -50,6 +50,8 @@ function demoRows(): ResidentStayReportRow[] {
       villa: resident.villa,
       room: resident.room,
       archived: resident.archived,
+      stayDeposit: 0,
+      stayReceiptNumbers: "",
     }))
     .sort(
       (left, right) =>
@@ -326,6 +328,10 @@ export default function ResidentStayReportPanel({
               <strong>{formatCount(summary.averageDays)} يوم</strong>
             </article>
             <article>
+              <span>إجمالي إيداعات الإقامة</span>
+              <strong>{formatCount(summary.totalStayDeposits)} ج.م</strong>
+            </article>
+            <article>
               <span>تاريخ الدخول</span>
               <strong>
                 {formatDate(appliedFilters.startDate)} —{" "}
@@ -350,6 +356,8 @@ export default function ResidentStayReportPanel({
                   <th>أيام الإقامة</th>
                   <th>الفيلا</th>
                   <th>الغرفة</th>
+                  <th>إيداع الإقامة</th>
+                  <th>أرقام الإيصالات</th>
                   {appliedFilters.includeArchived && <th>الأرشيف</th>}
                 </tr>
               </thead>
@@ -378,6 +386,12 @@ export default function ResidentStayReportPanel({
                     </td>
                     <td>{row.villa || "—"}</td>
                     <td>{row.room || "—"}</td>
+                    <td>
+                      {row.stayDeposit
+                        ? `${formatCount(row.stayDeposit)} ج.م`
+                        : "—"}
+                    </td>
+                    <td>{row.stayReceiptNumbers || "—"}</td>
                     {appliedFilters.includeArchived && (
                       <td>{row.archived ? "مؤرشف" : "—"}</td>
                     )}

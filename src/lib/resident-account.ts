@@ -58,7 +58,7 @@ export function buildResidentAccount(
   const entries: ResidentAccountEntry[] = [];
 
   for (const entry of financeRecord?.entries ?? []) {
-    if (entry.voided || !entry.amount) continue;
+    if (entry.voided || !entry.amount || entry.depositKind === "stay") continue;
     entries.push({
       id: `deposit-${entry.id}`,
       date: entry.transactionDate ?? "",

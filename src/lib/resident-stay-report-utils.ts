@@ -150,6 +150,7 @@ export type ResidentStaySummary = {
   departed: number;
   totalDays: number;
   averageDays: number;
+  totalStayDeposits: number;
 };
 
 export function summarizeResidentStayRows(
@@ -159,12 +160,14 @@ export function summarizeResidentStayRows(
   let departed = 0;
   let totalDays = 0;
   let counted = 0;
+  let totalStayDeposits = 0;
   for (const row of rows) {
     if (row.exitDate) {
       departed += 1;
     } else {
       current += 1;
     }
+    totalStayDeposits += row.stayDeposit ?? 0;
     const duration = calculateStayDuration(row.admissionDate, row.exitDate);
     if (duration) {
       totalDays += duration.totalDays;
@@ -177,6 +180,7 @@ export function summarizeResidentStayRows(
     departed,
     totalDays,
     averageDays: counted ? Math.round(totalDays / counted) : 0,
+    totalStayDeposits,
   };
 }
 
@@ -201,6 +205,8 @@ export function residentStayReportToCsv(
     "مدة الإقامة (أيام)",
     "رقم الفيلا",
     "رقم الغرفة",
+    "إيداع الإقامة (ج.م)",
+    "أرقام إيصالات الإقامة",
     "الأرشيف",
   ];
   const today = todayValue();
@@ -223,6 +229,8 @@ export function residentStayReportToCsv(
       duration ? String(duration.totalDays) : "",
       row.villa,
       row.room,
+      row.stayDeposit ? String(row.stayDeposit) : "",
+      row.stayReceiptNumbers ?? "",
       row.archived ? "مؤرشف" : "",
     ];
   });

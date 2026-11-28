@@ -3,8 +3,8 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   editTreatmentEntryAction,
-  recordTreatmentEntryAction,
-  voidTreatmentEntryAction,
+  saveTreatmentInvoiceAction,
+  voidTreatmentInvoiceAction,
 } from "@/app/actions/treatment";
 import { formatDate, localDateValue } from "@/lib/date-format";
 import ResidentPicker from "@/components/resident-picker";
@@ -30,7 +30,7 @@ type Props = {
 };
 
 type VoidTarget = {
-  detailId: number;
+  invoiceId: string;
   medicationName: string;
   residentName: string;
 };
@@ -53,10 +53,7 @@ export default function TreatmentPanel({
   const [selectedResidentName, setSelectedResidentName] = useState("");
   const [selectedResidentId, setSelectedResidentId] = useState("");
 
-  const [medicationName, setMedicationName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [quantity, setQuantity] = useState("1");
-  const [discount, setDiscount] = useState("0");
+  const [lines, setLines] = useState([{ medicationName: "", amount: "", quantity: "1", discount: "0" }]);
   const [treatmentDate, setTreatmentDate] = useState(localDateValue());
 
   const [search, setSearch] = useState("");
@@ -157,12 +154,10 @@ export default function TreatmentPanel({
     return accounts;
   }, [bundle, residents, residentFinance, sales, custodyCharges]);
 
-  const liveCalculatedTotal = useMemo(() => {
-    const amt = parseFloat(amount) || 0;
-    const qty = parseFloat(quantity) || 0;
-    const disc = parseFloat(discount) || 0;
-    return Math.max(0, amt * qty - disc);
-  }, [amount, quantity, discount]);
+  const liveCalculatedTotal = useMemo(
+    () => lines.reduce((sum, line) => sum + Math.max(0, (Number(line.amount) || 0) * (Number(line.quantity) || 0) - (Number(line.discount) || 0)), 0),
+    [lines],
+  );
 
   const projectedBalance = selectedAccount
     ? selectedAccount.balance - liveCalculatedTotal
@@ -174,39 +169,24 @@ export default function TreatmentPanel({
     setMessage("");
 
     const parsedNumber = Number(selectedResidentNumber);
-    const parsedAmount = parseFloat(amount);
-    const parsedQuantity = parseFloat(quantity);
-    const parsedDiscount = parseFloat(discount || "0");
-
     if (!selectedResidentNumber || !Number.isInteger(parsedNumber)) {
       setError("يرجى اختيار النزيل.");
       return;
     }
-    if (!medicationName.trim()) {
-      setError("يرجى إدخال اسم الدواء.");
-      return;
-    }
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      setError("أدخل سعر دواء صحيح موجب.");
-      return;
-    }
-    if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
-      setError("أدخل كمية صحيحة.");
+    if (!lines.length || lines.some((line) => !line.medicationName.trim() || Number(line.amount) <= 0 || Number(line.quantity) <= 0 || Number(line.discount || 0) < 0 || Number(line.discount || 0) > Number(line.amount) * Number(line.quantity))) {
+      setError("راجع أسماء الأدوية والأسعار والكميات والخصومات.");
       return;
     }
 
     setSaving(true);
     try {
-      const result = await recordTreatmentEntryAction({
-        residentNumber: parsedNumber,
-        residentName: selectedResidentName,
-        residentId: selectedResidentId || undefined,
-        medicationName: medicationName.trim(),
-        amount: parsedAmount,
-        quantity: parsedQuantity,
-        discount: isNaN(parsedDiscount) ? 0 : parsedDiscount,
-        treatmentDate,
-      });
+      const formData = new FormData(event.currentTarget);
+      formData.set("residentNumber", String(parsedNumber));
+      formData.set("residentName", selectedResidentName);
+      formData.set("residentId", selectedResidentId);
+      formData.set("invoiceDate", treatmentDate);
+      formData.set("lines", JSON.stringify(lines.map((line) => ({ ...line, medicationName: line.medicationName.trim(), amount: Number(line.amount), quantity: Number(line.quantity), discount: Number(line.discount || 0) }))));
+      const result = await saveTreatmentInvoiceAction(formData);
 
       if (!result.ok) {
         setError(result.error);
@@ -214,11 +194,8 @@ export default function TreatmentPanel({
       }
 
       onBundleChange(result.bundle);
-      setMedicationName("");
-      setAmount("");
-      setQuantity("1");
-      setDiscount("0");
-      setMessage("تم تسجيل صرف الدواء بنجاح.");
+      setLines([{ medicationName: "", amount: "", quantity: "1", discount: "0" }]);
+      setMessage("تم تسجيل فاتورة العلاج بنجاح.");
     } catch {
       setError("تعذر تسجيل صرف الدواء.");
     } finally {
@@ -273,8 +250,8 @@ export default function TreatmentPanel({
 
     setSaving(true);
     try {
-      const result = await voidTreatmentEntryAction({
-        id: voidTarget.detailId,
+      const result = await voidTreatmentInvoiceAction({
+        invoiceId: voidTarget.invoiceId,
         voidReason: voidReason.trim(),
       });
 
@@ -497,22 +474,12 @@ export default function TreatmentPanel({
               </div>
             </div>
 
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-700">
-                اسم الدواء / العلاج:
+            {lines.map((line, index) => <div key={index} className="space-y-3 rounded-xl border border-slate-200 p-3">
+              <div className="flex items-center justify-between"><strong className="text-sm">بند العلاج {index + 1}</strong>{lines.length > 1 && <button className="secondary-button" type="button" disabled={saving} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>حذف البند</button>}</div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700">اسم الدواء / العلاج:
+                <input type="text" value={line.medicationName} onChange={(event) => setLines((current) => current.map((item, lineIndex) => lineIndex === index ? { ...item, medicationName: event.target.value } : item))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" disabled={saving} required />
               </label>
-              <input
-                type="text"
-                value={medicationName}
-                onChange={(e) => setMedicationName(e.target.value)}
-                placeholder="مثال: أولابكس 5مجم - OLAPEX5mg أو تجريتول"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
-                disabled={saving}
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-700">
                   السعر (ج.م):
@@ -521,8 +488,8 @@ export default function TreatmentPanel({
                   type="number"
                   step="0.01"
                   min="0"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  value={line.amount}
+                  onChange={(e) => setLines((current) => current.map((item, lineIndex) => lineIndex === index ? { ...item, amount: e.target.value } : item))}
                   placeholder="0.00"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
                   disabled={saving}
@@ -537,8 +504,8 @@ export default function TreatmentPanel({
                   type="number"
                   step="0.1"
                   min="0.1"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
+                  value={line.quantity}
+                  onChange={(e) => setLines((current) => current.map((item, lineIndex) => lineIndex === index ? { ...item, quantity: e.target.value } : item))}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
                   disabled={saving}
                   required
@@ -552,14 +519,21 @@ export default function TreatmentPanel({
                   type="number"
                   step="0.01"
                   min="0"
-                  value={discount}
-                  onChange={(e) => setDiscount(e.target.value)}
+                  value={line.discount}
+                  onChange={(e) => setLines((current) => current.map((item, lineIndex) => lineIndex === index ? { ...item, discount: e.target.value } : item))}
                   placeholder="0"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-hidden"
                   disabled={saving}
                 />
               </div>
-            </div>
+              </div>
+            </div>)}
+
+            <button className="secondary-button" type="button" disabled={saving || lines.length >= 40} onClick={() => setLines((current) => [...current, { medicationName: "", amount: "", quantity: "1", discount: "0" }])}>إضافة بند علاج</button>
+            <label className="form-field">صورة الروشتة (اختياري)
+              <input type="file" name="prescription" accept="image/jpeg,image/png,image/webp" disabled={saving} />
+              <span className="block text-xs text-slate-500">تُضغط الصورة وتُحفظ في Vercel Blob، وتبقى قاعدة البيانات محتفظة بمسارها فقط. الحد الأقصى 4 ميجابايت.</span>
+            </label>
 
             <div className="space-y-1 rounded-lg border border-teal-200 bg-teal-50/80 px-4 py-2">
               <div className="flex items-center justify-between">
@@ -719,7 +693,7 @@ export default function TreatmentPanel({
                               entry.voided ? "bg-rose-50/40 text-slate-400 line-through" : ""
                             }`}
                           >
-                            <td className="py-2.5">{entry.treatmentDate ? formatDate(entry.treatmentDate) : "—"}</td>
+                            <td className="py-2.5">{entry.treatmentDate ? formatDate(entry.treatmentDate) : "—"}{entry.invoiceNumber && <span className="block text-[10px] text-slate-500">فاتورة #{entry.invoiceNumber}</span>}{entry.prescriptionUrl && <a className="block text-[10px] text-teal-700 underline" href={entry.prescriptionUrl} target="_blank" rel="noreferrer">عرض الروشتة</a>}</td>
                             <td className="py-2.5 font-medium text-slate-800">{entry.medicationName}</td>
                             <td className="py-2.5">{numberFormatter.format(entry.amount)} ج.م</td>
                             <td className="py-2.5">{entry.quantity}</td>
@@ -760,11 +734,12 @@ export default function TreatmentPanel({
                                   type="button"
                                   onClick={() =>
                                     setVoidTarget({
-                                      detailId: entry.id,
+                                      invoiceId: entry.invoiceId ?? "",
                                       medicationName: entry.medicationName,
                                       residentName: record.residentName || "النزيل",
                                     })
                                   }
+                                  disabled={!entry.invoiceId}
                                   className="rounded border border-rose-200 bg-white px-2 py-1 text-[11px] font-medium text-rose-600 hover:bg-rose-50"
                                 >
                                   إلغاء القيد

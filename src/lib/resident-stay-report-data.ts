@@ -1,9 +1,13 @@
 import "server-only";
 
-import { and, asc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/db";
-import { residents, residentStays } from "@/db/schema";
+import {
+  legacyResidentDetails,
+  residents,
+  residentStays,
+} from "@/db/schema";
 import { canViewResidentBirthDate } from "@/lib/access-control";
 import { requireScreenAccess } from "@/lib/auth-session";
 import type {
@@ -115,11 +119,38 @@ export async function getResidentStayReport(
       asc(residents.fileNumber),
     );
 
+  const stayIds = rows.map((row) => row.stayId);
+  const depositRows = stayIds.length
+    ? await getDatabase()
+        .select({
+          stayId: legacyResidentDetails.stayId,
+          total: sql<number>`coalesce(sum(${legacyResidentDetails.amount}), 0)`,
+          receiptNumbers: sql<string>`coalesce(string_agg(distinct nullif(btrim(${legacyResidentDetails.receiptNumber}), ''), ', '), '')`,
+        })
+        .from(legacyResidentDetails)
+        .where(
+          and(
+            eq(legacyResidentDetails.depositKind, "stay"),
+            eq(legacyResidentDetails.voided, false),
+            inArray(legacyResidentDetails.stayId, stayIds),
+          ),
+        )
+        .groupBy(legacyResidentDetails.stayId)
+    : [];
+  const depositsByStay = new Map(
+    depositRows
+      .filter((row) => row.stayId !== null)
+      .map((row) => [row.stayId as string, Number(row.total ?? 0)]),
+  );
+
   return {
     rows: rows.map((row) => ({
       ...row,
       birthDate: canSeeBirthDate ? row.birthDate ?? "" : "",
       exitDate: row.exitDate ?? "",
+      stayDeposit: depositsByStay.get(row.stayId) ?? 0,
+      stayReceiptNumbers:
+        depositRows.find((deposit) => deposit.stayId === row.stayId)?.receiptNumbers ?? "",
     })),
   };
 }

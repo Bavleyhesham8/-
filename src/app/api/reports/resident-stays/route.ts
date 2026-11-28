@@ -40,6 +40,8 @@ function demoRows(): ResidentStayReportRow[] {
       villa: resident.villa,
       room: resident.room,
       archived: resident.archived,
+      stayDeposit: 0,
+      stayReceiptNumbers: "",
     }));
 }
 

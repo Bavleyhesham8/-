@@ -13,6 +13,13 @@ export const demoTreatmentBundle: TreatmentBundle = {
         {
           id: 1,
           residentNumber: 1,
+          invoiceId: "demo-invoice-1",
+          invoiceNumber: 1,
+          invoiceDate: "2026-10-13",
+          invoiceTotal: 150,
+          invoiceVoided: false,
+          prescriptionUrl: null,
+          notes: "",
           medicationName: "أولابكس 5مجم - OLAPEX5mg",
           amount: 160,
           quantity: 1,
@@ -36,6 +43,13 @@ export const demoTreatmentBundle: TreatmentBundle = {
         {
           id: 2,
           residentNumber: 2,
+          invoiceId: "demo-invoice-2",
+          invoiceNumber: 2,
+          invoiceDate: "2026-10-13",
+          invoiceTotal: 100,
+          invoiceVoided: false,
+          prescriptionUrl: null,
+          notes: "",
           medicationName: "تجريتول- tegretol CR",
           amount: 106,
           quantity: 1,
@@ -51,4 +65,3 @@ export const demoTreatmentBundle: TreatmentBundle = {
   ],
   unassignedEntries: [],
 };
-

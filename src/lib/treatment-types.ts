@@ -1,6 +1,13 @@
 export type TreatmentDetailEntry = {
   id: number;
   residentNumber: number | null;
+  invoiceId?: string | null;
+  invoiceNumber?: number | null;
+  invoiceDate?: string | null;
+  invoiceTotal?: number | null;
+  invoiceVoided?: boolean;
+  prescriptionUrl?: string | null;
+  notes?: string;
   medicationName: string;
   amount: number;
   quantity: number;
@@ -26,4 +33,3 @@ export type TreatmentBundle = {
   records: TreatmentRecord[];
   unassignedEntries: TreatmentDetailEntry[];
 };
-

@@ -232,6 +232,13 @@
       "when": 1795239990153,
       "tag": "0032_gate_visitor_details",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795853636008,
+      "tag": "0033_treatment_invoices_and_stay_deposits",
+      "breakpoints": true
     }
   ]
 }

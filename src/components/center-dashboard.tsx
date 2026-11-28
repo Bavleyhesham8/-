@@ -782,6 +782,7 @@ const emptyCustody: CustodyBundle = {
 const emptyResidentFinance: ResidentFinanceBundle = {
   records: [],
   unassignedEntries: [],
+  stays: [],
 };
 const emptyTreatment: TreatmentBundle = {
   records: [],

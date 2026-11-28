@@ -297,6 +297,9 @@ export const legacyResidentHeaders = pgTable(
     id: integer("ID"),
     residentNumber: integer("رقم النزيل").primaryKey(),
     residentName: text("اسم النزيل"),
+    residentId: uuid("resident_id").references(() => residents.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -306,6 +309,9 @@ export const legacyResidentHeaders = pgTable(
   },
   (table) => [
     index("legacy_resident_headers_created_by_idx").on(table.createdBy),
+    uniqueIndex("legacy_resident_headers_resident_id_unique").on(
+      table.residentId,
+    ),
   ],
 );
 
@@ -320,6 +326,11 @@ export const legacyResidentDetails = pgTable(
       .references(() => legacyResidentHeaders.residentNumber, {
         onDelete: "restrict",
       }),
+    depositKind: text("deposit_kind").notNull().default("account"),
+    stayId: uuid("stay_id").references(() => residentStays.id, {
+      onDelete: "restrict",
+    }),
+    receiptNumber: text("receipt_number"),
     voided: boolean("voided").notNull().default(false),
     voidReason: text("void_reason").notNull().default(""),
     voidedAt: timestamp("voided_at", { withTimezone: true }),
@@ -337,8 +348,18 @@ export const legacyResidentDetails = pgTable(
     index("resident_finance_details_resident_number_idx").on(
       table.residentNumber,
     ),
+    index("resident_finance_details_kind_idx").on(table.depositKind),
+    index("resident_finance_details_stay_id_idx").on(table.stayId),
     index("resident_finance_details_voided_by_idx").on(table.voidedBy),
     index("resident_finance_details_created_by_idx").on(table.createdBy),
+    check(
+      "resident_finance_details_kind_check",
+      sql`${table.depositKind} IN ('account', 'stay')`,
+    ),
+    check(
+      "resident_finance_details_stay_check",
+      sql`(${table.depositKind} = 'account' AND ${table.stayId} IS NULL) OR (${table.depositKind} = 'stay' AND ${table.stayId} IS NOT NULL)`,
+    ),
     check(
       "resident_finance_details_void_audit_check",
       sql`(${table.voided} = false AND ${table.voidedAt} IS NULL AND ${table.voidedBy} IS NULL) OR (${table.voided} = true AND ${table.voidedAt} IS NOT NULL AND ${table.voidedBy} IS NOT NULL)`,
@@ -364,10 +385,62 @@ export const legacyTreatmentHeaders = pgTable(
   ],
 );
 
+export const treatmentInvoices = pgTable(
+  "treatment_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invoiceNumber: integer("invoice_number")
+      .generatedByDefaultAsIdentity()
+      .notNull(),
+    residentNumber: integer("resident_number")
+      .notNull()
+      .references(() => legacyTreatmentHeaders.residentNumber, {
+        onDelete: "restrict",
+      }),
+    residentId: uuid("resident_id").references(() => residents.id, {
+      onDelete: "set null",
+    }),
+    residentName: text("resident_name").notNull().default(""),
+    invoiceDate: date("invoice_date", { mode: "string" }).notNull(),
+    notes: text("notes").notNull().default(""),
+    prescriptionPathname: text("prescription_pathname"),
+    prescriptionContentType: text("prescription_content_type"),
+    total: doublePrecision("total").notNull().default(0),
+    voided: boolean("voided").notNull().default(false),
+    voidReason: text("void_reason").notNull().default(""),
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    voidedBy: text("voided_by").references(() => user.id, {
+      onDelete: "restrict",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    uniqueIndex("treatment_invoices_number_unique").on(table.invoiceNumber),
+    index("treatment_invoices_resident_number_idx").on(table.residentNumber),
+    index("treatment_invoices_resident_id_idx").on(table.residentId),
+    index("treatment_invoices_date_idx").on(table.invoiceDate),
+    index("treatment_invoices_voided_by_idx").on(table.voidedBy),
+    index("treatment_invoices_created_by_idx").on(table.createdBy),
+    check("treatment_invoices_total_check", sql`${table.total} >= 0`),
+    check(
+      "treatment_invoices_void_audit_check",
+      sql`(${table.voided} = false AND ${table.voidedAt} IS NULL AND ${table.voidedBy} IS NULL) OR (${table.voided} = true AND ${table.voidedAt} IS NOT NULL AND ${table.voidedBy} IS NOT NULL)`,
+    ),
+  ],
+);
+
 export const legacyTreatmentDetails = pgTable(
   "اطراف العلاج",
   {
     id: integer("ID").generatedByDefaultAsIdentity().primaryKey(),
+    invoiceId: uuid("invoice_id").references(() => treatmentInvoices.id, {
+      onDelete: "cascade",
+    }),
     medicationName: text("اسم الدواء").notNull(),
     amount: doublePrecision("المبلغ").notNull(),
     quantity: doublePrecision("الكمية").notNull().default(1),
@@ -392,6 +465,7 @@ export const legacyTreatmentDetails = pgTable(
     }),
   },
   (table) => [
+    index("treatment_details_invoice_id_idx").on(table.invoiceId),
     index("treatment_details_resident_number_idx").on(table.residentNumber),
     index("treatment_details_voided_by_idx").on(table.voidedBy),
     index("treatment_details_created_by_idx").on(table.createdBy),
